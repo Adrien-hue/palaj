@@ -39,7 +39,7 @@ class PlanningValidator:
 
         self.affectation_service = AffectationService(agent_repo, affectation_repo, etat_jour_agent_repo, tranche_repo, verbose=verbose)
         self.etat_service = EtatJourAgentService(etat_jour_agent_repo, verbose=verbose)
-        self.rh_rules = RHRulesService(tranche_repo, affectation_repo)
+        self.rh_rules_service = RHRulesService(tranche_repo, affectation_repo)
 
         self.logger = Logger(verbose=verbose)
 

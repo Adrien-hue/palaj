@@ -7,6 +7,7 @@ from db.repositories.etat_jour_agent_repo import EtatJourAgentRepository
 
 from models.agent import Agent
 from models.etat_jour_agent import EtatJourAgent
+from models.tranche import Tranche
 
 class EtatJourAgentService:
     """
@@ -69,3 +70,48 @@ class EtatJourAgentService:
 
         # Déjà correct
         return etat_du_jour
+
+    # ------------------------------------------------------------
+    def check_coherence(
+        self,
+        agent: Agent,
+        jour: date,
+        tranches: List[Tranche],
+        simulate: bool = True,
+    ) -> List[str]:
+        """Vérifie la cohérence entre tranches planifiées et états journaliers."""
+
+        alerts: List[str] = []
+        etats = [e for e in self.etat_repo.list_for_agent(agent.id) if e.jour == jour]
+
+        if len(etats) > 1:
+            types = ", ".join(sorted({e.type_jour for e in etats}))
+            alerts.append(
+                f"[{jour}] ⚠️ Plusieurs états détectés pour {agent.get_full_name()} ({types})"
+            )
+
+        has_tranche = bool(tranches)
+        if has_tranche:
+            invalid_states = [
+                e for e in etats if e.type_jour in {"repos", "conge", "absence", "zcot"}
+            ]
+            for etat in invalid_states:
+                alerts.append(
+                    f"[{jour}] ⚠️ Incohérence : {agent.get_full_name()} planifié sur poste"
+                    f" alors que le jour est déclaré '{etat.type_jour}'"
+                )
+
+            if not any(e.type_jour == "poste" for e in etats):
+                if not etats and simulate:
+                    # On simule la création pour garder une cohérence locale
+                    self.ensure_poste_state(agent, jour, simulate=True, auto_create=True)
+                alerts.append(
+                    f"[{jour}] ⚠️ Aucun état 'poste' enregistré pour {agent.get_full_name()} malgré une affectation"
+                )
+        else:
+            if any(e.type_jour == "poste" for e in etats):
+                alerts.append(
+                    f"[{jour}] ⚠️ État 'poste' enregistré sans tranche planifiée pour {agent.get_full_name()}"
+                )
+
+        return alerts

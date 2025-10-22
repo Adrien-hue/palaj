@@ -1,9 +1,12 @@
 # core/rh_rules/rule_duree_travail.py
-from .base_rule import BaseRule
 from datetime import time
 
+from core.domain.contexts.planning_context import PlanningContext
+
+from .base_rule import BaseRule
 from db.repositories.affectation_repo import AffectationRepository
 from db.repositories.tranche_repo import TrancheRepository
+
 
 class DureeTravailRule(BaseRule):
     name = "duree_travail"
@@ -13,16 +16,19 @@ class DureeTravailRule(BaseRule):
         self.tranche_repo = tranche_repo
         self.affectation_repo = affectation_repo
 
-    def check(self, agent_id: int):
+    def check(self, context: PlanningContext):
         alerts = []
-        affectations = self.affectation_repo.list_for_agent(agent_id)
+        affectations = context.get_all_affectations()
         by_day = {}
 
         for a in affectations:
+            if context.date_reference and a.jour != context.date_reference:
+                continue
             by_day.setdefault(a.jour, []).append(a)
 
         for jour, affs in by_day.items():
-            tranches = [a.get_tranche(self.tranche_repo) for a in affs if a.get_tranche(self.tranche_repo)]
+            tranches = [a.get_tranche(self.tranche_repo) for a in affs]
+            tranches = [t for t in tranches if t is not None]
             total = sum(t.duree() for t in tranches)
             nocturnes = [self._is_nocturne(t) for t in tranches]
             travail_nuit = any(nocturnes)
