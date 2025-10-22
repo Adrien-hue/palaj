@@ -1,11 +1,12 @@
 from datetime import datetime, timedelta
 
 from core.domain.contexts.planning_context import PlanningContext
+from .base_rule import BaseRule
 
 from db.repositories.affectation_repo import AffectationRepository
 from db.repositories.tranche_repo import TrancheRepository
 
-class ReposQuotidienRule:
+class ReposQuotidienRule(BaseRule):
     """
     Règle RH : Durée de repos quotidien.
         - 12h20 minimum entre deux journées de travail.

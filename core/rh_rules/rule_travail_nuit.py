@@ -1,9 +1,12 @@
 # core/rh_rules/rule_travail_nuit.py
-from .base_rule import BaseRule
 from datetime import time
 
+from core.domain.contexts.planning_context import PlanningContext
+
+from .base_rule import BaseRule
 from db.repositories.affectation_repo import AffectationRepository
 from db.repositories.tranche_repo import TrancheRepository
+
 
 class TravailNuitRule(BaseRule):
     name = "travail_nuit"
@@ -16,9 +19,9 @@ class TravailNuitRule(BaseRule):
         self.tranche_repo = tranche_repo
         self.affectation_repo = affectation_repo
 
-    def check(self, agent_id: int):
+    def check(self, context: PlanningContext):
         alerts = []
-        affectations = self.affectation_repo.list_for_agent(agent_id)
+        affectations = context.get_all_affectations()
 
         for a in affectations:
             tranche = a.get_tranche(self.tranche_repo)
