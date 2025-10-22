@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, timedelta
 from db.database import JsonDatabase
 from db import cache_manager
 
@@ -17,10 +17,12 @@ from core.multi_poste_planning  import MultiPostePlanning
 from core.poste_planning import PostePlanning
 
 from core.planning.multi_poste_planning_generator import MultiPostePlanningGenerator
+from core.domain.services.planning_validator import PlanningValidator
 
 CHECK_DB_INTEGRITY = True
 TEST_GENERATION_PLANNING_MULTIPLE = False
 TEST_AGENT = True
+TEST_PLANNING_VALIDATION = True
 
 db = JsonDatabase(debug=False)
 
@@ -86,3 +88,59 @@ if TEST_AGENT:
         print(agent)
     else:
         print(f"[WARNING] Agent introuvable : {agent}")
+
+if TEST_PLANNING_VALIDATION:
+    agent_id = 9
+    start_date = date(2025, 1, 1)
+    end_date = date(2025, 1, 31)
+
+    agent = agent_repo.get(agent_id)
+    if not agent:
+        print(f"[WARNING] Impossible de valider le planning : agent {agent_id} introuvable")
+    else:
+        validator = PlanningValidator(
+            agent_repo=agent_repo,
+            affectation_repo=affectation_repo,
+            etat_jour_agent_repo=etat_jour_agent_repo,
+            tranche_repo=tranche_repo,
+            verbose=True,
+        )
+
+        jours: list[date] = []
+        current = start_date
+        while current <= end_date:
+            jours.append(current)
+            current += timedelta(days=1)
+
+        affectations = affectation_repo.list_for_agent_and_period(agent_id, start_date, end_date)
+        tranches_par_jour: dict[date, list] = {}
+        missing_tranches: set[int] = set()
+
+        for affectation in affectations:
+            tranche = tranche_repo.get(affectation.tranche_id)
+            if tranche is None:
+                missing_tranches.add(affectation.tranche_id)
+                continue
+            tranches_par_jour.setdefault(affectation.jour, []).append(tranche)
+
+        if missing_tranches:
+            print(
+                "[WARNING] Certaines tranches référencées dans les affectations sont introuvables:",
+                ", ".join(str(t) for t in sorted(missing_tranches)),
+            )
+
+        alerts = validator.validate_period(
+            agent=agent,
+            jours=jours,
+            tranches_par_jour=tranches_par_jour,
+            simulate=False,
+        )
+
+        if alerts:
+            print("\n🚨 Anomalies détectées sur le planning :")
+            for alert in alerts:
+                print(f" - {alert}")
+        else:
+            print(
+                f"\n✅ Planning conforme pour {agent.get_full_name()} du {start_date} au {end_date}"
+            )
