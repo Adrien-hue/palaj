@@ -33,6 +33,9 @@ class ReposQuotidienRule(BaseRule):
             prev = all_affectations[i - 1]
             curr = all_affectations[i]
 
+            if context.date_reference and curr.jour != context.date_reference:
+                continue
+
             # Si plus d'un jour d'écart, le repos est forcément respecté
             if (curr.jour - prev.jour).days > 1:
                 continue
