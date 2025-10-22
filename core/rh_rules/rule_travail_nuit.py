@@ -24,8 +24,6 @@ class TravailNuitRule(BaseRule):
         affectations = context.get_all_affectations()
 
         for a in affectations:
-            if context.date_reference and a.jour != context.date_reference:
-                continue
             tranche = a.get_tranche(self.tranche_repo)
             if not tranche:
                 continue

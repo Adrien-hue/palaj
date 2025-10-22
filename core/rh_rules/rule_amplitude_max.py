@@ -21,8 +21,6 @@ class AmplitudeMaxRule(BaseRule):
         by_day = {}
 
         for a in affectations:
-            if context.date_reference and a.jour != context.date_reference:
-                continue
             by_day.setdefault(a.jour, []).append(a)
 
         for jour, affs in by_day.items():
