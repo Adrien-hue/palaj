@@ -1,3 +1,5 @@
+from core.utils.domain_alert import DomainAlert
+
 class Logger:
     """Petit utilitaire pour contrôler l'affichage coloré."""
 
@@ -37,3 +39,11 @@ class Logger:
     def debug(self, message: str):
         if self.verbose:
             self._print("gray", "[DEBUG]", message)
+
+    def log_from_alert(self, alert: DomainAlert):
+        if alert.is_error:
+            self.error(alert.message)
+        elif alert.is_warning:
+            self.warn(alert.message)
+        else:
+            self.info(alert.message)

@@ -3,8 +3,8 @@ from datetime import date, timedelta
 from typing import Counter, List
 from tabulate import tabulate
 
+from core.domain.entities import Poste
 from core.poste_planning import PostePlanning
-from models.poste import Poste
 
 
 class MultiPostePlanning:

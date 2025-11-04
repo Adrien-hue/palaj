@@ -5,14 +5,11 @@ from datetime import date, timedelta
 
 from tabulate import tabulate
 
-from models.affectation import Affectation
-from models.poste import Poste
+from core.domain.entities import Affectation, Poste, Tranche
 
 from db.repositories.tranche_repo import TrancheRepository
 from db.repositories.affectation_repo import AffectationRepository
 from db.repositories.agent_repo import AgentRepository
-from models.tranche import Tranche
-
 
 class PostePlanning:
     """

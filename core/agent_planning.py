@@ -1,10 +1,10 @@
+# core/agent_planning.py
 from datetime import date, datetime, time, timedelta
-from typing import Optional, List
+from typing import Iterable, Optional, List, Tuple
 
-from models.agent import Agent
-from models.affectation import Affectation
-from models.etat_jour_agent import EtatJourAgent
-from models.tranche import Tranche
+from core.domain.entities import Affectation, Agent, EtatJourAgent, Tranche
+
+from core.domain.entities.work_day import WorkDay
 
 from db.repositories.affectation_repo import AffectationRepository
 from db.repositories.etat_jour_agent_repo import EtatJourAgentRepository
@@ -43,6 +43,10 @@ class AgentPlanning:
 
         # Lazy-loaded
         self._affectations: Optional[List[Affectation]] = None
+        self._etats: Optional[List[EtatJourAgent]] = None
+
+        self._work_days: Optional[List[WorkDay]] = None
+
         self._absences_jours: Optional[List[EtatJourAgent]] = None
         self._conges_jours: Optional[List[EtatJourAgent]] = None
         self._repos_jours: Optional[List[EtatJourAgent]] = None
@@ -64,6 +68,9 @@ class AgentPlanning:
     def _load_data(self):
         # Charger toutes les affectations et états pour la période
         self.get_affectations()
+        self.get_etats()
+
+        self._build_work_days()
 
         self.get_absences_jours()
         self.get_conges_jours()
@@ -74,6 +81,36 @@ class AgentPlanning:
     # -----------------------------
     # Chargements des données
     # -----------------------------
+    def _build_work_days(self):
+        """Construit la liste des WorkDay à partir des affectations et états."""
+        work_days: List[WorkDay] = []
+
+        current = self.start_date
+        while current <= self.end_date:
+            if not self._etats:
+                self.get_etats()
+
+            etats = self._etats or []
+            etat = next((e for e in etats if e.jour == current), None)
+
+            if not self._affectations:
+                self.get_affectations()
+
+            affectations = self._affectations or []
+            affs = [a for a in affectations if a.jour == current]
+
+            # Résoudre les tranches correspondantes
+            tranches: List[Tranche] = []
+            for a in affs:
+                t = self.tranche_repo.get(a.tranche_id)
+                if t:
+                    tranches.append(t)
+
+            work_days.append(WorkDay(jour=current, etat=etat, tranches=tranches))
+            current += timedelta(days=1)
+
+        self._work_days = work_days
+
     def get_affectations(self):
         """Retourne les affectations de l'agent sur la période."""
         if self._affectations is None:
@@ -82,6 +119,28 @@ class AgentPlanning:
                 if self.start_date <= a.jour <= self.end_date
             ]
         return self._affectations
+    
+    def get_agent(self):
+        """Retourne l'agent associé à la planification."""
+        return self.agent
+
+    def get_etats(self):
+        """Retourne les états de journée de l'agent sur la période."""
+        if self._etats is None:
+            self._etats = [
+                e for e in self.etat_jour_agent_repo.list_for_agent(self.agent.id)
+                if self.start_date <= e.jour <= self.end_date
+            ]
+        return self._etats
+
+    def get_all_etat_jour_agent(self):
+        return (
+            (self._travail_jours or [])
+            + (self._zcot_jours or [])
+            + (self._repos_jours or [])
+            + (self._absences_jours or [])
+            + (self._conges_jours or [])
+        )
 
     def get_zcot_jours(self):
         if self._zcot_jours is None:
@@ -122,212 +181,28 @@ class AgentPlanning:
                 if self.start_date <= e.jour <= self.end_date
             ]
         return self._conges_jours
+    
+    def get_end_date(self):
+        """
+        Retourne la date de fin de la période de planification.
+        """
+        return self.end_date
+
+    def get_start_date(self):
+        """
+        Retourne la date de début de la période de planification.
+        """
+        return self.start_date
+
+    def get_work_days(self):
+        """
+        Retourne la liste des jours de travail de l'agent.
+        """
+        return self._work_days or []
 
     # -----------------------------
     # Analyses des données
     # -----------------------------
-    def check_consistency(self) -> List[str]:
-        """
-        Vérifie la cohérence du planning de l'agent et retourne une liste d'alertes.
-        Chaque alerte est une chaîne décrivant un problème détecté.
-        """
-        alerts: List[str] = []
-
-        jour_affectations = self._index_jours()
-
-        alerts += self._check_multi_tranches(jour_affectations)
-        alerts += self._check_state_conflicts(jour_affectations)
-        alerts += self._check_duplicate_states(jour_affectations)
-
-        alerts += self._check_daily_time_constraints(jour_affectations)
-
-        return alerts
-    
-    def _index_jours(self) -> dict:
-        """
-        Construit un dictionnaire {jour: {"etat": [], "tranches": []}}
-        - "etat" : liste d'objets EtatJourAgent (repos, zcot, congé, absence)
-        - "tranches" : liste d'affectations (Affectation)
-        """
-        jour_affectations = {}
-
-        # Affectations (tranches de travail)
-        for aff in self.get_affectations():
-            jour_affectations.setdefault(aff.jour, {"etat": [], "tranches": []})
-            jour_affectations[aff.jour]["tranches"].append(aff)
-
-        # États journaliers (repos, zcot, congé, absence)
-        for etat in (
-            (self._zcot_jours or [])
-            + (self._repos_jours or [])
-            + (self._absences_jours or [])
-            + (self._conges_jours or [])
-        ):
-            jour_affectations.setdefault(etat.jour, {"etat": [], "tranches": []})
-            jour_affectations[etat.jour]["etat"].append(etat)
-
-        return jour_affectations
-    
-    def _check_multi_tranches(self, jour_affectations: dict) -> List[str]:
-        """Détecte les jours où un agent est affecté à plusieurs tranches."""
-        alerts = []
-        for jour, contenu in jour_affectations.items():
-            tranches = contenu["tranches"]
-            if len(tranches) > 1:
-                tranche_ids = [str(t.tranche_id) for t in tranches]
-                alerts.append(
-                    f"[{jour}] ⚠️ Agent affecté à plusieurs tranches ({', '.join(tranche_ids)})"
-                )
-        return alerts
-
-    def _check_state_conflicts(self, jour_affectations: dict) -> List[str]:
-        """Détecte les incohérences entre tranches (travail) et états journaliers."""
-        alerts = []
-        for jour, contenu in jour_affectations.items():
-            tranches, etats = contenu["tranches"], contenu["etat"]
-
-            if not etats:
-                continue
-
-            etat_types = {e.type_jour for e in etats}
-            # Si l'agent est censé être absent ou en repos mais a une tranche
-            if tranches and any(e.type_jour in ("repos", "conge", "absence", "zcot") for e in etats):
-                alerts.append(
-                    f"[{jour}] ⚠️ Incohérence : agent affecté à une tranche alors qu’il est en {', '.join(etat_types)}"
-                )
-        return alerts
-    
-    def _check_duplicate_states(self, jour_affectations: dict) -> List[str]:
-        """Détecte plusieurs états différents pour un même jour."""
-        alerts = []
-        for jour, contenu in jour_affectations.items():
-            etats = contenu["etat"]
-            if len(etats) > 1:
-                types = {e.type_jour for e in etats}
-                alerts.append(f"[{jour}] ⚠️ Plusieurs états détectés pour le même jour ({', '.join(types)})")
-        return alerts
-    
-    def _check_daily_time_constraints(self, jour_affectations: dict) -> List[str]:
-        """
-        Vérifie les contraintes horaires structurelles :
-        - amplitude max 11h
-        - durée min 5h30
-        - durée max 10h (ou 8h30 si travail de nuit)
-        """
-        alerts = []
-        for jour, contenu in jour_affectations.items():
-            tranches = [a.get_tranche(self.tranche_repo) for a in contenu["tranches"]]
-            if not tranches:
-                continue
-
-            debut = min(t.debut for t in tranches)
-            fin = max(t.fin for t in tranches)
-            amplitude = self._calculer_amplitude(debut, fin)
-            duree_travail = sum(t.duree() for t in tranches)
-            duree_nuit = self._duree_nuit(tranches)
-            duree_max = 8.5 if duree_nuit > 2.5 else 10.0
-
-            if amplitude > 11:
-                alerts.append(f"[{jour}] ⛔ Amplitude {amplitude:.1f}h > 11h")
-            if duree_travail < 5.5:
-                alerts.append(f"[{jour}] ⚠️ Durée de travail trop faible ({duree_travail:.1f}h)")
-            if duree_travail > duree_max:
-                alerts.append(f"[{jour}] ⛔ Durée de travail excessive ({duree_travail:.1f}h > {duree_max}h)")
-
-        return alerts
-    
-    def _calculer_amplitude(self, debut, fin) -> float:
-        debut_dt = datetime.combine(datetime.today(), debut)
-        fin_dt = datetime.combine(datetime.today(), fin)
-        if fin_dt < debut_dt:
-            fin_dt += timedelta(days=1)
-        return round((fin_dt - debut_dt).total_seconds() / 3600, 2)
-
-
-    def _duree_nuit(self, tranches) -> float:
-        debut_nuit, fin_nuit = time(21, 30), time(6, 30)
-        total = 0.0
-        for t in tranches:
-            total += self._chevauchement_nuit(t.debut, t.fin, debut_nuit, fin_nuit)
-        return total
-
-
-    def _chevauchement_nuit(self, debut, fin, nuit_debut, nuit_fin) -> float:
-        d = datetime.combine(datetime.today(), debut)
-        f = datetime.combine(datetime.today(), fin)
-        if f < d:
-            f += timedelta(days=1)
-        n1 = datetime.combine(datetime.today(), nuit_debut)
-        n2 = datetime.combine(datetime.today(), nuit_fin)
-        if n2 < n1:
-            n2 += timedelta(days=1)
-        overlap_start = max(d, n1)
-        overlap_end = min(f, n2)
-        return max(0.0, (overlap_end - overlap_start).total_seconds() / 3600)
-
-    def __check_consistency(self) -> list[str]:
-        """
-        Vérifie la cohérence du planning de l'agent et retourne une liste d'alertes.
-        Chaque alerte est une chaîne décrivant le problème détecté.
-        """
-        alerts = []
-
-        # Indexer les jours avec ce qui a été planifié
-        jour_affectations = {}
-        for aff in self.get_affectations():
-            jour_affectations.setdefault(aff.jour, {"tranches": [], "zcot": [], "etat": []})
-            jour_affectations[aff.jour]["tranches"].append(aff)
-
-        for etat in (self._zcot_jours or []) + (self._repos_jours or []) + (self._absences_jours or []) + (self._conges_jours or []):
-            jour_affectations.setdefault(etat.jour, {"tranches": [], "zcot": [], "etat": []})
-            if etat.type_jour == "zcot":
-                jour_affectations[etat.jour]["zcot"].append(etat)
-            else:
-                jour_affectations[etat.jour]["etat"].append(etat)
-
-        # print(jour_affectations)
-        # exit()
-
-        # Vérifications
-        for jour, contenu in sorted(jour_affectations.items()):
-            tranches = contenu["tranches"]
-            zcots = contenu["zcot"]
-            etats = contenu["etat"]
-
-            # 1️⃣ Agent affecté à plusieurs tranches le même jour
-            if len(tranches) > 1:
-                tranche_ids = [str(t.tranche_id) for t in tranches]
-                alerts.append(
-                    f"[{jour}] ⚠️ Agent affecté à plusieurs tranches ({', '.join(tranche_ids)})"
-                )
-
-            # 2️⃣ Agent à la fois sur une tranche et en ZCOT
-            if tranches and zcots:
-                alerts.append(
-                    f"[{jour}] ⚠️ Agent affecté sur tranche(s) ET en ZCOT le même jour"
-                )
-
-            # 3️⃣ Agent sur une tranche ou ZCOT alors qu’il est en absence/repos/congé
-            if etats:
-                etat_types = {e.type_jour for e in etats}
-                if tranches or zcots:
-                    alerts.append(
-                        f"[{jour}] ⚠️ Incohérence : tranche/ZCOT planifié alors que le jour est marqué comme {', '.join(etat_types)}"
-                    )
-
-            # 4️⃣ Agent en ZCOT et dans plusieurs états spéciaux le même jour (théoriquement impossible)
-            if len(zcots) > 1:
-                alerts.append(
-                    f"[{jour}] ⚠️ Plusieurs entrées ZCOT détectées pour le même jour"
-                )
-
-            if len(etats) > 1:
-                alerts.append(
-                    f"[{jour}] ⚠️ Plusieurs états spéciaux détectés pour le même jour ({', '.join(e.type for e in etats)})"
-                )
-
-        return alerts
-
 
     def get_all_coverage_rates(self) -> dict[str, float]:
         """
@@ -410,30 +285,30 @@ class AgentPlanning:
 
         return round(total_heures, 2)
 
-
-    def has_double_affectation(self) -> List[date]:
+    def iter_jours(self) -> Iterable[Tuple[date, List[Affectation], List[EtatJourAgent]]]:
         """
-        Vérifie s'il existe des jours où l'agent a plus d'une affectation (ex : travail + ZCOT).
-        Retourne la liste des dates concernées.
+        Génère les jours de la période avec leurs données associées :
+        yield (jour, tranches, etats)
         """
-        dates = {}
+        affectations = self.get_affectations()
+        
+        etats = self.get_all_etat_jour_agent()
 
-        for aff in self.get_affectations():
-            dates.setdefault(aff.jour, []).append("TRAVAIL")
+        # Indexer affectations par jour
+        affectations_by_day = {}
+        for a in affectations:
+            affectations_by_day.setdefault(a.jour, []).append(a)
 
-        for e in self.get_zcot_jours():
-            dates.setdefault(e.jour, []).append("ZCOT")
+        etats_by_day = {}
+        for e in etats:
+            etats_by_day.setdefault(e.jour, []).append(e)
 
-        for e in self.get_absences_jours():
-            dates.setdefault(e.jour, []).append("ABSENCE")
-
-        for e in self.get_repos_jours():
-            dates.setdefault(e.jour, []).append("REPOS")
-
-        for e in self.get_conges_jours():
-            dates.setdefault(e.jour, []).append("CONGE")
-
-        return [d for d, types in dates.items() if len(types) > 1]
+        jour = self.start_date
+        while jour <= self.end_date:
+            tranches = [a for a in affectations_by_day.get(jour, [])]
+            etats_jour = etats_by_day.get(jour, [])
+            yield jour, tranches, etats_jour
+            jour += timedelta(days=1)
     
     # -----------------------------
     # Affichage des données
@@ -537,11 +412,3 @@ class AgentPlanning:
                 print(f"  - {poste:<20} : {GREEN}{taux:.1f}%{RESET}")
         else:
             print(f"\n{RED}Aucune qualification enregistrée pour cet agent.{RESET}")
-
-        errors = self.check_consistency()
-        if errors:
-            print(f"\n{RED}🚨 Erreurs de planification détectées :{RESET}")
-            for error in errors:
-                print(f"  - {error}")
-        else:
-            print(f"\n{GREEN}✅ Aucune erreur de planification détectée.{RESET}")

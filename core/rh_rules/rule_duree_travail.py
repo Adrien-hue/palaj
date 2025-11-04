@@ -1,43 +1,78 @@
 # core/rh_rules/rule_duree_travail.py
 from datetime import time
+from typing import List, Tuple
 
+from core.rh_rules.base_rule import BaseRule
+from core.utils.domain_alert import DomainAlert, Severity
+from core.utils.time_helpers import minutes_to_duree_str
 from core.domain.contexts.planning_context import PlanningContext
-
-from .base_rule import BaseRule
-from db.repositories.affectation_repo import AffectationRepository
-from db.repositories.tranche_repo import TrancheRepository
 
 
 class DureeTravailRule(BaseRule):
+    """
+    Règle RH : durée minimale et maximale de travail par jour.
+    - Minimum : 5h30 (330 min)
+    - Maximum : 10h (600 min)
+    - Maximum de nuit : 8h30 (510 min)
+    """
+
     name = "duree_travail"
-    description = "Durée totale de travail journalière"
+    description = "Durée journalière de travail (min/max selon travail de nuit)"
 
-    def __init__(self, tranche_repo: TrancheRepository, affectation_repo: AffectationRepository):
-        self.tranche_repo = tranche_repo
-        self.affectation_repo = affectation_repo
+    DUREE_MIN_MIN = 5.5 * 60   # 5h30 → 330 min
+    DUREE_MAX_MIN = 10 * 60    # 10h → 600 min
+    DUREE_MAX_NUIT_MIN = 8.5 * 60  # 8h30 → 510 min
+    HEURE_NUIT_DEBUT = time(21, 30)
+    HEURE_NUIT_FIN = time(6, 30)
 
-    def check(self, context: PlanningContext):
-        alerts = []
-        affectations = context.get_all_affectations()
-        by_day = {}
+    # -----------------------------------------------------
+    def check(self, context: PlanningContext) -> Tuple[bool, List[DomainAlert]]:
+        alerts: List[DomainAlert] = []
+        jour = context.date_reference
 
-        for a in affectations:
-            by_day.setdefault(a.jour, []).append(a)
+        if jour is None:
+            alerts.append(
+                DomainAlert(
+                    "Date de référence manquante dans le contexte.",
+                    Severity.ERROR,
+                    source=self.name,
+                )
+            )
+            return False, alerts
 
-        for jour, affs in by_day.items():
-            tranches = [a.get_tranche(self.tranche_repo) for a in affs]
-            tranches = [t for t in tranches if t is not None]
-            total = sum(t.duree() for t in tranches)
-            nocturnes = [self._is_nocturne(t) for t in tranches]
-            travail_nuit = any(nocturnes)
+        wd = context.get_work_day(jour)
+        if not wd or not wd.is_working():
+            # Pas de travail → pas de vérification
+            return True, []
 
-            max_allowed = 8.5 if travail_nuit else 10.0
+        # Récupération de la durée de travail réelle
+        total_minutes = wd.duree_minutes()
+        
+        # Détection du travail de nuit
+        travail_nuit = wd.is_nocturne()
+        max_allowed = self.DUREE_MAX_NUIT_MIN if travail_nuit else self.DUREE_MAX_MIN
 
-            if total < 5.5:
-                alerts.append(f"⚠️ {jour} : durée de travail trop courte ({total:.2f}h < 5.5h)")
-            elif total > max_allowed:
-                alerts.append(f"⚠️ {jour} : durée de travail excessive ({total:.2f}h > {max_allowed}h)")
-        return alerts
+        # Vérifications
+        if total_minutes < self.DUREE_MIN_MIN:
+            alerts.append(
+                DomainAlert(
+                    f"Durée de travail insuffisante : "
+                    f"{minutes_to_duree_str(total_minutes)} < {minutes_to_duree_str(int(self.DUREE_MIN_MIN))}",
+                    Severity.WARNING,
+                    jour=jour,
+                    source=self.name,
+                )
+            )
 
-    def _is_nocturne(self, tranche):
-        return tranche.debut >= time(21, 30) or tranche.fin <= time(6, 30)
+        if total_minutes > max_allowed:
+            alerts.append(
+                DomainAlert(
+                    f"Durée de travail excessive : "
+                    f"{minutes_to_duree_str(total_minutes)} > {minutes_to_duree_str(int(max_allowed))}",
+                    Severity.WARNING,
+                    jour=jour,
+                    source=self.name,
+                )
+            )
+
+        return len(alerts) == 0, alerts

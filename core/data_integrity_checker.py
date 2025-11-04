@@ -1,144 +1,150 @@
-# core/data_integrity_checker.py
-from typing import List, Tuple, Set
+from typing import List
+
+from core.utils.domain_alert import DomainAlert, Severity
 
 from core.domain.services.affectation_service import AffectationService
+from core.domain.services.agent_service import AgentService
+from core.domain.services.etat_jour_agent_service import EtatJourAgentService
+from core.domain.services.poste_service import PosteService
+from core.domain.services.qualification_service import QualificationService
 from core.domain.services.tranche_service import TrancheService
-
-from db.repositories.agent_repo import AgentRepository
-from db.repositories.etat_jour_agent_repo import EtatJourAgentRepository
-from db.repositories.poste_repo import PosteRepository
-from db.repositories.tranche_repo import TrancheRepository
-from db.repositories.qualification_repo import QualificationRepository
-from db.repositories.affectation_repo import AffectationRepository
-
+from core.domain.services.regime_service import RegimeService
 
 class DataIntegrityChecker:
     """
-    Vérifie la cohérence globale des données chargées dans le système :
-    - doublons
-    - clés étrangères invalides
-    - références manquantes entre entités
+    Vérifie la cohérence globale du domaine via les services métiers :
+    - Affectations
+    - Agents
+    - États journaliers
+    - Postes
+    - Qualifications
+    - Tranches
+    - Régimes
     """
 
     def __init__(
         self,
-        agent_repo: AgentRepository,
-        poste_repo: PosteRepository,
-        tranche_repo: TrancheRepository,
-        qualification_repo: QualificationRepository,
-        affectation_repo: AffectationRepository,
-        etat_jour_agent_repo: EtatJourAgentRepository
+        affectation_service: AffectationService,
+        agent_service: AgentService,
+        etat_jour_agent_service: EtatJourAgentService,
+        poste_service: PosteService,
+        qualification_service: QualificationService,
+        regime_service: RegimeService,
+        tranche_service: TrancheService,
     ):
-        self.agent_repo = agent_repo
-        self.poste_repo = poste_repo
-        self.tranche_repo = tranche_repo
-        self.qualification_repo = qualification_repo
-        self.etat_jour_agent_repo = etat_jour_agent_repo
-        self.affectation_repo = affectation_repo
+        self.agent_service = agent_service
+        self.poste_service = poste_service
+        self.tranche_service = tranche_service
+        self.qualification_service = qualification_service
+        self.affectation_service = affectation_service
+        self.etat_jour_agent_service = etat_jour_agent_service
+        self.regime_service = regime_service
 
-        # Pour stocker les erreurs détectées
-        self.errors: List[str] = []
-        self.warnings: List[str] = []
+        self.errors: List[DomainAlert] = []
+        self.warnings: List[DomainAlert] = []
+        self.infos: List[DomainAlert] = []
 
-    # ---------- Vérifications principales ----------
+    # ----------------------------
+    # Vérifications principales
+    # ----------------------------
 
     def check_agents(self):
-        """Vérifie les doublons et champs manquants sur les agents."""
-        seen_ids: Set[int] = set()
-        for agent in self.agent_repo.list_all():
-            if agent.id in seen_ids:
-                self.errors.append(f"❌ Doublon d'agent ID {agent.id} ({agent.get_full_name()})")
-            seen_ids.add(agent.id)
-
-            if not agent.nom or not agent.prenom:
-                self.warnings.append(f"⚠️ Agent ID {agent.id} avec nom ou prénom manquant")
-
-    def check_affectations_vs_etat(self, etat_jour_agent_repo):
-        """Vérifie qu'une affectation n'entre pas en conflit avec un état d'agent."""
-        for a in self.affectation_repo.list_all():
-            etat = etat_jour_agent_repo.get_for_agent_and_day(a.agent_id, a.jour)
-            if etat and etat.type_jour in ("repos", "conge", "absence"):
-                self.errors.append(
-                    f"❌ Affectation {a.id} pour agent {a.agent_id} le {a.jour} "
-                    f"entre en conflit avec un jour '{etat.type_jour}'"
-                )
+        _, alerts = self.agent_service.validate_all()
+        self._register_alerts(alerts)
 
     def check_postes(self):
-        """Vérifie les doublons et tranches inexistantes dans les postes."""
-        seen_ids: Set[int] = set()
-        for poste in self.poste_repo.list_all():
-            if poste.id in seen_ids:
-                self.errors.append(f"❌ Doublon de poste ID {poste.id} ({poste.nom})")
-            seen_ids.add(poste.id)
-
-            for tid in poste.tranche_ids:
-                if not self.tranche_repo.get(tid):
-                    self.errors.append(
-                        f"❌ Poste {poste.nom} référence une tranche inexistante (id={tid})"
-                    )
+        _, alerts = self.poste_service.validate_all()
+        self._register_alerts(alerts)
 
     def check_tranches(self):
-        """Vérifie les doublons et la validité des tranches."""
-        service = TrancheService(self.tranche_repo, verbose=True)
-        
-        is_valid, alerts = service.validate_all()
-        
-        if not is_valid:
-            self.errors.extend(alerts)
+        _, alerts = self.tranche_service.validate_all()
+        self._register_alerts(alerts)
 
     def check_qualifications(self):
-        """Vérifie que chaque qualification référence un agent et un poste existant."""
-        for q in self.qualification_repo.list_all():
-            if not self.agent_repo.get(q.agent_id):
-                self.errors.append(f"❌ Qualification {q.id} référence agent inexistant {q.agent_id}")
-            if not self.poste_repo.get(q.poste_id):
-                self.errors.append(f"❌ Qualification {q.id} référence poste inexistant {q.poste_id}")
+        _, alerts = self.qualification_service.validate_all()
+        self._register_alerts(alerts)
 
     def check_affectations(self):
-        """Vérifie que chaque affectation référence un agent et une tranche existants."""
-        service = AffectationService(self.agent_repo, self.affectation_repo, self.etat_jour_agent_repo, self.tranche_repo, verbose=True)
+        _, alerts = self.affectation_service.validate_all()
+        self._register_alerts(alerts)
 
-        is_valid, alerts = service.validate_all()
-        
-        if not is_valid:
-            self.errors.extend(alerts)
+    def check_etats_jour(self):
+        _, alerts = self.etat_jour_agent_service.validate_all()
+        self._register_alerts(alerts)
 
-    # ---------- Méthodes utilitaires ----------
+    def check_regimes(self):
+        _, alerts = self.regime_service.validate_all()
+        self._register_alerts(alerts)
+
+    # ----------------------------
+    # Utilitaires internes
+    # ----------------------------
+
+    def _register_alerts(self, alerts: List[DomainAlert]):
+        """Classe les alertes selon leur sévérité."""
+        for a in alerts:
+            if a.severity == Severity.ERROR:
+                self.errors.append(a)
+            elif a.severity == Severity.WARNING:
+                self.warnings.append(a)
+            else:
+                self.infos.append(a)
+
+    # ----------------------------
+    # Orchestration complète
+    # ----------------------------
 
     def run_all_checks(self) -> bool:
-        """
-        Exécute l'ensemble des vérifications.
-        Retourne True si tout est cohérent, False sinon.
-        """
+        """Exécute toutes les vérifications globales du système."""
         self.errors.clear()
         self.warnings.clear()
+        self.infos.clear()
 
         self.check_agents()
         self.check_postes()
         self.check_tranches()
         self.check_qualifications()
         self.check_affectations()
+        self.check_etats_jour()
+        self.check_regimes()
 
         return len(self.errors) == 0
 
-    def print_report(self):
-        """Affiche un résumé lisible et coloré des erreurs et avertissements."""
-        RESET, RED, YELLOW, GREEN, CYAN = "\033[0m", "\033[91m", "\033[93m", "\033[92m", "\033[96m"
+    # ----------------------------
+    # Affichage lisible du rapport
+    # ----------------------------
 
-        print(f"\n{CYAN}🧪 === Rapport d'intégrité des données ==={RESET}")
+    def print_report(self):
+        """Affiche un rapport coloré et clair des anomalies détectées."""
+        BOLD = "\033[1m"
+        RESET = "\033[0m"
+        RED = "\033[91m"
+        YELLOW = "\033[93m"
+        CYAN = "\033[96m"
+        GRAY = "\033[90m"
+        GREEN = "\033[92m"
+
+        print(f"\n{BOLD}{CYAN}🧪 === Rapport d'intégrité des données ==={RESET}\n")
+
         if not self.errors and not self.warnings:
-            print(f"{GREEN}✅ Aucune anomalie détectée.{RESET}")
+            print(f"{GREEN}✅ Aucune anomalie détectée !{RESET}")
             return
 
         if self.errors:
-            print(f"\n{RED}❌ Erreurs critiques :{RESET}")
+            print(f"{RED}{BOLD}❌ Erreurs critiques :{RESET}")
             for e in self.errors:
-                print(f"  - {e}")
+                print(f"  - {e.message} ({e.source})")
+            print()
 
         if self.warnings:
-            print(f"\n{YELLOW}⚠️ Avertissements :{RESET}")
+            print(f"{YELLOW}{BOLD}⚠️ Avertissements :{RESET}")
             for w in self.warnings:
-                print(f"  - {w}")
+                print(f"  - {w.message} ({w.source})")
+            print()
+
+        if self.infos:
+            print(f"{GRAY}{BOLD}ℹ️ Informations :{RESET}")
+            for i in self.infos:
+                print(f"  - {i.message} ({i.source})")
 
         print(f"\n{CYAN}--- Fin du rapport ---{RESET}\n")
-
