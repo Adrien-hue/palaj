@@ -1,9 +1,10 @@
 # services/tranche_service.py
 from typing import List, Tuple
 
+from core.utils.domain_alert import DomainAlert, Severity
 from core.utils.logger import Logger
 
-from models.tranche import Tranche
+from core.domain.entities import Tranche
 
 from db.repositories.tranche_repo import TrancheRepository
 
@@ -18,69 +19,160 @@ class TrancheService:
 
         self.logger = Logger(verbose=verbose)
 
-    def check_doublons(self, tranche: List[Tranche]) -> List[str]:
-        """Détecte les doublons de tranches."""
-        alerts = []
-        
-        seen_ids = set()
+    # -------------
+    # Vérifications
+    # -------------
+    def _check_doublons(self, tranches: List[Tranche]) -> List[DomainAlert]:
+        """Détecte les doublons d'ID de tranches."""
+        alerts: List[DomainAlert] = []
+        seen = set()
+        for t in tranches:
+            if t.id in seen:
+                alert = DomainAlert(
+                    f"Doublon de tranche ID {t.id} ({t.abbr})",
+                    Severity.ERROR,
+                    source="TrancheService",
+                )
+                alerts.append(alert)
+            seen.add(t.id)
+        return alerts
+    
+    def _check_duree(self, tranches: List[Tranche]) -> List[DomainAlert]:
+        """
+        Vérifie que la durée d'une tranche est cohérente :
+        - horaires présents
+        - durée > 0
+        - durée ≤ 11h
+        - pas d'incohérence horaire (fin avant début sans passage minuit explicite)
+        - pas de durée anormale (> 24h)
+        """
+        alerts: List[DomainAlert] = []
 
-        for t in tranche:
-            if t.id in seen_ids:
-                alerts.append(f"❌ Doublon de tranche ID {t.id} ({t.abbr})")
-            seen_ids.add(t.id)
+        for t in tranches:
+            # Vérif présence horaire
+            if not (t.debut and t.fin):
+                alerts.append(
+                    DomainAlert(
+                        f"Tranche {t.abbr} a des horaires incomplets.",
+                        Severity.ERROR,
+                        source="TrancheService",
+                    )
+                )
+                continue
+
+            # Calcule durée (en heures)
+            duree_h = t.duree()
+
+            # Cas 1 : Fin avant début (et pas de passage minuit)
+            if duree_h < 0:
+                alerts.append(
+                    DomainAlert(
+                        f"Tranche {t.abbr} incohérente : fin ({t.fin}) avant début ({t.debut}).",
+                        Severity.ERROR,
+                        source="TrancheService",
+                    )
+                )
+                continue
+
+            # Cas 2 : Durée nulle
+            if duree_h == 0:
+                alerts.append(
+                    DomainAlert(
+                        f"Tranche {t.abbr} a une durée nulle.",
+                        Severity.ERROR,
+                        source="TrancheService",
+                    )
+                )
+                continue
+
+            # Cas 3 : Durée > 24h (erreur de saisie manifeste)
+            if duree_h > 24:
+                alerts.append(
+                    DomainAlert(
+                        f"Tranche {t.abbr} a une durée impossible ({t.duree_formatee()}).",
+                        Severity.ERROR,
+                        source="TrancheService",
+                    )
+                )
+                continue
+
+            # Cas 4 : Durée > 11h = avertissement RH
+            if duree_h > 11:
+                alerts.append(
+                    DomainAlert(
+                        f"Tranche {t.abbr} dépasse 11h d'amplitude ({t.duree_formatee()}).",
+                        Severity.WARNING,
+                        source="TrancheService",
+                    )
+                )
+
         return alerts
 
-    def check_nb_agents_requis(self, tranche: Tranche) -> List[str]:
+    def _check_nb_agents_requis(self, tranches: List[Tranche]) -> List[DomainAlert]:
         """Vérifie que chaque tranche demande au moins un agent."""
-        alerts = []
-
-        if tranche.nb_agents_requis <= 0:
-            alerts.append(f"❌ Tranche {tranche.abbr} a un nb_agents_requis invalide ({tranche.nb_agents_requis})")
-        return alerts
-
-    def check_duree(self, tranche: Tranche) -> List[str]:
-        """Vérifie que la durée de la tranche est valide (non nulle et <= 11h)."""
-        alerts = []
-
-        if tranche.debut and tranche.fin:
-            d = tranche.duree()
-            if d == 0:
-                alerts.append(f"❌ Tranche {tranche.abbr} a une durée nulle.")
-            elif d > 11:
-                alerts.append(f"⚠️ Tranche {tranche.abbr} dépasse 11h d'amplitude ({tranche.duree_formatee()})")
+        alerts: List[DomainAlert] = []
+        for t in tranches:
+            if t.nb_agents_requis <= 0:
+                alert = DomainAlert(
+                    f"Tranche {t.abbr} a un nb_agents_requis invalide ({t.nb_agents_requis})",
+                    Severity.ERROR,
+                    source="TrancheService",
+                )
+                alerts.append(alert)
         return alerts
     
     # ------------
     # Validations
     # ------------
-    def validate(self, tranche: Tranche) -> Tuple[bool, List[str]]:
-        """Valide une tranche en exécutant toutes les vérifications."""
-        alerts = []
-        alerts.extend(self.check_nb_agents_requis(tranche))
-        alerts.extend(self.check_duree(tranche))
-        return (len(alerts) == 0, alerts)
+    def validate(self, tranche: Tranche) -> Tuple[bool, List[DomainAlert]]:
+        """
+        Valide une tranche unique.
+        Retourne : (is_valid, alerts)
+        """
+        alerts: List[DomainAlert] = []
+        alerts.extend(self._check_nb_agents_requis([tranche]))
+        alerts.extend(self._check_duree([tranche]))
 
-    def validate_by_id(self, tranche_id: int) -> Tuple[bool, List[str]]:
-        """Valide une tranche par son ID."""
+        is_valid = not any(a.severity == Severity.ERROR for a in alerts)
+
+        for a in alerts:
+            self.logger.log_from_alert(a)
+
+        return is_valid, alerts
+
+    def validate_by_id(self, tranche_id: int) -> Tuple[bool, List[DomainAlert]]:
+        """
+        Valide une tranche spécifique par ID.
+        """
         tranche = self.tranche_repo.get(tranche_id)
         if not tranche:
-            self.logger.warn(f"Tranche avec ID {tranche_id} non trouvée.")
-            return (False, [f"❌ Tranche avec ID {tranche_id} non trouvée."])
+            alert = DomainAlert(
+                f"Tranche introuvable (ID={tranche_id})",
+                Severity.ERROR,
+                source="TrancheService",
+            )
+            self.logger.log_from_alert(alert)
+            return False, [alert]
         return self.validate(tranche)
 
-    def validate_all(self) -> Tuple[bool, List[str]]:
-        """Exécute toutes les validations et retourne la liste complète des alertes."""
-        list_tranches = self.tranche_repo.list_all()
-        alerts = []
-        alerts.extend(self.check_doublons(list_tranches))
-        for t in list_tranches:
-            _, alerts = self.validate(t)
-            alerts.extend(alerts)
+    def validate_all(self) -> Tuple[bool, List[DomainAlert]]:
+        """
+        Valide toutes les tranches du dépôt.
+        """
+        tranches = self.tranche_repo.list_all()
+        alerts: List[DomainAlert] = []
+        alerts.extend(self._check_doublons(tranches))
+        alerts.extend(self._check_nb_agents_requis(tranches))
+        alerts.extend(self._check_duree(tranches))
 
-        if len(alerts) == 0:
-            self.logger.success(f"Toutes les tranches sont valides.")
+        for a in alerts:
+            self.logger.log_from_alert(a)
+
+        is_valid = not any(a.severity == Severity.ERROR for a in alerts)
+
+        if is_valid:
+            self.logger.success("✅ Toutes les tranches sont valides.")
         else:
-            self.logger.warn(f"🚨 Problèmes détectés dans les tranches :")
-            for a in alerts:
-                self.logger.warn("  - " + a)
-        return (len(alerts) == 0, alerts)
+            self.logger.warn("⚠️ Certaines tranches présentent des incohérences.")
+
+        return is_valid, alerts
