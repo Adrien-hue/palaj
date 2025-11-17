@@ -1,69 +1,49 @@
-from __future__ import annotations
+# db/repositories/agent_repo.py
+from sqlalchemy import func
 
-from db.base_repository import BaseRepository
-from models.agent import Agent
+from db import db
+from db.models import Agent as AgentModel
+from core.domain.entities.agent import Agent as AgentEntity
+from db.sql_repository import SQLRepository
+from core.adapters.entity_mapper import EntityMapper
 
+class AgentRepository(SQLRepository[AgentModel, AgentEntity]):
+    """
+    Repository SQL pour la gestion des agents.
+    """
 
-from utils.text_utils import normalize_text
+    def __init__(self):
+        super().__init__(db, AgentModel, AgentEntity)
 
-class AgentRepository(BaseRepository[Agent]):
-    def __init__(self, db):
-        super().__init__(db, "agents", Agent)
-
-    def _serialize(self, obj: Agent) -> dict:
-        return obj.to_dict()
-
-    def _deserialize(self, data: dict) -> Agent:
-        agent = Agent(
-            id=data["id"],
-            nom=data["nom"],
-            prenom=data["prenom"],
-            code_personnel=data.get("code_personnel") or "",
-            regime_id=data.get("regime_id") or -1
-        )
-
-        return agent
-
-    def get_by_name(self, nom: str | None = None, prenom: str | None = None) -> list[Agent]:
+    def get_by_full_name(self, nom: str, prenom: str) -> AgentEntity | None:
         """
-        Recherche un agent par nom, prénom ou les deux.
-
-        :param nom: Nom de famille de l'agent (insensible à la casse)
-        :param prenom: Prénom de l'agent (insensible à la casse)
-        :return: Liste d'agents correspondants ou [] si aucun résultat
+        Recherche un agent par nom et prénom (insensible à la casse).
+        Retourne une entité unique ou None si non trouvé.
         """
-        results = []
+        with self.db.session_scope() as session:
+            model = (
+                session.query(AgentModel)
+                .filter(
+                    func.lower(AgentModel.nom) == nom.lower(),
+                    func.lower(AgentModel.prenom) == prenom.lower(),
+                )
+                .first()
+            )
+            return EntityMapper.model_to_entity(model, AgentEntity) if model else None
 
-        nom = normalize_text(nom)
-        prenom = normalize_text(prenom)
+    def list_by_regime_id(self, regime_id: int) -> list[AgentEntity]:
+        """
+        Retourne tous les agents associés à un régime donné.
+        """
+        with self.db.session_scope() as session:
+            models = (
+                session.query(AgentModel)
+                .filter(AgentModel.regime_id == regime_id)
+                .order_by(AgentModel.nom.asc(), AgentModel.prenom.asc())
+                .all()
+            )
 
-        # --- Recherche dans le cache ---
-        for agent in self._cache.values():
-            if (
-                (nom and prenom and normalize_text(agent.nom) == nom and normalize_text(agent.prenom) == prenom)
-                or (nom and not prenom and normalize_text(agent.nom) == nom)
-                or (prenom and not nom and normalize_text(agent.prenom) == prenom)
-            ):
-                results.append(agent)
-
-        # Si trouvé dans le cache → retour immédiat
-        if results:
-            self.cache_manager.register_hit("Agent")
-            return results
-
-        # --- Sinon, on cherche dans les fichiers JSON ---
-        all_data = self.list_all()
-        for data in all_data:
-            agent_nom = normalize_text(data.nom)
-            agent_prenom = normalize_text(data.prenom)
-            if (
-                (nom and prenom and agent_nom == nom and agent_prenom == prenom)
-                or (nom and not prenom and agent_nom == nom)
-                or (prenom and not nom and agent_prenom == prenom)
-            ):
-                self._cache_set(str(data.id), data)
-                results.append(data)
-
-        if results:
-            self.cache_manager.register_miss("Agent")
-        return results
+            return [
+                e for m in models
+                if (e := EntityMapper.model_to_entity(m, AgentEntity)) is not None
+            ]

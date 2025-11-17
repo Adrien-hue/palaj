@@ -1,112 +1,206 @@
 # db/database.py
-import json
+from __future__ import annotations
 import os
 import time
+from datetime import datetime
+from pathlib import Path
 from collections import defaultdict
+from typing import Optional
 
-class JsonDatabase:
-    def __init__(self, base_dir="data", debug=False):
-        self.base_dir = base_dir
+from sqlalchemy import create_engine, event
+from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.exc import SQLAlchemyError
+
+from db.base import Base
+
+
+# ----------------------------------------------------------------------
+# Base ORM globale
+# ----------------------------------------------------------------------
+
+class SQLiteDatabase:
+    """
+    Gestionnaire centralisé de base SQLite avec SQLAlchemy.
+    Fournit :
+      - Création automatique du répertoire DB
+      - Sessions transactionnelles
+      - Profiling et statistiques globales
+      - Contexte sûr d'utilisation via `with`
+    """
+
+    def __init__(
+        self,
+        db_path: str = "data/planning.db",
+        echo: bool = False,
+        debug: bool = True,
+        future: bool = True,
+    ):
+        self.db_path = Path(db_path)
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+
+        self.engine = create_engine(
+            f"sqlite:///{self.db_path}",
+            echo=echo,
+            future=future,
+        )
+
+        self.SessionLocal = sessionmaker(
+            bind=self.engine,
+            expire_on_commit=False,
+            autoflush=False,
+            autocommit=False,
+        )
+
         self.debug = debug
 
-        # --- Stats globales ---
+        # Stats d'activité
         self.stats = {
             "calls": 0,
+            "queries": 0,
             "time_total": 0.0,
+            "last_query_time": 0.0,
             "operations": defaultdict(int),
-            "objects_created": 0,
         }
 
-    # --- Internal helper ---
-    def _measure(self, op_name, func, *args, **kwargs):
-        """Mesure le temps et enregistre les stats d'une opération DB."""
-        start = time.perf_counter()
-        result = func(*args, **kwargs)
-        duration = time.perf_counter() - start
-
-        self.stats["calls"] += 1
-        self.stats["time_total"] += duration
-        self.stats["operations"][op_name] += 1
+        self._attach_sql_listeners()
 
         if self.debug:
-            print(f"[DB] {op_name.upper():<8} | {duration*1000:.2f} ms")
+            print(f"SQLiteDatabase Engine initialisé ({self.db_path})")
 
-        return result
+    # ----------------------------------------------------------------------
+    # Gestion de session
+    # ----------------------------------------------------------------------
+    def get_session(self) -> Session:
+        """Retourne une session SQLAlchemy."""
+        return self.SessionLocal()
 
-    # --- CRUD wrappers ---
-    def create(self, collection, key, data):
-        def _create():
-            dir_path = os.path.join(self.base_dir, collection)
-            os.makedirs(dir_path, exist_ok=True)
-            path = os.path.join(dir_path, f"{key}.json")
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=4, ensure_ascii=False)
-            self.stats["objects_created"] += 1
-            return True
+    def session_scope(self):
+        """
+        Fournit un contexte sûr d'utilisation :
+        >>> with db.session_scope() as session:
+        >>>     session.add(obj)
+        """
+        class SessionManager:
+            def __init__(self, db: SQLiteDatabase):
+                self.db = db
+                self.session: Optional[Session] = None
 
-        return self._measure("create", _create)
+            def __enter__(self):
+                self.session = self.db.get_session()
+                return self.session
 
-    def get(self, collection, key):
-        def _get():
-            path = os.path.join(self.base_dir, collection, f"{key}.json")
-            if not os.path.exists(path):
-                return None
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                if not self.session:
+                    return
 
-        return self._measure("get", _get)
+                try:
+                    if exc_type:
+                        self.session.rollback()
+                    else:
+                        self.session.commit()
+                finally:
+                    self.session.close()
 
-    def update(self, collection, key, data):
-        def _update():
-            path = os.path.join(self.base_dir, collection, f"{key}.json")
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=4, ensure_ascii=False)
-            return True
+        return SessionManager(self)
 
-        return self._measure("update", _update)
+    def safe_commit(self, session: Session):
+        """Commit sécurisé, rollback automatique en cas d'échec."""
+        try:
+            session.commit()
+        except SQLAlchemyError as e:
+            session.rollback()
+            raise e
 
-    def delete(self, collection, key):
-        def _delete():
-            path = os.path.join(self.base_dir, collection, f"{key}.json")
-            if os.path.exists(path):
-                os.remove(path)
-                return True
-            return False
+    # ----------------------------------------------------------------------
+    # SQL Hooks et profilage
+    # ----------------------------------------------------------------------
+    def _attach_sql_listeners(self):
+        """Ajoute des hooks SQLAlchemy pour mesurer les requêtes réelles."""
 
-        return self._measure("delete", _delete)
+        @event.listens_for(self.engine, "before_cursor_execute")
+        def before_execute(conn, cursor, statement, parameters, context, executemany):
+            conn.info.setdefault("query_start_time", []).append(time.perf_counter())
 
-    def list_all(self, collection):
-        def _list_all():
-            dir_path = os.path.join(self.base_dir, collection)
-            if not os.path.exists(dir_path):
-                return {}
+        @event.listens_for(self.engine, "after_cursor_execute")
+        def after_execute(conn, cursor, statement, parameters, context, executemany):
+            total = time.perf_counter() - conn.info["query_start_time"].pop(-1)
+            self.stats["queries"] += 1
+            self.stats["last_query_time"] = total
+            self.stats["time_total"] += total
+            if self.debug:
+                print(f"[SQL] {total*1000:.2f} ms | {statement.strip()[:80]}")
 
-            data_dict = {}
-            for file in os.listdir(dir_path):
-                if file.endswith(".json"):
-                    key = file[:-5]  # retire l'extension .json
-                    with open(os.path.join(dir_path, file), "r", encoding="utf-8") as f:
-                        data_dict[key] = json.load(f)
-            return data_dict
+    # ----------------------------------------------------------------------
+    # Profil interne (opérations haut niveau)
+    # ----------------------------------------------------------------------
+    def _measure(self, op_name: str, func, *args, **kwargs):
+        start = time.perf_counter()
+        try:
+            result = func(*args, **kwargs)
+            return result
+        finally:
+            duration = time.perf_counter() - start
+            self.stats["calls"] += 1
+            self.stats["operations"][op_name] += 1
+            self.stats["time_total"] += duration
+            if self.debug:
+                print(f"[DB] {op_name.upper():<10} | {duration*1000:.2f} ms")
 
-        return self._measure("list_all", _list_all)
+    # ----------------------------------------------------------------------
+    # Création & maintenance
+    # ----------------------------------------------------------------------
+    def create_schema(self):
+        """Crée toutes les tables à partir du modèle Base."""
+        from db import models
 
-    # --- Stats display ---
-    def summary(self):
-        """Retourne un résumé des stats."""
+        Base.metadata.create_all(self.engine)
+        if self.debug:
+            print(f"Base SQLite initialisée à {self.db_path}")
+
+    def drop_schema(self):
+        """Supprime toutes les tables."""
+        from db import models
+
+        Base.metadata.drop_all(self.engine)
+        if self.debug:
+            print(f"Base SQLite supprimée ({self.db_path})")
+
+    # ----------------------------------------------------------------------
+    # Statistiques & résumé
+    # ----------------------------------------------------------------------
+    def get_stats(self):
+        """Retourne quelques statistiques de base sur la base de données."""
+        size_kb = os.path.getsize(self.db_path) / 1024 if os.path.exists(self.db_path) else 0
+        return {
+            "db_path": self.db_path,
+            "db_size_kb": round(size_kb, 2),
+            "last_modified": datetime.fromtimestamp(os.path.getmtime(self.db_path)).isoformat()
+            if os.path.exists(self.db_path)
+            else None,
+        }
+
+    def print_stats(self):
+        stats = self.get_stats()
+        print(f"\nDatabase Stats:")
+        for k, v in stats.items():
+            print(f"  - {k}: {v}")
+
+    def summary(self) -> str:
+        """Retourne un résumé formaté des stats DB."""
         avg_time = (self.stats["time_total"] / self.stats["calls"]) if self.stats["calls"] else 0
         ops = ", ".join(f"{k}: {v}" for k, v in self.stats["operations"].items())
         return (
-            f" /---------------------------------\\ \n"
-            f"<======= JSON Database Stats =======>\n"
-            f" \\---------------------------------/\n"
-            f"Total calls: {self.stats['calls']}\n"
-            f"Total time: {self.stats['time_total']:.4f}s\n"
-            f"Average time per call: {avg_time*1000:.2f} ms\n"
-            f"Operations breakdown: {ops}\n"
-            f"Objects created: {self.stats['objects_created']}\n"
-            f"Base directory: {self.base_dir}\n"
-            f"-------------------------------------"
+            f" /---------------------------------------\\ \n"
+            f"<========= SQLite Database Stats =========>\n"
+            f" \\---------------------------------------/\n"
+            f"Database path     : {self.db_path}\n"
+            f"Total SQL queries : {self.stats['queries']}\n"
+            f"Total calls       : {self.stats['calls']}\n"
+            f"Total time        : {self.stats['time_total']:.4f}s\n"
+            f"Average time/call : {avg_time*1000:.2f} ms\n"
+            f"Last query time   : {self.stats['last_query_time']*1000:.2f} ms\n"
+            f"Operations breakdown: {ops or '—'}\n"
+            f"------------------------------------------"
         )
 
     def print_summary(self):

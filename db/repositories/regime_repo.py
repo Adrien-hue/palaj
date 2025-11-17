@@ -1,21 +1,21 @@
-from models.regime import Regime
+# db/repositories/regime_repo.py
+from db import db
+from db.models import Regime as RegimeModel
+from core.domain.entities import Regime as RegimeEntity
+from db.sql_repository import SQLRepository
+from core.adapters.entity_mapper import EntityMapper
 
-from db.base_repository import BaseRepository
+class RegimeRepository(SQLRepository[RegimeModel, RegimeEntity]):
+    """
+    Repository pour la gestion des régimes de travail.
+    Version SQLAlchemy — remplace l'ancien BaseRepository JSON.
+    """
 
-class RegimeRepository(BaseRepository[Regime]):
-    def __init__(self, db):
-        super().__init__(db, "regimes", Regime)
+    def __init__(self):
+        super().__init__(db, RegimeModel, RegimeEntity)
 
-    def _serialize(self, obj: Regime) -> dict:
-        return obj.to_dict()
-
-    def _deserialize(self, data: dict) -> Regime:
-        regime = Regime(
-            id=data["id"],
-            nom=data["nom"],
-            desc=data.get("desc") or "",
-            duree_moyenne_journee_service_min=data["duree_moyenne_journee_service_min"],
-            repos_periodiques_annuels=data["repos_periodiques_annuels"],
-        )
-
-        return regime
+    def find_by_nom(self, nom: str) -> RegimeEntity | None:
+        """Recherche un régime par nom (insensible à la casse)."""
+        with self.db.session_scope() as session:
+            model = session.query(RegimeModel).filter(RegimeModel.nom.ilike(f"%{nom}%")).first()
+            return EntityMapper.model_to_entity(model, RegimeEntity)

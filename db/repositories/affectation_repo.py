@@ -1,55 +1,109 @@
-from typing import List
+# db/repositories/affectation_repo.py
 from datetime import date
+from sqlalchemy import and_
+from typing import Optional, List, Tuple
 
-from models.affectation import Affectation
+from db import db
+from db.models import Affectation as AffectationModel
+from core.domain.entities.affectation import Affectation as AffectationEntity
+from db.sql_repository import SQLRepository
+from core.adapters.entity_mapper import EntityMapper
 
-from db.base_repository import BaseRepository
 
-class AffectationRepository(BaseRepository[Affectation]):
-    def __init__(self, db):
-        super().__init__(db, "affectations", Affectation)
+class AffectationRepository(SQLRepository[AffectationModel, AffectationEntity]):
+    """
+    Repository SQL pour la gestion des affectations d'agents aux tranches.
+    """
 
-    def _serialize(self, obj: Affectation) -> dict:
-        return obj.to_dict()
+    def __init__(self):
+        super().__init__(db, AffectationModel, AffectationEntity)
 
-    def _deserialize(self, data: dict) -> Affectation:
-        date_affectation = date.fromisoformat(data["jour"])
+    def list_for_agent(self, agent_id: int) -> list[AffectationEntity]:
+        """Retourne toutes les affectations d'un agent."""
+        with self.db.session_scope() as session:
+            models = (
+                session.query(AffectationModel)
+                .filter(AffectationModel.agent_id == agent_id)
+                .order_by(AffectationModel.jour.asc())
+                .all()
+            )
+            return [
+                e for m in models
+                if (e := EntityMapper.model_to_entity(m, AffectationEntity)) is not None
+            ]
 
-        return Affectation(
-            agent_id=data["agent_id"],
-            tranche_id=data["tranche_id"],
-            jour=date_affectation
-        )
+    def list_for_day(self, jour: date) -> list[AffectationEntity]:
+        """Retourne toutes les affectations pour un jour donné."""
+        with self.db.session_scope() as session:
+            models = session.query(AffectationModel).filter(AffectationModel.jour == jour).all()
+            return [
+                e for m in models
+                if (e := EntityMapper.model_to_entity(m, AffectationEntity)) is not None
+            ]
 
-    def list_for_agent(self, agent_id: int):
-        if not self._cache:
-            self.list_all()
-        return [a for a in self._cache.values() if a.agent_id == agent_id]
+    def get_for_agent_and_day(self, agent_id: int, jour: date) -> Optional[AffectationEntity]:
+        """Récupère l'affectation d'un agent pour une date spécifique."""
+        with self.db.session_scope() as session:
+            model = (
+                session.query(AffectationModel)
+                .filter(
+                    and_(
+                        AffectationModel.agent_id == agent_id,
+                        AffectationModel.jour == jour,
+                    )
+                )
+                .first()
+            )
+            return EntityMapper.model_to_entity(model, AffectationEntity) if model else None
 
-    def list_for_tranche(self, tranche_id: int):
-        if not self._cache:
-            self.list_all()
-        return [a for a in self._cache.values() if a.tranche_id == tranche_id]
-
-    def list_in_period(self, start: date, end: date):
-        if not self._cache:
-            self.list_all()
-        return [a for a in self._cache.values() if start <= a.jour <= end]
-    
-    def list_for_agent_and_period(
-        self,
-        agent_id: int,
-        start_date: date,
-        end_date: date
-    ) -> List[Affectation]:
+    def upsert(self, entity: AffectationEntity, unique_field: str = "") -> AffectationEntity:
         """
-        Retourne toutes les affectations d'un agent entre deux dates incluses.
-        Utilise le cache si possible.
+        Crée ou met à jour une affectation selon (agent_id, jour).
         """
-        if not self._cache:
-            self.list_all()
+        entity_data = EntityMapper.entity_to_dict(entity)
 
-        return [
-            a for a in self._cache.values()
-            if a.agent_id == agent_id and start_date <= a.jour <= end_date
-        ]
+        with self.db.session_scope() as session:
+            existing = (
+                session.query(AffectationModel)
+                .filter(
+                    and_(
+                        AffectationModel.agent_id == entity_data["agent_id"],
+                        AffectationModel.jour == entity_data["jour"],
+                    )
+                )
+                .first()
+            )
+
+            if existing:
+                EntityMapper.update_model_from_entity(existing, entity)
+                model = existing
+            else:
+                model = AffectationModel(**entity_data)
+                session.add(model)
+
+            session.flush()
+            session.refresh(model)
+            result = EntityMapper.model_to_entity(model, AffectationEntity)
+            assert result is not None, "L'upsert doit retourner une entité valide"
+            return result
+
+    def get_date_range_for_agent(self, agent_id: int) -> Tuple[Optional[date], Optional[date]]:
+        """
+        Retourne la première et la dernière date d'affectation pour un agent.
+        """
+        with self.db.session_scope() as session:
+            first_date = (
+                session.query(AffectationModel.jour)
+                .filter(AffectationModel.agent_id == agent_id)
+                .order_by(AffectationModel.jour.asc())
+                .limit(1)
+                .scalar()
+            )
+            last_date = (
+                session.query(AffectationModel.jour)
+                .filter(AffectationModel.agent_id == agent_id)
+                .order_by(AffectationModel.jour.desc())
+                .limit(1)
+                .scalar()
+            )
+            return first_date, last_date
