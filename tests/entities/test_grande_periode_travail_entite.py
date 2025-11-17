@@ -1,7 +1,7 @@
 import pytest
 from datetime import date, timedelta
-from core.domain.entities.grande_periode_travail import GrandePeriodeTravail
-from core.domain.entities.work_day import WorkDay
+from core.domain.models.grande_periode_travail import GrandePeriodeTravail
+from core.domain.models.work_day import WorkDay
 from core.domain.entities.etat_jour_agent import EtatJourAgent, TypeJour
 from core.domain.entities.tranche import Tranche
 
@@ -12,7 +12,7 @@ from core.domain.entities.tranche import Tranche
 
 def make_workday(jour: date, type_jour: TypeJour, has_tranche=True) -> WorkDay:
     etat = EtatJourAgent(agent_id=1, jour=jour, type_jour=type_jour)
-    tranches = [Tranche(1, "MJ", "08:00", "16:00")] if has_tranche else []
+    tranches = [Tranche(1, "MJ", "08:00", "16:00", 9999)] if has_tranche else []
     return WorkDay(jour=jour, etat=etat, tranches=tranches)
 
 

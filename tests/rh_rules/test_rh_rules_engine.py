@@ -6,7 +6,7 @@ from core.rh_rules.rh_rules_engine import RHRulesEngine
 from core.rh_rules.base_rule import BaseRule, RuleScope
 from core.utils.domain_alert import DomainAlert, Severity
 from core.domain.contexts.planning_context import PlanningContext
-from core.domain.entities.work_day import WorkDay
+from core.domain.models.work_day import WorkDay
 
 
 # --- Fixtures & Mocks ----------------------------------------------------------

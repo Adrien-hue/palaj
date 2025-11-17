@@ -16,7 +16,7 @@ def fake_agent():
 
 @pytest.fixture
 def fake_tranche():
-    return Tranche(id=1, abbr="J1", debut=time(8, 0), fin=time(16, 0), nb_agents_requis=1)
+    return Tranche(id=1, nom="J1", heure_debut=time(8, 0), heure_fin=time(16, 0), poste_id=1)
 
 
 @pytest.fixture
@@ -88,7 +88,7 @@ def test_init_and_build_workdays(fake_agent, mock_repos):
 
     work_days = planning.get_work_days()
     assert len(work_days) == 3
-    assert any(wd.etat.type_jour == TypeJour.REPOS for wd in work_days)
+    assert any(wd.etat is not None and wd.etat.type_jour == TypeJour.REPOS for wd in work_days)
     assert any(len(wd.tranches) > 0 for wd in work_days)
 
 

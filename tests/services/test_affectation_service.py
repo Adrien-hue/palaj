@@ -20,7 +20,7 @@ def mock_agent_repo(mocker):
 @pytest.fixture
 def mock_tranche_repo(mocker):
     repo = mocker.Mock()
-    repo.get.side_effect = lambda _id: Tranche(id=_id, abbr="MJ", debut="08:00", fin="16:00") if _id == 10 else None
+    repo.get.side_effect = lambda _id: Tranche(id=_id, nom="MJ", debut="08:00", fin="16:00") if _id == 10 else None
     return repo
 
 
@@ -58,7 +58,7 @@ def service(mock_agent_repo, mock_affect_repo, mock_etat_repo, mock_tranche_repo
 
 def test_can_assign_ok(service, mock_affect_repo, mock_etat_repo):
     agent = Agent(id=1, nom="Dupont", prenom="Jean")
-    tranche = Tranche(id=10, abbr="MJ", debut="08:00", fin="16:00")
+    tranche = Tranche(id=10, nom="MJ", debut="08:00", fin="16:00")
     jour = date(2025, 1, 1)
 
     mock_affect_repo.list_for_agent.return_value = []
@@ -71,7 +71,7 @@ def test_can_assign_ok(service, mock_affect_repo, mock_etat_repo):
 
 def test_can_assign_agent_en_repos(service, mock_etat_repo):
     agent = Agent(id=1, nom="Dupont", prenom="Jean")
-    tranche = Tranche(id=10, abbr="MJ", debut="08:00", fin="16:00")
+    tranche = Tranche(id=10, nom="MJ", debut="08:00", fin="16:00")
     jour = date(2025, 1, 1)
 
     mock_etat_repo.list_for_agent.return_value = [
@@ -86,7 +86,7 @@ def test_can_assign_agent_en_repos(service, mock_etat_repo):
 
 def test_can_assign_deja_affecte(service, mock_affect_repo):
     agent = Agent(id=1, nom="Dupont", prenom="Jean")
-    tranche = Tranche(id=10, abbr="MJ", debut="08:00", fin="16:00")
+    tranche = Tranche(id=10, nom="MJ", debut="08:00", fin="16:00")
     jour = date(2025, 1, 1)
 
     mock_affect_repo.list_for_agent.return_value = [
@@ -110,7 +110,7 @@ def test_can_assign_invalid_params(service):
 
 def test_create_affectation_simulation_ok(service, mock_affect_repo):
     agent = Agent(id=1, nom="Dupont", prenom="Jean")
-    tranche = Tranche(id=10, abbr="MJ", debut="08:00", fin="16:00")
+    tranche = Tranche(id=10, nom="MJ", debut="08:00", fin="16:00")
     jour = date(2025, 1, 1)
 
     mock_affect_repo.list_for_agent.return_value = []
@@ -123,7 +123,7 @@ def test_create_affectation_simulation_ok(service, mock_affect_repo):
 
 def test_create_affectation_real_creation_error(service, mock_affect_repo):
     agent = Agent(id=1, nom="Dupont", prenom="Jean")
-    tranche = Tranche(id=10, abbr="MJ", debut="08:00", fin="16:00")
+    tranche = Tranche(id=10, nom="MJ", debut="08:00", fin="16:00")
     jour = date(2025, 1, 1)
 
     mock_affect_repo.list_for_agent.return_value = []
@@ -137,7 +137,7 @@ def test_create_affectation_real_creation_error(service, mock_affect_repo):
 
 def test_create_affectation_invalid_due_to_repos(service, mock_etat_repo):
     agent = Agent(id=1, nom="Dupont", prenom="Jean")
-    tranche = Tranche(id=10, abbr="MJ", debut="08:00", fin="16:00")
+    tranche = Tranche(id=10, nom="MJ", debut="08:00", fin="16:00")
     jour = date(2025, 1, 1)
 
     mock_etat_repo.list_for_agent.return_value = [
@@ -223,7 +223,7 @@ def test_validate_all_with_doublons(service, mock_affect_repo, mock_tranche_repo
     mock_affect_repo.list_all.return_value = [a1, a2]
 
     # 👉 Corrige ici : on fait croire que toutes les tranches existent
-    mock_tranche_repo.get.side_effect = lambda _id: Tranche(id=_id, abbr=f"T{_id}", debut="08:00", fin="16:00")
+    mock_tranche_repo.get.side_effect = lambda _id: Tranche(id=_id, nom=f"T{_id}", debut="08:00", fin="16:00")
 
     ok, alerts = service.validate_all()
     print("[DEBUG] ok:", ok)

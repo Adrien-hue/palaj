@@ -1,6 +1,6 @@
 import pytest
 from datetime import date, time, timedelta
-from core.domain.entities.work_day import WorkDay
+from core.domain.models.work_day import WorkDay
 from core.domain.entities.tranche import Tranche
 from core.domain.entities.etat_jour_agent import EtatJourAgent, TypeJour
 from tests.utils.text import strip_ansi

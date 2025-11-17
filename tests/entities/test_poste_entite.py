@@ -8,20 +8,17 @@ from tests.utils.text import strip_ansi
 # -------------------------------------------------------------------
 
 def test_poste_creation_and_basic_properties():
-    p = Poste(id=1, nom="GMJ", tranche_ids=[10, 11])
+    p = Poste(id=1, nom="GMJ")
     assert p.id == 1
     assert p.nom == "GMJ"
-    assert p.tranche_ids == [10, 11]
     assert p._tranches is None
     assert p._qualifications is None
-    assert repr(p) == "<Poste GMJ: 2 tranches>"
+    assert repr(p) == "<Poste GMJ>"
 
 def test_poste_str_contains_all_key_info():
-    p = Poste(2, "RLIVM7P", tranche_ids=[1, 2, 3])
+    p = Poste(2, "RLIVM7P")
     s = strip_ansi(str(p))
     assert "Poste RLIVM7P" in s
-    assert "Tranches ids" in s
-    assert "[1, 2, 3]" in s
     assert "Non chargé" in s  # lazy loading non encore exécuté
 
 # -------------------------------------------------------------------

@@ -2,7 +2,7 @@ import pytest
 from datetime import date, timedelta
 
 from core.domain.entities import EtatJourAgent, TypeJour
-from core.domain.entities.work_day import WorkDay
+from core.domain.models.work_day import WorkDay
 from core.domain.services.grande_periode_travail_service import GrandePeriodeTravailService
 from core.domain.contexts.planning_context import PlanningContext
 

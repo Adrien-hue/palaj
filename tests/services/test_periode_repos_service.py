@@ -1,151 +1,157 @@
-import pytest
-from datetime import date, timedelta
+from datetime import date
 
 from core.domain.services.periode_repos_service import PeriodeReposService
-from core.domain.entities import EtatJourAgent, TypeJour
-from core.domain.entities.work_day import WorkDay
-from core.domain.entities.periode_repos import PeriodeRepos
-from core.domain.contexts.planning_context import PlanningContext
 
 
-@pytest.fixture
-def service():
-    return PeriodeReposService()
-
-
-def make_wd(jour, type_jour):
-    """Crée un WorkDay factice avec l’état approprié."""
-    etat = EtatJourAgent(agent_id=1, jour=jour, type_jour=type_jour)
-    return WorkDay(jour=jour, etat=etat, tranches=[])
-
-
-@pytest.fixture
-def base_dates():
-    start = date(2025, 1, 1)
-    return [start + timedelta(days=i) for i in range(10)]
-
-
-# ------------------------------------------------------------------
-# 1️⃣ Aucun repos
-# ------------------------------------------------------------------
-def test_aucun_repos(service, base_dates):
-    wds = [make_wd(d, TypeJour.POSTE) for d in base_dates]
-    context = PlanningContext(agent=None, work_days=wds, date_reference=base_dates[0])
+def test_deux_blocs_repos(make_context_with_gpt):
+    service = PeriodeReposService()
+    context = make_context_with_gpt(pattern=["REPOS", "REPOS", "POSTE", "REPOS", "POSTE"], include_left_repos = False, include_right_repos = False)
+    
     periodes = service.detect_periodes_repos(context)
-    assert periodes == []
+    
+    start_date_p1 = date(2025, 1, 2)
+    end_date_p1 = date(2025, 1, 3)
 
-
-# ------------------------------------------------------------------
-# 2️⃣ Un seul jour de repos → RP simple
-# ------------------------------------------------------------------
-def test_un_repos_simple(service, base_dates):
-    wds = [
-        make_wd(base_dates[0], TypeJour.POSTE),
-        make_wd(base_dates[1], TypeJour.REPOS),
-        make_wd(base_dates[2], TypeJour.POSTE),
-    ]
-    context = PlanningContext(agent=None, work_days=wds, date_reference=base_dates[0])
-    periodes = service.detect_periodes_repos(context)
-
-    assert len(periodes) == 1
-    rp = periodes[0]
-    assert rp.start == base_dates[1]
-    assert rp.end == base_dates[1]
-    assert rp.nb_jours == 1
-    assert rp.label() == "RP simple"
-
-
-# ------------------------------------------------------------------
-# 3️⃣ Deux jours consécutifs → RP double
-# ------------------------------------------------------------------
-def test_repos_double(service, base_dates):
-    wds = [
-        make_wd(base_dates[0], TypeJour.POSTE),
-        make_wd(base_dates[1], TypeJour.REPOS),
-        make_wd(base_dates[2], TypeJour.REPOS),
-        make_wd(base_dates[3], TypeJour.POSTE),
-    ]
-    context = PlanningContext(agent=None, work_days=wds, date_reference=base_dates[0])
-    periodes = service.detect_periodes_repos(context)
-
-    assert len(periodes) == 1
-    rp = periodes[0]
-    assert rp.nb_jours == 2
-    assert rp.label() == "RP double"
-    assert rp.start == base_dates[1]
-    assert rp.end == base_dates[2]
-
-
-# ------------------------------------------------------------------
-# 4️⃣ Trois jours consécutifs → RP triple
-# ------------------------------------------------------------------
-def test_repos_triple(service, base_dates):
-    wds = [
-        make_wd(base_dates[0], TypeJour.REPOS),
-        make_wd(base_dates[1], TypeJour.REPOS),
-        make_wd(base_dates[2], TypeJour.REPOS),
-        make_wd(base_dates[3], TypeJour.POSTE),
-    ]
-    context = PlanningContext(agent=None, work_days=wds, date_reference=base_dates[0])
-    periodes = service.detect_periodes_repos(context)
-
-    assert len(periodes) == 1
-    rp = periodes[0]
-    assert rp.nb_jours == 3
-    assert rp.label() == "RP triple"
-    assert rp.duree_minutes > 0  # test la méthode
-
-
-# ------------------------------------------------------------------
-# 5️⃣ Deux blocs séparés → deux périodes distinctes
-# ------------------------------------------------------------------
-def test_deux_blocs_repos(service, base_dates):
-    wds = [
-        make_wd(base_dates[0], TypeJour.REPOS),
-        make_wd(base_dates[1], TypeJour.REPOS),
-        make_wd(base_dates[2], TypeJour.POSTE),
-        make_wd(base_dates[3], TypeJour.REPOS),
-        make_wd(base_dates[4], TypeJour.POSTE),
-    ]
-    context = PlanningContext(agent=None, work_days=wds, date_reference=base_dates[0])
-    periodes = service.detect_periodes_repos(context)
+    start_date_p2 = date(2025, 1, 5)
+    end_date_p2 = date(2025, 1, 5)
 
     assert len(periodes) == 2
-    assert periodes[0].start == base_dates[0]
-    assert periodes[0].end == base_dates[1]
-    assert periodes[1].start == base_dates[3]
+    assert periodes[0].start == start_date_p1
+    assert periodes[0].end == end_date_p1
+    assert periodes[1].start == start_date_p2
+    assert periodes[1].end == end_date_p2
 
 
 # ------------------------------------------------------------------
 # 6️⃣ Période de repos de plus de 3 jours → RP X jours
 # ------------------------------------------------------------------
-def test_repos_long(service, base_dates):
-    wds = [make_wd(d, TypeJour.REPOS) for d in base_dates[:5]]
-    context = PlanningContext(agent=None, work_days=wds, date_reference=base_dates[0])
+def test_repos_long(make_context_with_gpt):
+    service = PeriodeReposService()
+    context = make_context_with_gpt(pattern=["REPOS", "REPOS", "REPOS", "REPOS", "REPOS"], include_left_repos = False, include_right_repos = False)
     periodes = service.detect_periodes_repos(context)
+
+    start_date = date(2025, 1, 2)
+    end_date = date(2025, 1, 6)
 
     assert len(periodes) == 1
     rp = periodes[0]
     assert rp.nb_jours == 5
     assert rp.label() == "RP 5 jours"
     assert "RP 5 jours" in str(rp)
-    assert rp.start == base_dates[0]
-    assert rp.end == base_dates[4]
+    assert rp.start == start_date
+    assert rp.end == end_date
 
 
 # ------------------------------------------------------------------
 # 7️⃣ Repos non consécutifs → plusieurs RP simples
 # ------------------------------------------------------------------
-def test_repos_non_consecutifs(service, base_dates):
-    wds = [
-        make_wd(base_dates[0], TypeJour.REPOS),
-        make_wd(base_dates[1], TypeJour.POSTE),
-        make_wd(base_dates[2], TypeJour.REPOS),
-        make_wd(base_dates[3], TypeJour.POSTE),
-    ]
-    context = PlanningContext(agent=None, work_days=wds, date_reference=base_dates[0])
+def test_repos_non_consecutifs(make_context_with_gpt):
+    service = PeriodeReposService()
+    context = make_context_with_gpt(pattern=["REPOS", "POSTE", "REPOS", "POSTE"], include_left_repos = False, include_right_repos = False)
+
     periodes = service.detect_periodes_repos(context)
 
     assert len(periodes) == 2
     assert all(rp.nb_jours == 1 for rp in periodes)
     assert all(rp.label() == "RP simple" for rp in periodes)
+
+def test_detect_repos_simple(make_context_with_gpt):
+    """Un seul jour de repos est correctement détecté."""
+    service = PeriodeReposService()
+    context = make_context_with_gpt(pattern=["POSTE", "REPOS", "POSTE"], include_left_repos = False, include_right_repos = False)
+
+    periodes = service.detect_periodes_repos(context)
+
+    assert len(periodes) == 1
+    rp = periodes[0]
+    assert rp.nb_jours == 1
+    assert rp.start == date(2025, 1, 3)
+    assert rp.end == date(2025, 1, 3)
+    assert "simple" in rp.label().lower()
+
+
+def test_detect_repos_double(make_context_with_gpt):
+    """Deux jours de repos consécutifs → repos double."""
+    service = PeriodeReposService()
+    context = make_context_with_gpt(pattern=["POSTE", "REPOS", "REPOS", "POSTE"], include_left_repos = False, include_right_repos = False)
+
+    periodes = service.detect_periodes_repos(context)
+
+    assert len(periodes) == 1
+    rp = periodes[0]
+    assert rp.nb_jours == 2
+    assert rp.start == date(2025, 1, 3)
+    assert rp.end == date(2025, 1, 4)
+    assert "double" in rp.label().lower()
+
+
+def test_detect_repos_triple(make_context_with_gpt):
+    """Trois jours de repos consécutifs → repos triple."""
+    service = PeriodeReposService()
+    context = make_context_with_gpt(pattern=["POSTE", "REPOS", "REPOS", "REPOS", "POSTE"], include_left_repos = False, include_right_repos = False)
+
+    periodes = service.detect_periodes_repos(context)
+
+    assert len(periodes) == 1
+    rp = periodes[0]
+    assert rp.nb_jours == 3
+    assert "triple" in rp.label().lower()
+
+
+def test_repos_separes_par_absence(make_context_with_gpt):
+    """Deux repos séparés par des absences → deux périodes distinctes."""
+    service = PeriodeReposService()
+    context = make_context_with_gpt(pattern=["POSTE", "REPOS", "ABSENCE", "REPOS", "POSTE"], include_left_repos = False, include_right_repos = False)
+
+    periodes = service.detect_periodes_repos(context)
+
+    assert len(periodes) == 2
+    jours = [p.nb_jours for p in periodes]
+    assert jours == [1, 1]
+
+
+def test_aucun_repos(make_context_with_gpt):
+    """Aucun jour de repos → aucune période détectée."""
+    service = PeriodeReposService()
+    context = make_context_with_gpt(pattern=["POSTE", "ABSENCE", "ZCOT", "POSTE"], include_left_repos = False, include_right_repos = False)
+
+    periodes = service.detect_periodes_repos(context)
+
+    assert periodes == []
+
+def test_detect_multiple_repos_complex(make_context_with_gpt):
+    """Vérifie la détection correcte de plusieurs périodes de repos dans un planning complet."""
+    pattern = [
+        "POSTE", "POSTE", "POSTE",        # 1-3
+        "REPOS", "REPOS",                 # 4-5 → double
+        "ABSENCE", "ABSENCE",             # 6-7
+        "POSTE", "POSTE",                 # 8-9
+        "REPOS", "REPOS", "REPOS",        # 10-12 → triple
+        "ZCOT",                           # 13
+        "REPOS",                          # 14 → simple
+        "POSTE",                          # 15
+    ]
+
+    service = PeriodeReposService()
+    context = make_context_with_gpt(pattern=pattern, include_left_repos=False, include_right_repos=False)
+
+    periodes = service.detect_periodes_repos(context)
+
+    # On doit détecter 3 périodes distinctes : double, triple, simple
+    assert len(periodes) == 3
+
+    labels = [p.label().lower() for p in periodes]
+    assert any("double" in l for l in labels)
+    assert any("triple" in l for l in labels)
+    assert any("simple" in l for l in labels)
+
+    # Vérification des bornes temporelles
+    assert periodes[0].start == date(2025, 1, 5)
+    assert periodes[0].end == date(2025, 1, 6)
+    assert periodes[1].start == date(2025, 1, 11)
+    assert periodes[1].end == date(2025, 1, 13)
+    assert periodes[2].start == date(2025, 1, 15)
+    assert periodes[2].end == date(2025, 1, 15)
+
+    # Vérifie que chaque durée en minutes est cohérente (repos simple ≈ 24h + 12h20, etc.)
+    assert all(p.duree_minutes > 0 for p in periodes)

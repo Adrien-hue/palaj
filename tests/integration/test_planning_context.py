@@ -1,7 +1,7 @@
 import pytest
 from datetime import date, time, timedelta
 from core.domain.contexts.planning_context import PlanningContext
-from core.domain.entities.work_day import WorkDay
+from core.domain.models.work_day import WorkDay
 from core.domain.entities import TypeJour
 from core.domain.entities.agent import Agent
 

@@ -11,7 +11,7 @@ import pytest
 from datetime import date, time, timedelta
 
 from core.domain.entities import Agent, EtatJourAgent, Tranche, TypeJour
-from core.domain.entities.work_day import WorkDay
+from core.domain.models.work_day import WorkDay
 from core.domain.contexts.planning_context import PlanningContext
 
 
@@ -26,13 +26,13 @@ def sample_agent() -> Agent:
 @pytest.fixture
 def tranche_matin() -> Tranche:
     """Tranche matinée typique."""
-    return Tranche(id=1, abbr="MJ", debut=time(6, 20), fin=time(14, 5))
+    return Tranche(id=1, nom="MJ", heure_debut=time(6, 20), heure_fin=time(14, 5), poste_id=9999)
 
 
 @pytest.fixture
 def tranche_nuit() -> Tranche:
     """Tranche de nuit typique."""
-    return Tranche(id=2, abbr="NJ", debut=time(22, 0), fin=time(6, 20))
+    return Tranche(id=2, nom="NJ", heure_debut=time(22, 0), heure_fin=time(6, 20), poste_id=9999)
 
 
 @pytest.fixture
@@ -74,8 +74,8 @@ def base_context(sample_agent, workday_poste, workday_repos) -> PlanningContext:
 @pytest.fixture
 def make_tranche():
     """Fabrique rapide d’une tranche personnalisée."""
-    def _make(abbr="T", debut=(8, 0), fin=(17, 0), id=99):
-        return Tranche(id=id, abbr=abbr, debut=time(*debut), fin=time(*fin))
+    def _make(nom="T", debut=(8, 0), fin=(17, 0), id=99):
+        return Tranche(id=id, nom=nom, heure_debut=time(*debut), heure_fin=time(*fin), poste_id=9999)
     return _make
 
 

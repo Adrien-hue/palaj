@@ -58,7 +58,7 @@ class DummyTrancheRepo:
         self.calls = []
     def get(self, id_):
         self.calls.append(id_)
-        return {"id": id_, "abbr": f"T-{id_}"}
+        return {"id": id_, "nom": f"T-{id_}"}
 
 
 def test_get_agent_and_tranche_loads_once():
@@ -70,7 +70,7 @@ def test_get_agent_and_tranche_loads_once():
     agent = a.get_agent(agent_repo)
     tranche = a.get_tranche(tranche_repo)
     assert agent == {"id": 10, "nom": "Agent-10"}
-    assert tranche == {"id": 20, "abbr": "T-20"}
+    assert tranche == {"id": 20, "nom": "T-20"}
     assert a._agent == agent
     assert a._tranche == tranche
 

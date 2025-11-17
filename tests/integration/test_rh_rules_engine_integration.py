@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from core.rh_rules.rh_rules_engine import RHRulesEngine
 from core.rh_rules import AmplitudeMaxRule, ReposDoubleRule, GrandePeriodeTravailRule
 from core.domain.contexts.planning_context import PlanningContext
-from core.domain.entities.work_day import WorkDay
+from core.domain.models.work_day import WorkDay
 from core.domain.entities import TypeJour
 
 class FakeTranche:

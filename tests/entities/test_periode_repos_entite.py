@@ -1,5 +1,5 @@
 from datetime import date, timedelta
-from core.domain.entities.periode_repos import PeriodeRepos
+from core.domain.models.periode_repos import PeriodeRepos
 
 
 # -------------------------------------------------------------------
