@@ -4,7 +4,7 @@ from datetime import timedelta
 from core.rh_rules.base_rule import BaseRule, RuleScope
 from core.utils.domain_alert import DomainAlert, Severity
 from core.domain.contexts.planning_context import PlanningContext
-from core.domain.services.grande_periode_travail_service import GrandePeriodeTravailService
+from core.application.services.planning.grande_periode_travail_analyzer import GrandePeriodeTravailAnalyzer
 from core.domain.entities import TypeJour
 
 
@@ -21,11 +21,11 @@ class ReposDoubleRule(BaseRule):
     NB_JOURS_REPOS_MIN = 2
 
     def __init__(self):
-        self.gpt_service = GrandePeriodeTravailService()
+        self.gpt_service = GrandePeriodeTravailAnalyzer()
 
     def check(self, context: PlanningContext) -> Tuple[bool, List[DomainAlert]]:
         alerts: List[DomainAlert] = []
-        gpts = self.gpt_service.detect_gpts(context)
+        gpts = self.gpt_service.detect(context)
         if not gpts:
             return True, []
 

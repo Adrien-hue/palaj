@@ -1,20 +1,40 @@
 # core/domain/contexts/planning_context.py
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import List, Optional
 
 from core.domain.entities import Agent
 
-from core.domain.entities.work_day import WorkDay
+from core.domain.models.work_day import WorkDay
 
-from core.agent_planning import AgentPlanning
+from core.domain.models.agent_planning import AgentPlanning
 
 @dataclass
 class PlanningContext:
     """
-    Représente le contexte complet de planification pour un agent donné.
-    Sert de base à toutes les vérifications de règles RH.
+    📘 PlanningContext
+    ==================
+    Structure métier centrale représentant le **contexte complet de planification**
+    d’un agent sur une période donnée.
+
+    Elle contient :
+    - un agent (`Agent`)
+    - une liste de WorkDay (jours avec états et horaires)
+    - une éventuelle date de référence (début d’analyse)
+
+    👉 Ce n'est pas un service applicatif.
+    👉 C'est une *structure d'analyse métier* utilisée par les services :
+       - GrandePeriodeTravailAnalyzer
+       - PeriodeReposAnalyzer
+       - règles RH futures
+       - validations de plannings
+
+    Toutes ses méthodes :
+    - sont **pures** (aucun accès à la DB)
+    - analysent les `WorkDay` déjà présents
+    - ne modifient aucune donnée métier
     """
+
     agent: Agent
     work_days: List[WorkDay]
     date_reference: Optional[date] = None
@@ -36,7 +56,8 @@ class PlanningContext:
     @classmethod
     def from_planning(cls, planning: AgentPlanning) -> "PlanningContext":
         """
-        Crée un contexte de planification complet à partir d'un AgentPlanning.
+        Construit un PlanningContext à partir d'un objet AgentPlanning.
+        (Seule dépendance autorisée, car AgentPlanning est déjà métier.)
         """
         agent = planning.get_agent()
         work_days = planning.get_work_days()

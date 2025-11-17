@@ -9,10 +9,7 @@ from db.repositories.qualification_repo import QualificationRepository
 from db.repositories.tranche_repo import TrancheRepository
 
 
-from models.affectation import Affectation
-from models.poste import Poste
-from models.agent import Agent
-from models.tranche import Tranche
+from core.domain.entities import Affectation, Agent, Poste, Tranche
 
 from core.domain.services.planning_validator import PlanningValidator
 

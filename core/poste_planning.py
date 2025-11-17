@@ -195,7 +195,7 @@ class PostePlanning:
             agent_names_str = ", ".join(agent_names) if agent_names else f"{GRAY}(aucun agent){RESET}"
 
             print(
-                f"  - {tranche.abbr:<10} : {color}{nb_agents} agent(s) distinct(s){RESET} "
+                f"  - {tranche.nom:<10} : {color}{nb_agents} agent(s) distinct(s){RESET} "
                 f"({nb_affectations}/{total_jours} affectations) → {agent_names_str}"
             )
 
@@ -215,14 +215,14 @@ class PostePlanning:
 
         tranches = self.get_tranches()
         tranche_ids = [t.id for t in tranches]
-        tranche_abbrs = [t.abbr for t in tranches]
+        tranche_noms = [t.nom for t in tranches]
 
         if not tranches:
             print(f"[INFO] Aucun tranche pour le poste {self.poste.nom}")
             return
 
         # En-têtes avec couleur
-        headers = [f"{CYAN}{BOLD}Date{RESET}"] + [f"{BOLD}{abbr}{RESET}" for abbr in tranche_abbrs]
+        headers = [f"{CYAN}{BOLD}Date{RESET}"] + [f"{BOLD}{nom}{RESET}" for nom in tranche_noms]
 
         # Pré-chargement des affectations
         affectations = self.get_affectations()
@@ -315,4 +315,4 @@ class PostePlanning:
             else:
                 couleur = GREEN
 
-            print(f"  - {tranche.abbr:<10} : {couleur}{taux_tranche:6.2f}%{RESET} ({total_couvert_tranche}/{total_attendu_tranche})")
+            print(f"  - {tranche.nom:<10} : {couleur}{taux_tranche:6.2f}%{RESET} ({total_couvert_tranche}/{total_attendu_tranche})")

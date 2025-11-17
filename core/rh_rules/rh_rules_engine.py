@@ -12,7 +12,7 @@ class RHRulesEngine:
     Moteur centralisant et exécutant toutes les règles RH sur un PlanningContext.
     """
 
-    def __init__(self, rules: List[BaseRule] | None = None, verbose: bool = True):
+    def __init__(self, rules: List[BaseRule] | None = None, verbose: bool = False):
         # Si aucune règle n'est passée, on peut charger un set de base par défaut
         self.rules = rules or []
         self.verbose = verbose

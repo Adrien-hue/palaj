@@ -2,13 +2,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from datetime import date
-from typing import List, Optional
+from typing import Optional
 
 if TYPE_CHECKING:
     from core.domain.entities import Agent, Poste
-
-    from db.repositories.agent_repo import AgentRepository
-    from db.repositories.poste_repo import PosteRepository
 
 class Qualification:
     """
@@ -20,8 +17,6 @@ class Qualification:
         self.agent_id = agent_id
         self.poste_id = poste_id
         self.date_qualification = date_qualification
-        
-        self.id = f"{self.agent_id}_{self.poste_id}"
 
         self._agent: Agent | None = None
         self._poste: Poste | None = None
@@ -34,15 +29,20 @@ class Qualification:
     def __str__(self):
         return f"Qualification(agent={self.agent_id}, poste={self.poste_id})"
 
-    def get_agent(self, agent_repo: AgentRepository):
-        if self._agent is None:
-            self._agent = agent_repo.get(self.agent_id)
+    # Getters / Setters
+    @property
+    def agent(self) -> Agent | None:
         return self._agent
-
-    def get_poste(self, poste_repo: PosteRepository):
-        if self._poste is None:
-            self._poste = poste_repo.get(self.poste_id)
+    
+    def set_agent(self, agent: Optional[Agent]) -> None:
+        self._agent = agent
+    
+    @property
+    def poste(self) -> Poste | None:
         return self._poste
+    
+    def set_poste(self, poste: Optional[Poste]) -> None:
+        self._poste = poste
 
     # --- JSON helpers ---
     def to_dict(self):

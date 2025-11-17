@@ -4,7 +4,7 @@ from core.rh_rules.base_rule import BaseRule, RuleScope
 from core.utils.domain_alert import DomainAlert, Severity
 from core.utils.time_helpers import minutes_to_duree_str
 from core.domain.contexts.planning_context import PlanningContext
-from core.domain.services.grande_periode_travail_service import GrandePeriodeTravailService
+from core.application.services.planning.grande_periode_travail_analyzer import GrandePeriodeTravailAnalyzer
 
 
 class GrandePeriodeTravailRule(BaseRule):
@@ -26,7 +26,7 @@ class GrandePeriodeTravailRule(BaseRule):
     GPT_MAX_MINUTES = 48 * 60  # 48 heures en minutes
 
     def __init__(self):
-        self.gpt_service = GrandePeriodeTravailService()
+        self.gpt_service = GrandePeriodeTravailAnalyzer()
 
     def check(self, context: PlanningContext) -> Tuple[bool, List[DomainAlert]]:
         alerts: List[DomainAlert] = []
@@ -46,7 +46,7 @@ class GrandePeriodeTravailRule(BaseRule):
             return False, alerts
 
         # 🧩 Détection des GPT directement à partir du contexte
-        gpts = self.gpt_service.detect_gpts(context)
+        gpts = self.gpt_service.detect(context)
 
         if not gpts:
             return True, []

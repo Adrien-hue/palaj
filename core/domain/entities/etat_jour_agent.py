@@ -1,7 +1,9 @@
 from __future__ import annotations
 from datetime import date
 from enum import Enum
-from typing import Literal, Optional
+from typing import Optional
+
+from core.domain.entities import Agent
 
 class TypeJour(str, Enum):
     ABSENCE = "absence"
@@ -32,13 +34,7 @@ class EtatJourAgent:
         self.type_jour: TypeJour = type_jour
         self.description = description or ""
 
-        self.id = f"{agent_id}_{jour.strftime('%Y%m%d')}"
-
-    def __eq__(self, other: object) -> bool:
-        return isinstance(other, EtatJourAgent) and self.id == other.id
-
-    def __hash__(self) -> int:
-        return hash(self.id)
+        self._agent: Agent | None = None
 
     def __repr__(self):
         return f"<EtatJourAgent {self.agent_id} {self.jour.isoformat()} [{self.type_jour}]>"
@@ -57,6 +53,14 @@ class EtatJourAgent:
             f"  {GRAY}Type:{RESET} {YELLOW}{self.type_jour}{RESET}\n"
             f"  {GRAY}Description:{RESET} {self.description or '—'}\n"
         )
+    
+    # Getters / Setters
+    @property
+    def agent(self) -> Agent | None:
+        return self._agent
+
+    def set_agent(self, agent: Agent | None) -> None:
+        self._agent = agent
 
     # --- JSON helpers ---
     def to_dict(self) -> dict:

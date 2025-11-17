@@ -4,7 +4,7 @@ from core.rh_rules.base_rule import BaseRule, RuleScope
 from core.utils.domain_alert import DomainAlert, Severity
 from core.utils.time_helpers import minutes_to_duree_str
 from core.domain.contexts.planning_context import PlanningContext
-from core.domain.services.periode_repos_service import PeriodeReposService
+from core.application.services.planning.periode_repos_analyzer import PeriodeReposAnalyzer
 
 class ReposQualifieInfoRule(BaseRule):
     """
@@ -17,11 +17,11 @@ class ReposQualifieInfoRule(BaseRule):
     scope = RuleScope.PERIOD
 
     def __init__(self):
-        self.service = PeriodeReposService()
+        self.service = PeriodeReposAnalyzer()
 
     def check(self, context: PlanningContext) -> Tuple[bool, List[DomainAlert]]:
         alerts: List[DomainAlert] = []
-        periodes = self.service.detect_periodes_repos(context)
+        periodes = self.service.detect(context)
         
         if not periodes:
             return True, []

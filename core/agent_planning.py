@@ -4,7 +4,7 @@ from typing import Iterable, Optional, List, Tuple
 
 from core.domain.entities import Affectation, Agent, EtatJourAgent, Tranche
 
-from core.domain.entities.work_day import WorkDay
+from core.domain.models.work_day import WorkDay
 
 from db.repositories.affectation_repo import AffectationRepository
 from db.repositories.etat_jour_agent_repo import EtatJourAgentRepository
@@ -362,7 +362,7 @@ class AgentPlanning:
                 for tid in tranche_ids:
                     tranche = self.tranche_repo.get(tid)
                     if tranche:
-                        tranche_strs.append(f"{GREEN}{tranche.abbr}{RESET}")
+                        tranche_strs.append(f"{GREEN}{tranche.nom}{RESET}")
                     else:
                         tranche_strs.append(f"{RED}Tranche {tid} ?{RESET}")
                 line += " | ".join(tranche_strs)

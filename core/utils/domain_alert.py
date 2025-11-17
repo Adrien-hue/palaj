@@ -26,6 +26,7 @@ class DomainAlert:
 
     def __str__(self):
         color_map = {
+            Severity.SUCCESS: "\033[92m ",
             Severity.INFO: "\033[94m ",
             Severity.WARNING: "\033[93m ",
             Severity.ERROR: "\033[91m ",

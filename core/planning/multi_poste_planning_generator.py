@@ -1,7 +1,7 @@
 from datetime import date, timedelta
 from typing import List, Dict
 
-from models.poste import Poste
+from core.domain.entities import Poste
 from db.repositories.agent_repo import AgentRepository
 from db.repositories.affectation_repo import AffectationRepository
 from db.repositories.etat_jour_agent_repo import EtatJourAgentRepository

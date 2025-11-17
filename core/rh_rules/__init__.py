@@ -1,9 +1,10 @@
-from .rule_amplitude_max import AmplitudeMaxRule
-from .rule_duree_travail import DureeTravailRule
-from .rule_grande_periode_travail import GrandePeriodeTravailRule
-from .rule_repos_double import ReposDoubleRule
-from .rule_repos_qualifie_info import ReposQualifieInfoRule
-from .rule_repos_quotidien import ReposQuotidienRule
+from core.rh_rules.rule_amplitude_max import AmplitudeMaxRule
+from core.rh_rules.rule_duree_travail import DureeTravailRule
+from core.rh_rules.rule_grande_periode_travail import GrandePeriodeTravailRule
+from core.rh_rules.rule_repos_double import ReposDoubleRule
+from core.rh_rules.rule_repos_qualifie_info import ReposQualifieInfoRule
+from core.rh_rules.rule_repos_quotidien import ReposQuotidienRule
+from core.rh_rules.rh_rules_engine import RHRulesEngine
 
 __all__ = [
     "AmplitudeMaxRule",
@@ -12,4 +13,5 @@ __all__ = [
     "ReposDoubleRule",
     "ReposQualifieInfoRule",
     "ReposQuotidienRule",
+    "RHRulesEngine",
 ]

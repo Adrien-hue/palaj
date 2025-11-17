@@ -1,0 +1,26 @@
+# core/domain/services/__init__.py
+from core.domain.services.affectation_validator_service import AffectationValidatorService
+from core.domain.services.agent_validator_service import AgentValidatorService
+from core.domain.services.etat_jour_agent_validator_service import EtatJourAgentValidatorService
+from core.domain.services.poste_validator_service import PosteValidatorService
+from core.domain.services.qualification_validator_service import QualificationValidatorService
+from core.domain.services.regime_validator_service import RegimeValidatorService
+from core.domain.services.tranche_validator_service import TrancheValidatorService
+
+affectation_validator_service = AffectationValidatorService()
+agent_validator_service = AgentValidatorService()
+etat_jour_agent_validator_service = EtatJourAgentValidatorService()
+poste_validator_service = PosteValidatorService()
+qualification_validator_service = QualificationValidatorService()
+regime_validator_service = RegimeValidatorService()
+tranche_validator_service = TrancheValidatorService()
+
+__all__ = [
+    "affectation_validator_service",
+    "agent_validator_service",
+    "etat_jour_agent_validator_service",
+    "poste_validator_service",
+    "qualification_validator_service",
+    "regime_validator_service",
+    "tranche_validator_service",
+]

@@ -1,4 +1,8 @@
 from __future__ import annotations
+from typing import TYPE_CHECKING, List, Optional
+
+if TYPE_CHECKING:
+    from core.domain.entities import Agent
 
 class Regime:
     def __init__(self, id: int, nom: str, desc: str = "", duree_moyenne_journee_service_min: int = 0, repos_periodiques_annuels: int = 0):
@@ -16,6 +20,8 @@ class Regime:
         self.desc = desc
         self.duree_moyenne_journee_service_min = duree_moyenne_journee_service_min
         self.repos_periodiques_annuels = repos_periodiques_annuels
+
+        self._agents: Optional[List[Agent]] = None
 
     def __repr__(self):
         heures = self.duree_moyenne_journee_service_min // 60
@@ -43,6 +49,14 @@ class Regime:
             f"  {GRAY}Durée moyenne journée:{RESET} {YELLOW}{duree_str}{RESET}\n"
             f"  {GRAY}Repos périodiques annuels:{RESET} {self.repos_periodiques_annuels}\n"
         )
+    
+    # Getters / Setters
+    @property
+    def agents(self) -> Optional[List[Agent]]:
+        return self._agents
+
+    def set_agents(self, agents: Optional[List[Agent]]):
+        self._agents = agents
 
     def to_dict(self):
         return {
