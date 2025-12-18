@@ -15,6 +15,12 @@ class TrancheRepository(SQLRepository[TrancheModel, TrancheEntity]):
     def __init__(self):
         super().__init__(db, TrancheModel, TrancheEntity)
 
+    def get_by_id(self, tranche_id: int) -> TrancheEntity | None:
+        """
+        Récupère une tranche horaire par son ID.
+        """
+        return self.get(tranche_id)
+
     def get_by_name(self, nom: str) -> TrancheEntity | None:
         """
         Recherche une ou plusieurs tranches par nom (insensible à la casse).

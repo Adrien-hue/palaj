@@ -1,6 +1,12 @@
+# core/application/services/qualification_service.py
 from typing import List
-from core.domain.entities.qualification import Qualification
 
+from core.application.ports import (
+    AgentRepositoryPort,
+    PosteRepositoryPort,
+    QualificationRepositoryPort,
+)
+from core.domain.entities import Qualification
 
 class QualificationService:
     """
@@ -10,10 +16,15 @@ class QualificationService:
     - Délègue la validation métier au QualificationValidatorService
     """
 
-    def __init__(self, qualification_repo, agent_repo, poste_repo):
-        self.qualification_repo = qualification_repo
+    def __init__(
+        self,
+        agent_repo: AgentRepositoryPort,
+        poste_repo: PosteRepositoryPort,
+        qualification_repo: QualificationRepositoryPort,
+    ):
         self.agent_repo = agent_repo
         self.poste_repo = poste_repo
+        self.qualification_repo = qualification_repo
 
     # =========================================================
     # 🔹 Chargement
@@ -41,9 +52,9 @@ class QualificationService:
         if not qualification:
             return None
 
-        qualification.set_agent(self.agent_repo.get(qualification.agent_id))
+        qualification.set_agent(self.agent_repo.get_by_id(qualification.agent_id))
         
-        qualification.set_poste(self.poste_repo.get(qualification.poste_id))
+        qualification.set_poste(self.poste_repo.get_by_id(qualification.poste_id))
 
         return qualification
 
@@ -52,9 +63,9 @@ class QualificationService:
         qualifications = self.qualification_repo.list_all()
 
         for q in qualifications:
-            q.set_agent(self.agent_repo.get(q.agent_id))
+            q.set_agent(self.agent_repo.get_by_id(q.agent_id))
         
-            q.set_poste(self.poste_repo.get(q.poste_id))
+            q.set_poste(self.poste_repo.get_by_id(q.poste_id))
 
         return qualifications
     

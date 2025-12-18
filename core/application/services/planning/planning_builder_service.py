@@ -45,7 +45,7 @@ class PlanningBuilderService:
         end_date: date
     ) -> AgentPlanning:
 
-        agent = self.agent_service.get(agent_id)
+        agent = self.agent_service.get_by_id(agent_id)
         if not agent:
             raise ValueError(f"Agent {agent_id} introuvable.")
 
@@ -63,7 +63,7 @@ class PlanningBuilderService:
 
         tranches_by_id: Dict[int, Tranche] = {}
         for tid in tranche_ids:
-            tranche = self.tranche_service.get(tid)
+            tranche = self.tranche_service.get_by_id(tid)
             if tranche is not None:
                 tranches_by_id[tid] = tranche
 
@@ -88,7 +88,7 @@ class PlanningBuilderService:
         Construit un PostePlanning pour un poste donné sur la période [start_date, end_date].
         """
 
-        poste = self.poste_service.get(poste_id)
+        poste = self.poste_service.get_by_id(poste_id)
         if not poste:
             raise ValueError(f"Poste {poste_id} introuvable.")
 
@@ -107,7 +107,7 @@ class PlanningBuilderService:
 
         agents_by_id = {}
         for aid in agent_ids:
-            agent = self.agent_service.get(aid)
+            agent = self.agent_service.get_by_id(aid)
             if agent is not None:
                 agents_by_id[aid] = agent
 

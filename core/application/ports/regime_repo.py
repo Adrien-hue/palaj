@@ -1,0 +1,9 @@
+from __future__ import annotations
+from typing import List, Optional, Protocol, runtime_checkable
+from core.domain.entities.regime import Regime
+
+
+@runtime_checkable
+class RegimeRepositoryPort(Protocol):
+    def get_by_id(self, regime_id: int) -> Optional[Regime]: ...
+    def list_all(self) -> List[Regime]: ...

@@ -30,6 +30,12 @@ class AgentRepository(SQLRepository[AgentModel, AgentEntity]):
                 .first()
             )
             return EntityMapper.model_to_entity(model, AgentEntity) if model else None
+        
+    def get_by_id(self, agent_id: int) -> AgentEntity | None:
+        """
+        Retourne un agent par son identifiant.
+        """
+        return self.get(agent_id)
 
     def list_by_regime_id(self, regime_id: int) -> list[AgentEntity]:
         """

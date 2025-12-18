@@ -14,6 +14,12 @@ class RegimeRepository(SQLRepository[RegimeModel, RegimeEntity]):
     def __init__(self):
         super().__init__(db, RegimeModel, RegimeEntity)
 
+    def get_by_id(self, regime_id: int) -> RegimeEntity | None:
+        """
+        Récupère un régime de travail par son ID.
+        """
+        return self.get(regime_id)
+
     def find_by_nom(self, nom: str) -> RegimeEntity | None:
         """Recherche un régime par nom (insensible à la casse)."""
         with self.db.session_scope() as session:

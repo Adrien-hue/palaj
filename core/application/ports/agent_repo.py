@@ -1,0 +1,10 @@
+from __future__ import annotations
+from typing import List, Optional, Protocol, runtime_checkable
+from core.domain.entities.agent import Agent
+
+
+@runtime_checkable
+class AgentRepositoryPort(Protocol):
+    def get_by_id(self, agent_id: int) -> Optional[Agent]: ...
+    def list_all(self) -> List[Agent]: ...
+    def list_by_regime_id(self, regime_id: int) -> List[Agent]: ...

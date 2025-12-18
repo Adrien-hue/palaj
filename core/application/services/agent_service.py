@@ -1,7 +1,14 @@
 # core/application/service/agent_service.py
 from typing import List
-from core.domain.entities.agent import Agent
 
+from core.application.ports import (
+    AffectationRepositoryPort,
+    AgentRepositoryPort,
+    EtatJourAgentRepositoryPort,
+    QualificationRepositoryPort,
+    RegimeRepositoryPort,
+)
+from core.domain.entities import Agent
 
 class AgentService:
     """
@@ -11,9 +18,16 @@ class AgentService:
     - Délègue la validation métier au AgentValidatorService
     """
 
-    def __init__(self, agent_repo, affectation_repo, etat_jour_agent_repo, regime_repo, qualification_repo):
-        self.agent_repo = agent_repo
+    def __init__(
+        self,
+        affectation_repo: AffectationRepositoryPort,
+        agent_repo: AgentRepositoryPort,
+        etat_jour_agent_repo: EtatJourAgentRepositoryPort,
+        qualification_repo: QualificationRepositoryPort,
+        regime_repo: RegimeRepositoryPort,
+    ):
         self.affectation_repo = affectation_repo
+        self.agent_repo = agent_repo
         self.etat_jour_agent_repo = etat_jour_agent_repo
         self.regime_repo = regime_repo
         self.qualification_repo = qualification_repo
@@ -21,8 +35,8 @@ class AgentService:
     def list_all(self) -> List[Agent]:
         return self.agent_repo.list_all()
     
-    def get(self, agent_id: int) -> Agent | None:
-        return self.agent_repo.get(agent_id)
+    def get_by_id(self, agent_id: int) -> Agent | None:
+        return self.agent_repo.get_by_id(agent_id)
 
     # =========================================================
     # 🔹 Chargement complet
@@ -31,13 +45,13 @@ class AgentService:
         """
         Récupère un agent enrichi avec son régime et ses affectations.
         """
-        agent = self.agent_repo.get(agent_id)
+        agent = self.agent_repo.get_by_id(agent_id)
         if not agent:
             return None
 
         # Charger le régime
         if agent.regime_id:
-            agent.set_regime(self.regime_repo.get(agent.regime_id))
+            agent.set_regime(self.regime_repo.get_by_id(agent.regime_id))
 
         # Charger les affectations
         agent.set_affectations(self.affectation_repo.list_for_agent(agent.id))
@@ -55,7 +69,7 @@ class AgentService:
         agents = self.agent_repo.list_all()
         for a in agents:
             if a.regime_id:
-                a.set_regime(self.regime_repo.get(a.regime_id))
+                a.set_regime(self.regime_repo.get_by_id(a.regime_id))
 
             a.set_affectations(self.affectation_repo.list_for_agent(a.id))
 

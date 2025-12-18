@@ -10,6 +10,12 @@ class PosteRepository(SQLRepository[PosteModel, PosteEntity]):
     def __init__(self):
         super().__init__(db, PosteModel, PosteEntity)
 
+    def get_by_id(self, poste_id: int) -> PosteEntity | None:
+        """
+        Récupère un poste par son ID.
+        """
+        return self.get(poste_id)
+
     def get_by_name(self, nom: str) -> PosteEntity | None:
         with self.db.session_scope() as session:
             model = (

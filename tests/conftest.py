@@ -12,7 +12,7 @@ from datetime import date, time, timedelta
 
 import pytest
 
-from core.domain.entities import Affectation, Agent, EtatJourAgent, Tranche, TypeJour
+from core.domain.entities import Affectation, Agent, EtatJourAgent, Poste, Qualification, Regime, Tranche, TypeJour
 from core.domain.models.work_day import WorkDay
 from core.domain.contexts.planning_context import PlanningContext
 
@@ -385,6 +385,65 @@ def make_planning_like():
         return _FakePlanning(agent, work_days, start_date)
 
     return _factory
+
+@pytest.fixture
+def make_poste():
+    """
+    Factory pour créer un Poste simple.
+    Usage :
+        poste = make_poste(id=1, nom="GM J")
+    """
+    def _make(
+        id: int = 1000,
+        nom: str = "POSTE_TEST",
+    ) -> Poste:
+        return Poste(id=id, nom=nom)
+
+    return _make
+
+@pytest.fixture
+def make_qualification():
+    """
+    Factory pour créer une Qualification simple.
+    Usage :
+        q = make_qualification(agent_id=42, poste_id=3)
+    """
+    def _make(
+        agent_id: int = 1000,
+        poste_id: int = 1,
+        date_qualification: date | None = None,
+    ) -> Qualification:
+        return Qualification(
+            agent_id=agent_id,
+            poste_id=poste_id,
+            date_qualification=date_qualification,
+        )
+
+    return _make
+
+@pytest.fixture
+def make_regime():
+    """
+    Factory pour créer un Regime simple.
+    Usage :
+        regime = make_regime(id=1, nom="R1")
+    """
+    def _make(
+        id: int = 1000,
+        nom: str = "REGIME_TEST",
+        desc: str = "",
+        duree_moyenne_journee_service_min: int = 0,
+        repos_periodiques_annuels: int = 0,
+    ) -> Regime:
+        return Regime(
+            id=id,
+            nom=nom,
+            desc=desc,
+            duree_moyenne_journee_service_min=duree_moyenne_journee_service_min,
+            repos_periodiques_annuels=repos_periodiques_annuels,
+        )
+
+    return _make
 
 @pytest.fixture
 def make_tranche():

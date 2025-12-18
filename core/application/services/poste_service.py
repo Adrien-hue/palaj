@@ -1,6 +1,12 @@
 # core/application/services/poste_service.py
 from typing import List
-from core.domain.entities.poste import Poste
+
+from core.application.ports import (
+    PosteRepositoryPort,
+    QualificationRepositoryPort,
+    TrancheRepositoryPort,
+)
+from core.domain.entities import Poste
 
 
 class PosteService:
@@ -8,13 +14,18 @@ class PosteService:
     Service applicatif : coordonne les repositories et le validateur métier.
     """
 
-    def __init__(self, poste_repo, tranche_repo, qualification_repo):
+    def __init__(
+        self,
+        poste_repo: PosteRepositoryPort,
+        qualification_repo: QualificationRepositoryPort,
+        tranche_repo: TrancheRepositoryPort,
+    ):
         self.poste_repo = poste_repo
-        self.tranche_repo = tranche_repo
         self.qualification_repo = qualification_repo
+        self.tranche_repo = tranche_repo
 
-    def get(self, poste_id: int) -> Poste | None:
-        return self.poste_repo.get(poste_id)
+    def get_by_id(self, poste_id: int) -> Poste | None:
+        return self.poste_repo.get_by_id(poste_id)
     
     def list_all(self) -> List[Poste]:
         return self.poste_repo.list_all()
@@ -23,7 +34,7 @@ class PosteService:
     # 🔹 Chargement complet
     # =========================================================
     def get_poste_complet(self, poste_id: int) -> Poste | None:
-        poste = self.poste_repo.get(poste_id)
+        poste = self.poste_repo.get_by_id(poste_id)
         if not poste:
             return None
 

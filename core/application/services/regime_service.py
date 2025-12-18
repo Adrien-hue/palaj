@@ -1,5 +1,11 @@
+# core/application/services/regime_service.py
 from typing import List
-from core.domain.entities.regime import Regime
+
+from core.application.ports import (
+    AgentRepositoryPort,
+    RegimeRepositoryPort,
+)
+from core.domain.entities import Regime
 
 
 class RegimeService:
@@ -9,7 +15,11 @@ class RegimeService:
     - Délègue la validation métier au RegimeValidatorService
     """
 
-    def __init__(self, agent_repo, regime_repo):
+    def __init__(
+        self,
+        agent_repo: AgentRepositoryPort,
+        regime_repo: RegimeRepositoryPort,
+    ):
         self.agent_repo = agent_repo
         self.regime_repo = regime_repo
 
@@ -20,7 +30,7 @@ class RegimeService:
         """
         Récupère un régime enrichi avec ses agents.
         """
-        regime = self.regime_repo.get(regime_id)
+        regime = self.regime_repo.get_by_id(regime_id)
         if not regime:
             return None
 

@@ -1,238 +1,133 @@
 from datetime import date
-from typing import Optional
+from unittest.mock import create_autospec
+
+import pytest
 
 from core.application.services.affectation_service import AffectationService
+from core.application.ports import (
+    AffectationRepositoryPort,
+    AgentRepositoryPort,
+    TrancheRepositoryPort,
+)
 
 
-# ---------------------------------------------------------------------
-# Fakes pour les tests
-# ---------------------------------------------------------------------
+@pytest.fixture
+def repos():
+    # autospec => méthodes autorisées = celles du Protocol
+    affectation_repo = create_autospec(AffectationRepositoryPort, instance=True)
+    agent_repo = create_autospec(AgentRepositoryPort, instance=True)
+    tranche_repo = create_autospec(TrancheRepositoryPort, instance=True)
+    return affectation_repo, agent_repo, tranche_repo
 
 
-class DummyAffectation:
-    """Mini version d'Affectation pour tester le service sans dépendre du domaine complet."""
-
-    def __init__(self, agent_id: int, tranche_id: int):
-        self.agent_id = agent_id
-        self.tranche_id = tranche_id
-        self.agent = None
-        self.tranche = None
-
-    def set_agent(self, agent):
-        self.agent = agent
-
-    def set_tranche(self, tranche):
-        self.tranche = tranche
-
-    def __repr__(self):
-        return f"DummyAffectation(agent_id={self.agent_id}, tranche_id={self.tranche_id})"
-
-
-class FakeAffectationRepo:
-    def __init__(self):
-        self.list_all_result = []
-        self.list_for_agent_args = []
-        self.list_for_day_args = []
-        self.list_for_poste_args = []
-        self.get_for_agent_and_day_args = []
-        self.get_for_agent_and_day_result = None
-
-    def list_all(self):
-        return self.list_all_result
-
-    def list_for_agent(self, agent_id: int):
-        self.list_for_agent_args.append(agent_id)
-        # pour simplifier, on retourne une liste distincte pour vérifier
-        return [DummyAffectation(agent_id=agent_id, tranche_id=1)]
-
-    def list_for_day(self, jour):
-        self.list_for_day_args.append(jour)
-        return [DummyAffectation(agent_id=1, tranche_id=2)]
-
-    def list_for_poste(self, poste_id: int, start: Optional[date] = None, end: Optional[date] = None):
-        self.list_for_poste_args.append(poste_id)
-        return [DummyAffectation(agent_id=2, tranche_id=3)]
-
-    def get_for_agent_and_day(self, agent_id: int, jour: date):
-        self.get_for_agent_and_day_args.append((agent_id, jour))
-        return self.get_for_agent_and_day_result
-
-
-class FakeAgentRepo:
-    def __init__(self):
-        self.get_args = []
-
-    def get(self, agent_id: int):
-        self.get_args.append(agent_id)
-        return {"type": "agent", "id": agent_id}
-
-
-class FakeTrancheRepo:
-    def __init__(self):
-        self.get_args = []
-
-    def get(self, tranche_id: int):
-        self.get_args.append(tranche_id)
-        return {"type": "tranche", "id": tranche_id}
-
-
-# ---------------------------------------------------------------------
-# Tests de délégation simples
-# ---------------------------------------------------------------------
-
-
-def test_list_affectations_delegates_to_repo():
-    repo = FakeAffectationRepo()
-    repo.list_all_result = [
-        DummyAffectation(agent_id=1, tranche_id=10),
-        DummyAffectation(agent_id=2, tranche_id=20),
-    ]
-    service = AffectationService(
-        affectation_repo=repo,
-        agent_repo=FakeAgentRepo(),
-        tranche_repo=FakeTrancheRepo(),
+@pytest.fixture
+def service(repos):
+    affectation_repo, agent_repo, tranche_repo = repos
+    return AffectationService(
+        affectation_repo=affectation_repo,
+        agent_repo=agent_repo,
+        tranche_repo=tranche_repo,
     )
+
+def test_list_affectations_delegue_au_repo(service, repos, make_affectation):
+    affectation_repo, _, _ = repos
+    fake_list = [make_affectation(agent_id=1, tranche_id=10), make_affectation(agent_id=2, tranche_id=20)]
+    affectation_repo.list_all.return_value = fake_list
 
     result = service.list_affectations()
 
-    assert result is repo.list_all_result
-    assert len(result) == 2
+    assert result == fake_list
+    affectation_repo.list_all.assert_called_once_with()
 
 
-def test_list_for_agent_delegates_and_filters_by_agent():
-    repo = FakeAffectationRepo()
-    service = AffectationService(
-        affectation_repo=repo,
-        agent_repo=FakeAgentRepo(),
-        tranche_repo=FakeTrancheRepo(),
-    )
+def test_list_for_agent_delegue_au_repo(service, repos, make_affectation):
+    affectation_repo, _, _ = repos
+    fake_list = [make_affectation(agent_id=7, tranche_id=99)]
+    affectation_repo.list_for_agent.return_value = fake_list
 
-    result = service.list_for_agent(agent_id=42)
+    result = service.list_for_agent(agent_id=7)
 
-    # Le repo a bien reçu l'ID
-    assert repo.list_for_agent_args == [42]
-    # Le résultat vient bien du repo
-    assert len(result) == 1
-    assert result[0].agent_id == 42
+    assert result == fake_list
+    affectation_repo.list_for_agent.assert_called_once_with(7)
 
 
-def test_list_for_day_delegates_to_repo():
-    repo = FakeAffectationRepo()
-    service = AffectationService(
-        affectation_repo=repo,
-        agent_repo=FakeAgentRepo(),
-        tranche_repo=FakeTrancheRepo(),
-    )
+def test_list_for_day_delegue_au_repo(service, repos, make_affectation):
+    affectation_repo, _, _ = repos
+    j = date(2025, 1, 2)
+    fake_list = [make_affectation(agent_id=1, tranche_id=10, jour=j)]
+    affectation_repo.list_for_day.return_value = fake_list
 
-    jour = date(2025, 1, 1)
-    result = service.list_for_day(jour)
+    result = service.list_for_day(j)
 
-    assert repo.list_for_day_args == [jour]
-    assert len(result) == 1
-    assert isinstance(result[0], DummyAffectation)
+    assert result == fake_list
+    affectation_repo.list_for_day.assert_called_once_with(j)
 
 
-def test_list_for_poste_delegates_to_repo():
-    repo = FakeAffectationRepo()
-    service = AffectationService(
-        affectation_repo=repo,
-        agent_repo=FakeAgentRepo(),
-        tranche_repo=FakeTrancheRepo(),
-    )
+def test_list_for_poste_delegue_au_repo(service, repos, make_affectation):
+    affectation_repo, _, _ = repos
+    start = date(2025, 1, 1)
+    end = date(2025, 1, 31)
+    fake_list = [make_affectation(agent_id=1, tranche_id=10)]
+    affectation_repo.list_for_poste.return_value = fake_list
 
-    result = service.list_for_poste(poste_id=7, start=None, end=None)
+    result = service.list_for_poste(poste_id=3, start=start, end=end)
 
-    assert repo.list_for_poste_args == [7]
-    assert len(result) == 1
-    assert isinstance(result[0], DummyAffectation)
+    assert result == fake_list
+    affectation_repo.list_for_poste.assert_called_once_with(3, start, end)
 
 
-# ---------------------------------------------------------------------
-# Tests sur get_affectation_complet
-# ---------------------------------------------------------------------
+def test_get_affectation_complet_retourne_none_si_absente(service, repos):
+    affectation_repo, agent_repo, tranche_repo = repos
+    affectation_repo.get_for_agent_and_day.return_value = None
 
-
-def test_get_affectation_complet_returns_none_if_repo_returns_none():
-    repo = FakeAffectationRepo()
-    repo.get_for_agent_and_day_result = None
-    agent_repo = FakeAgentRepo()
-    tranche_repo = FakeTrancheRepo()
-
-    service = AffectationService(
-        affectation_repo=repo,
-        agent_repo=agent_repo,
-        tranche_repo=tranche_repo,
-    )
-
-    jour = date(2025, 1, 1)
-    result = service.get_affectation_complet(agent_id=99, jour=jour)
+    result = service.get_affectation_complet(agent_id=1, jour=date(2025, 1, 1))
 
     assert result is None
-    # Dans ce cas, on n'appelle pas les autres repos
-    assert agent_repo.get_args == []
-    assert tranche_repo.get_args == []
+    agent_repo.get_by_id.assert_not_called()
+    tranche_repo.get_by_id.assert_not_called()
 
 
-def test_get_affectation_complet_enriches_affectation():
-    repo = FakeAffectationRepo()
-    agent_repo = FakeAgentRepo()
-    tranche_repo = FakeTrancheRepo()
+def test_get_affectation_complet_enrichit_agent_et_tranche(service, repos, make_affectation):
+    affectation_repo, agent_repo, tranche_repo = repos
+    j = date(2025, 1, 1)
 
-    aff = DummyAffectation(agent_id=123, tranche_id=456)
-    repo.get_for_agent_and_day_result = aff # pyright: ignore[reportAttributeAccessIssue]
+    a = make_affectation(agent_id=42, tranche_id=8, jour=j)
+    affectation_repo.get_for_agent_and_day.return_value = a
 
-    service = AffectationService(
-        affectation_repo=repo,
-        agent_repo=agent_repo,
-        tranche_repo=tranche_repo,
-    )
+    fake_agent = object()
+    fake_tranche = object()
+    agent_repo.get_by_id.return_value = fake_agent
+    tranche_repo.get_by_id.return_value = fake_tranche
 
-    jour = date(2025, 3, 15)
-    result = service.get_affectation_complet(agent_id=123, jour=jour)
+    result = service.get_affectation_complet(agent_id=42, jour=j)
 
-    # On récupère bien l'affectation du repo
-    assert result is aff
+    assert result is a
+    assert a.agent is fake_agent
+    assert a.tranche is fake_tranche
 
-    # Les repos Agent / Tranche ont été appelés avec les bons IDs
-    assert agent_repo.get_args == [123]
-    assert tranche_repo.get_args == [456]
-
-    # Et l'affectation a bien été enrichie via set_agent / set_tranche
-    assert aff.agent == {"type": "agent", "id": 123}
-    assert aff.tranche == {"type": "tranche", "id": 456}
+    affectation_repo.get_for_agent_and_day.assert_called_once_with(42, j)
+    agent_repo.get_by_id.assert_called_once_with(42)
+    tranche_repo.get_by_id.assert_called_once_with(8)
 
 
-# ---------------------------------------------------------------------
-# Tests sur list_affectations_completes
-# ---------------------------------------------------------------------
+def test_list_affectations_completes_enrichit_toutes_les_affectations(service, repos, make_affectation):
+    affectation_repo, agent_repo, tranche_repo = repos
 
+    a1 = make_affectation(agent_id=1, tranche_id=10)
+    a2 = make_affectation(agent_id=2, tranche_id=20)
+    affectation_repo.list_all.return_value = [a1, a2]
 
-def test_list_affectations_completes_enriches_all_affectations():
-    repo = FakeAffectationRepo()
-    agent_repo = FakeAgentRepo()
-    tranche_repo = FakeTrancheRepo()
-
-    aff1 = DummyAffectation(agent_id=1, tranche_id=10)
-    aff2 = DummyAffectation(agent_id=2, tranche_id=20)
-    repo.list_all_result = [aff1, aff2]
-
-    service = AffectationService(
-        affectation_repo=repo,
-        agent_repo=agent_repo,
-        tranche_repo=tranche_repo,
-    )
+    agent_repo.get_by_id.side_effect = lambda agent_id: f"agent:{agent_id}"
+    tranche_repo.get_by_id.side_effect = lambda tranche_id: f"tranche:{tranche_id}"
 
     result = service.list_affectations_completes()
 
-    # On retourne bien toutes les affectations
-    assert result == [aff1, aff2]
+    assert result == [a1, a2]
+    assert a1.agent == "agent:1"
+    assert a1.tranche == "tranche:10"
+    assert a2.agent == "agent:2"
+    assert a2.tranche == "tranche:20"
 
-    # Chaque affectation a été enrichie
-    assert aff1.agent == {"type": "agent", "id": 1}
-    assert aff1.tranche == {"type": "tranche", "id": 10}
-    assert aff2.agent == {"type": "agent", "id": 2}
-    assert aff2.tranche == {"type": "tranche", "id": 20}
-
-    # Et les repos ont été appelés avec les bons IDs
-    assert sorted(agent_repo.get_args) == [1, 2]
-    assert sorted(tranche_repo.get_args) == [10, 20]
+    affectation_repo.list_all.assert_called_once_with()
+    assert agent_repo.get_by_id.call_count == 2
+    assert tranche_repo.get_by_id.call_count == 2

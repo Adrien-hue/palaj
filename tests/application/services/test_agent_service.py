@@ -1,270 +1,189 @@
+from unittest.mock import create_autospec
+import pytest
+
 from core.application.services.agent_service import AgentService
+from core.application.ports import (
+    AffectationRepositoryPort,
+    AgentRepositoryPort,
+    EtatJourAgentRepositoryPort,
+    QualificationRepositoryPort,
+    RegimeRepositoryPort,
+)
 
 
-# ---------------------------------------------------------------------
-# Fakes / helpers
-# ---------------------------------------------------------------------
+@pytest.fixture
+def repos():
+    affectation_repo = create_autospec(AffectationRepositoryPort, instance=True)
+    agent_repo = create_autospec(AgentRepositoryPort, instance=True)
+    etat_repo = create_autospec(EtatJourAgentRepositoryPort, instance=True)
+    qualification_repo = create_autospec(QualificationRepositoryPort, instance=True)
+    regime_repo = create_autospec(RegimeRepositoryPort, instance=True)
+    return affectation_repo, agent_repo, etat_repo, qualification_repo, regime_repo
 
 
-class DummyAgent:
-    """Mini Agent métier, avec les setters utilisés par AgentService."""
-
-    def __init__(self, id: int, regime_id=None):
-        self.id = id
-        self.regime_id = regime_id
-
-        self.regime = None
-        self.affectations = None
-        self.etat_jours = None
-        self.qualifications = None
-
-    def set_regime(self, regime):
-        self.regime = regime
-
-    def set_affectations(self, affectations):
-        self.affectations = affectations
-
-    def set_etat_jours(self, etat_jours):
-        self.etat_jours = etat_jours
-
-    def set_qualifications(self, qualifications):
-        self.qualifications = qualifications
-
-
-class FakeAgentRepo:
-    def __init__(self):
-        self.list_all_result = []
-        self.get_calls = []
-
-    def list_all(self):
-        return self.list_all_result
-
-    def get(self, agent_id: int):
-        self.get_calls.append(agent_id)
-        # par défaut, on cherche dans list_all_result
-        for a in self.list_all_result:
-            if a.id == agent_id:
-                return a
-        return None
-
-
-class FakeRegimeRepo:
-    def __init__(self):
-        self.get_calls = []
-
-    def get(self, regime_id: int):
-        self.get_calls.append(regime_id)
-        return {"type": "regime", "id": regime_id}
-
-
-class FakeAffectationRepo:
-    def __init__(self):
-        self.calls = []
-
-    def list_for_agent(self, agent_id: int):
-        self.calls.append(agent_id)
-        return [{"type": "affectation", "agent_id": agent_id}]
-
-
-class FakeEtatJourAgentRepo:
-    def __init__(self):
-        self.calls = []
-
-    def list_for_agent(self, agent_id: int):
-        self.calls.append(agent_id)
-        return [{"type": "etat_jour", "agent_id": agent_id}]
-
-
-class FakeQualificationRepo:
-    def __init__(self):
-        self.calls = []
-
-    def list_for_agent(self, agent_id: int):
-        self.calls.append(agent_id)
-        return [{"type": "qualification", "agent_id": agent_id}]
-
-
-# ---------------------------------------------------------------------
-# Tests: méthodes simples
-# ---------------------------------------------------------------------
-
-
-def test_list_all_delegates_to_repo():
-    agent_repo = FakeAgentRepo()
-    agent_repo.list_all_result = [DummyAgent(1), DummyAgent(2)]
-
-    service = AgentService(
+@pytest.fixture
+def service(repos):
+    affectation_repo, agent_repo, etat_repo, qualification_repo, regime_repo = repos
+    return AgentService(
+        affectation_repo=affectation_repo,
         agent_repo=agent_repo,
-        affectation_repo=FakeAffectationRepo(),
-        etat_jour_agent_repo=FakeEtatJourAgentRepo(),
-        regime_repo=FakeRegimeRepo(),
-        qualification_repo=FakeQualificationRepo(),
+        etat_jour_agent_repo=etat_repo,
+        qualification_repo=qualification_repo,
+        regime_repo=regime_repo,
     )
+
+
+# =========================================================
+# 🔹 Delegation simple
+# =========================================================
+def test_list_all_delegue_au_repo(service, repos, make_agent):
+    _, agent_repo, *_ = repos
+    agents = [make_agent(id=1), make_agent(id=2)]
+    agent_repo.list_all.return_value = agents
 
     result = service.list_all()
 
-    assert result is agent_repo.list_all_result
-    assert len(result) == 2
+    assert result == agents
+    agent_repo.list_all.assert_called_once_with()
 
 
-def test_get_delegates_to_repo_and_returns_agent_or_none():
-    agent_repo = FakeAgentRepo()
-    a1 = DummyAgent(10)
-    agent_repo.list_all_result = [a1]
+def test_get_by_id_delegue_au_repo(service, repos, make_agent):
+    _, agent_repo, *_ = repos
+    agent = make_agent(id=42)
+    agent_repo.get_by_id.return_value = agent
 
-    service = AgentService(
-        agent_repo=agent_repo,
-        affectation_repo=FakeAffectationRepo(),
-        etat_jour_agent_repo=FakeEtatJourAgentRepo(),
-        regime_repo=FakeRegimeRepo(),
-        qualification_repo=FakeQualificationRepo(),
-    )
+    result = service.get_by_id(42)
 
-    found = service.get(10)
-    missing = service.get(999)
-
-    assert found is a1
-    assert missing is None
-    assert agent_repo.get_calls == [10, 999]
+    assert result is agent
+    agent_repo.get_by_id.assert_called_once_with(42)
 
 
-# ---------------------------------------------------------------------
-# Tests: get_agent_complet
-# ---------------------------------------------------------------------
+# =========================================================
+# 🔹 get_agent_complet
+# =========================================================
+def test_get_agent_complet_retourne_none_si_absent(service, repos):
+    affectation_repo, agent_repo, etat_repo, qualification_repo, regime_repo = repos
+    agent_repo.get_by_id.return_value = None
 
-
-def test_get_agent_complet_returns_none_if_agent_not_found():
-    agent_repo = FakeAgentRepo()
-
-    affect_repo = FakeAffectationRepo()
-    etat_repo = FakeEtatJourAgentRepo()
-    regime_repo = FakeRegimeRepo()
-    qualif_repo = FakeQualificationRepo()
-
-    service = AgentService(
-        agent_repo=agent_repo,
-        affectation_repo=affect_repo,
-        etat_jour_agent_repo=etat_repo,
-        regime_repo=regime_repo,
-        qualification_repo=qualif_repo,
-    )
-
-    result = service.get_agent_complet(agent_id=123)
+    result = service.get_agent_complet(agent_id=999)
 
     assert result is None
-    # aucun appel aux autres repos
-    assert regime_repo.get_calls == []
-    assert affect_repo.calls == []
-    assert etat_repo.calls == []
-    assert qualif_repo.calls == []
+    regime_repo.get_by_id.assert_not_called()
+    affectation_repo.list_for_agent.assert_not_called()
+    etat_repo.list_for_agent.assert_not_called()
+    qualification_repo.list_for_agent.assert_not_called()
 
 
-def test_get_agent_complet_enriches_agent_with_all_relations_when_regime_present():
-    agent_repo = FakeAgentRepo()
-    agent = DummyAgent(id=1, regime_id=42)
-    agent_repo.list_all_result = [agent]
+def test_get_agent_complet_charge_tout_avec_regime(service, repos, make_agent, make_affectation, make_etat_jour_agent, make_regime, make_qualification):
+    affectation_repo, agent_repo, etat_repo, qualification_repo, regime_repo = repos
 
-    affect_repo = FakeAffectationRepo()
-    etat_repo = FakeEtatJourAgentRepo()
-    regime_repo = FakeRegimeRepo()
-    qualif_repo = FakeQualificationRepo()
+    agent = make_agent(id=42, regime_id=7)
+    agent_repo.get_by_id.return_value = agent
 
-    service = AgentService(
-        agent_repo=agent_repo,
-        affectation_repo=affect_repo,
-        etat_jour_agent_repo=etat_repo,
-        regime_repo=regime_repo,
-        qualification_repo=qualif_repo,
-    )
+    regime = make_regime(id=7, nom="R1")
+    affectations = [make_affectation(agent_id=42, tranche_id=10)]
+    etats = [make_etat_jour_agent(agent_id=42)]
+    qualifications = [make_qualification(agent_id=42)]
 
-    result = service.get_agent_complet(agent_id=1)
+    regime_repo.get_by_id.return_value = regime
+    affectation_repo.list_for_agent.return_value = affectations
+    etat_repo.list_for_agent.return_value = etats
+    qualification_repo.list_for_agent.return_value = qualifications
+
+    result = service.get_agent_complet(agent_id=42)
 
     assert result is agent
 
-    # Régime chargé
-    assert regime_repo.get_calls == [42]
-    assert agent.regime == {"type": "regime", "id": 42}
+    # Appels repos
+    agent_repo.get_by_id.assert_called_once_with(42)
+    regime_repo.get_by_id.assert_called_once_with(7)
+    affectation_repo.list_for_agent.assert_called_once_with(42)
+    etat_repo.list_for_agent.assert_called_once_with(42)
+    qualification_repo.list_for_agent.assert_called_once_with(42)
 
-    # Affectations / états / qualifications chargés
-    assert affect_repo.calls == [1]
-    assert etat_repo.calls == [1]
-    assert qualif_repo.calls == [1]
-
-    assert agent.affectations == [{"type": "affectation", "agent_id": 1}]
-    assert agent.etat_jours == [{"type": "etat_jour", "agent_id": 1}]
-    assert agent.qualifications == [{"type": "qualification", "agent_id": 1}]
+    # Enrichissements agent (avec TES propriétés)
+    assert agent.regime is regime
+    assert agent.affectations == affectations
+    assert agent.etat_jours == etats
+    assert agent.qualifications == qualifications
 
 
-def test_get_agent_complet_does_not_load_regime_when_regime_id_is_falsy():
-    agent_repo = FakeAgentRepo()
-    agent = DummyAgent(id=2, regime_id=None)  # regime_id falsy
-    agent_repo.list_all_result = [agent]
+def test_get_agent_complet_ne_charge_pas_regime_si_regime_id_none(service, repos, make_agent):
+    affectation_repo, agent_repo, etat_repo, qualification_repo, regime_repo = repos
 
-    affect_repo = FakeAffectationRepo()
-    etat_repo = FakeEtatJourAgentRepo()
-    regime_repo = FakeRegimeRepo()
-    qualif_repo = FakeQualificationRepo()
+    agent = make_agent(id=42, regime_id=None)
+    agent_repo.get_by_id.return_value = agent
 
-    service = AgentService(
-        agent_repo=agent_repo,
-        affectation_repo=affect_repo,
-        etat_jour_agent_repo=etat_repo,
-        regime_repo=regime_repo,
-        qualification_repo=qualif_repo,
-    )
+    affectation_repo.list_for_agent.return_value = []
+    etat_repo.list_for_agent.return_value = []
+    qualification_repo.list_for_agent.return_value = []
 
-    result = service.get_agent_complet(agent_id=2)
+    result = service.get_agent_complet(agent_id=42)
 
     assert result is agent
-    assert regime_repo.get_calls == []  # pas de chargement régime
+
+    regime_repo.get_by_id.assert_not_called()
+    affectation_repo.list_for_agent.assert_called_once_with(42)
+    etat_repo.list_for_agent.assert_called_once_with(42)
+    qualification_repo.list_for_agent.assert_called_once_with(42)
+
+    # régime pas set => reste None
     assert agent.regime is None
 
-    # le reste est quand même chargé
-    assert affect_repo.calls == [2]
-    assert etat_repo.calls == [2]
-    assert qualif_repo.calls == [2]
 
+# =========================================================
+# 🔹 list_agents_complets
+# =========================================================
+def test_list_agents_complets_enrichit_tous_les_agents(service, repos, make_agent, make_regime):
+    affectation_repo, agent_repo, etat_repo, qualification_repo, regime_repo = repos
 
-# ---------------------------------------------------------------------
-# Tests: list_agents_complets
-# ---------------------------------------------------------------------
+    a1 = make_agent(id=1, regime_id=10)
+    a2 = make_agent(id=2, regime_id=None)
+    a3 = make_agent(id=3, regime_id=30)
+    agent_repo.list_all.return_value = [a1, a2, a3]
 
-
-def test_list_agents_complets_enriches_all_agents_and_loads_regime_conditionally():
-    agent_repo = FakeAgentRepo()
-    a1 = DummyAgent(id=1, regime_id=10)
-    a2 = DummyAgent(id=2, regime_id=None)
-    a3 = DummyAgent(id=3, regime_id=20)
-    agent_repo.list_all_result = [a1, a2, a3]
-
-    affect_repo = FakeAffectationRepo()
-    etat_repo = FakeEtatJourAgentRepo()
-    regime_repo = FakeRegimeRepo()
-    qualif_repo = FakeQualificationRepo()
-
-    service = AgentService(
-        agent_repo=agent_repo,
-        affectation_repo=affect_repo,
-        etat_jour_agent_repo=etat_repo,
-        regime_repo=regime_repo,
-        qualification_repo=qualif_repo,
-    )
+    regime_repo.get_by_id.side_effect = lambda rid: make_regime(id=rid, nom=f"R{rid}")
+    affectation_repo.list_for_agent.side_effect = lambda aid: [f"aff:{aid}"]
+    etat_repo.list_for_agent.side_effect = lambda aid: [f"etat:{aid}"]
+    qualification_repo.list_for_agent.side_effect = lambda aid: [f"qualif:{aid}"]
 
     result = service.list_agents_complets()
 
     assert result == [a1, a2, a3]
 
-    # Régime chargé uniquement pour a1 et a3
-    assert regime_repo.get_calls == [10, 20]
-    assert a1.regime == {"type": "regime", "id": 10}
+    # regime uniquement si regime_id
+    assert a1.regime is not None and a1.regime.nom == "R10"
     assert a2.regime is None
-    assert a3.regime == {"type": "regime", "id": 20}
+    assert a3.regime is not None and a3.regime.nom == "R30"
 
-    # Affectations / états / qualifications pour tous
-    assert affect_repo.calls == [1, 2, 3]
-    assert etat_repo.calls == [1, 2, 3]
-    assert qualif_repo.calls == [1, 2, 3]
+    # enrichissements
+    assert a1.affectations == ["aff:1"]
+    assert a2.affectations == ["aff:2"]
+    assert a3.affectations == ["aff:3"]
 
-    assert a2.affectations == [{"type": "affectation", "agent_id": 2}]
-    assert a2.etat_jours == [{"type": "etat_jour", "agent_id": 2}]
-    assert a2.qualifications == [{"type": "qualification", "agent_id": 2}]
+    assert a1.etat_jours == ["etat:1"]
+    assert a2.etat_jours == ["etat:2"]
+    assert a3.etat_jours == ["etat:3"]
+
+    assert a1.qualifications == ["qualif:1"]
+    assert a2.qualifications == ["qualif:2"]
+    assert a3.qualifications == ["qualif:3"]
+
+    agent_repo.list_all.assert_called_once_with()
+    assert regime_repo.get_by_id.call_count == 2
+    assert affectation_repo.list_for_agent.call_count == 3
+    assert etat_repo.list_for_agent.call_count == 3
+    assert qualification_repo.list_for_agent.call_count == 3
+
+
+def test_list_agents_complets_liste_vide(service, repos):
+    _, agent_repo, *rest = repos
+    agent_repo.list_all.return_value = []
+
+    result = service.list_agents_complets()
+
+    assert result == []
+    agent_repo.list_all.assert_called_once_with()
+    # aucun autre repo ne doit être appelé
+    for repo in rest:
+        repo.assert_not_called()

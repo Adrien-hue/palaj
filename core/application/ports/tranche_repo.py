@@ -1,0 +1,10 @@
+from __future__ import annotations
+from typing import List, Optional, Protocol, runtime_checkable
+from core.domain.entities.tranche import Tranche
+
+
+@runtime_checkable
+class TrancheRepositoryPort(Protocol):
+    def get_by_id(self, tranche_id: int) -> Optional[Tranche]: ...
+    def list_all(self) -> List[Tranche]: ...
+    def list_by_poste_id(self, poste_id: int) -> List[Tranche]: ...

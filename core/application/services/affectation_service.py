@@ -1,8 +1,13 @@
 # core/application/service/affectation_service.py
 from datetime import date
 from typing import List, Optional
-from core.domain.entities.affectation import Affectation
 
+from core.application.ports import (
+    AffectationRepositoryPort,
+    AgentRepositoryPort,
+    TrancheRepositoryPort
+)
+from core.domain.entities import Affectation
 
 class AffectationService:
     """
@@ -12,7 +17,12 @@ class AffectationService:
     - Délègue la validation métier au AffectationValidatorService
     """
 
-    def __init__(self, affectation_repo, agent_repo,tranche_repo):
+    def __init__(
+        self,
+        affectation_repo: AffectationRepositoryPort,
+        agent_repo: AgentRepositoryPort,
+        tranche_repo: TrancheRepositoryPort,
+    ):
         self.affectation_repo = affectation_repo
         self.agent_repo = agent_repo
         self.tranche_repo = tranche_repo
@@ -48,8 +58,8 @@ class AffectationService:
         if not affectation:
             return None
 
-        affectation.set_agent(self.agent_repo.get(affectation.agent_id))
-        affectation.set_tranche(self.tranche_repo.get(affectation.tranche_id))
+        affectation.set_agent(self.agent_repo.get_by_id(affectation.agent_id))
+        affectation.set_tranche(self.tranche_repo.get_by_id(affectation.tranche_id))
         return affectation
 
     def list_affectations_completes(self) -> List[Affectation]:
@@ -59,7 +69,7 @@ class AffectationService:
         affectations = self.list_affectations()
 
         for a in affectations:
-            a.set_agent(self.agent_repo.get(a.agent_id))
-            a.set_tranche(self.tranche_repo.get(a.tranche_id))
+            a.set_agent(self.agent_repo.get_by_id(a.agent_id))
+            a.set_tranche(self.tranche_repo.get_by_id(a.tranche_id))
 
         return affectations
