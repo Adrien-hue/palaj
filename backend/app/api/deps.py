@@ -7,8 +7,8 @@ from sqlalchemy.orm import Session
 from db import db
 from db.models import User
 
-from backend.app.bootstrap.container import agent_service, poste_service
-from core.application.services import AgentService, PosteService
+from backend.app.bootstrap.container import agent_service, poste_service, regime_service
+from core.application.services import AgentService, PosteService, RegimeService
 
 from backend.app.security.jwt import decode_token
 from backend.app.settings import settings
@@ -25,6 +25,8 @@ def get_agent_service() -> AgentService:
 def get_poste_service() -> PosteService:
     return poste_service
 
+def get_regime_service() -> RegimeService:
+    return regime_service
 
 def current_user(request: Request, session: Session = Depends(get_db)) -> User:
     token = request.cookies.get(settings.auth_cookie_name)

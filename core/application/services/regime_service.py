@@ -23,6 +23,12 @@ class RegimeService:
         self.agent_repo = agent_repo
         self.regime_repo = regime_repo
 
+    def get_by_id(self, regime_id: int) -> Regime | None:
+        return self.regime_repo.get_by_id(regime_id)
+    
+    def list_all(self) -> List[Regime]:
+        return self.regime_repo.list_all()
+
     # =========================================================
     # 🔹 Chargement complet
     # =========================================================
