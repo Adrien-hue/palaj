@@ -1,18 +1,30 @@
+from typing import List, Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_prefix="APP_",
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
-
-    app_name: str = "Planning Assistant API"
+    app_name: str = "PALAJ API"
     api_prefix: str = "/api"
     api_v1_prefix: str = "/v1"
     debug: bool = True
+
+    database_url: str = "sqlite:///./data/planning.db"
+
+    jwt_secret: str = "CHANGE_ME"
+    jwt_expires_minutes: int = 60 * 8
+
+    auth_cookie_name: str = "access_token"
+    auth_cookie_secure: bool = False
+    auth_cookie_samesite: Literal["lax", "strict", "none"] = "lax"
+    auth_cookie_domain: str | None = None
+
+    # CORS
+    cors_origins: str = ""
+
+    class Config:
+        env_prefix = "APP_"
+        env_file = ".env"
 
 
 settings = Settings()

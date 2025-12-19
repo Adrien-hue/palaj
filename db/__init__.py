@@ -2,4 +2,4 @@
 from db.database import SQLiteDatabase
 
 # Base globale
-db = SQLiteDatabase("data/planning.db", debug=False)
+db = SQLiteDatabase("data/planning.db", debug=False, echo=False)

@@ -42,6 +42,7 @@ class SQLiteDatabase:
             f"sqlite:///{self.db_path}",
             echo=echo,
             future=future,
+            connect_args={"check_same_thread": False},
         )
 
         self.SessionLocal = sessionmaker(
