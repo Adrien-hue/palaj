@@ -45,7 +45,7 @@ class PlanningBuilderService:
         end_date: date
     ) -> AgentPlanning:
 
-        agent = self.agent_service.get_by_id(agent_id)
+        agent = self.agent_service.get_agent_complet(agent_id)
         if not agent:
             raise ValueError(f"Agent {agent_id} introuvable.")
 
