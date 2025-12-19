@@ -7,6 +7,9 @@ from sqlalchemy.orm import Session
 from db import db
 from db.models import User
 
+from backend.app.bootstrap.container import agent_service
+from core.application.services import AgentService
+
 from backend.app.security.jwt import decode_token
 from backend.app.settings import settings
 
@@ -15,6 +18,9 @@ def get_db() -> Generator[Session, None, None]:
     # Une session par requête HTTP, commit/rollback gérés automatiquement
     with db.session_scope() as session:
         yield session
+
+def get_agent_service() -> AgentService:
+    return agent_service
 
 
 def current_user(request: Request, session: Session = Depends(get_db)) -> User:
