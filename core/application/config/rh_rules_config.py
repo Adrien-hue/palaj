@@ -1,3 +1,4 @@
+# core/application/config/rh_rules_config.py
 from core.rh_rules import (
     AmplitudeMaxRule,
     CongesAnnuelRule,

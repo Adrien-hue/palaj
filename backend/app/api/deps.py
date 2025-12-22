@@ -7,8 +7,20 @@ from sqlalchemy.orm import Session
 from db import db
 from db.models import User
 
-from backend.app.bootstrap.container import agent_service, poste_service, regime_service
-from core.application.services import AgentService, PosteService, RegimeService
+from backend.app.bootstrap.container import (
+    agent_service,
+    agent_planning_validator_service,
+    planning_builder_service,
+    poste_service,
+    regime_service,
+)
+from core.application.services import (
+    AgentService,
+    AgentPlanningValidatorService,
+    PlanningBuilderService,
+    PosteService,
+    RegimeService,
+)
 
 from backend.app.security.jwt import decode_token
 from backend.app.settings import settings
@@ -21,6 +33,12 @@ def get_db() -> Generator[Session, None, None]:
 
 def get_agent_service() -> AgentService:
     return agent_service
+
+def get_agent_planning_validator_service() -> AgentPlanningValidatorService:
+    return agent_planning_validator_service
+
+def get_planning_builder_service() -> PlanningBuilderService:
+    return planning_builder_service
 
 def get_poste_service() -> PosteService:
     return poste_service

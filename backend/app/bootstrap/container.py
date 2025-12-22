@@ -1,6 +1,9 @@
 # backend/app/bootstrap/container.py
+from core.application.config.rh_rules_config import build_default_rh_engine
+
 from core.application.services import (
     AffectationService,
+    AgentPlanningValidatorService,
     AgentService,
     EtatJourAgentService,
     PlanningBuilderService,
@@ -66,7 +69,15 @@ tranche_service = TrancheService(
 )
 
 # ---------------------------------------------------------
-# Services -> Services
+# RH / Validation
+# ---------------------------------------------------------
+rh_rules_engine = build_default_rh_engine()
+agent_planning_validator_service = AgentPlanningValidatorService(
+    rh_rules_engine=rh_rules_engine
+)
+
+# ---------------------------------------------------------
+# Planning
 # ---------------------------------------------------------
 planning_builder_service = PlanningBuilderService(
     affectation_service=affectation_service,
@@ -84,5 +95,7 @@ __all__ = [
     "qualification_service",
     "regime_service",
     "tranche_service",
+    "rh_rules_engine",
+    "agent_planning_validator_service",
     "planning_builder_service",
 ]
