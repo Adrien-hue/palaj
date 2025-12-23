@@ -3,6 +3,10 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+
+  --palaj-l: rgb(210, 130, 190); /* Ligne L */
+  --palaj-a: rgb(255, 20, 0);    /* Ligne A */
+  --palaj-j: rgb(210, 210, 0); /* Ligne J */
 }
 
 @theme inline {
