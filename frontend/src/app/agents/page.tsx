@@ -1,4 +1,4 @@
-import { listAgents } from "@/services/agents.service";
+import { listAgents } from "@/services";
 
 export default async function AgentsPage() {
   const { items: agents, meta } = await listAgents({ page: 1, page_size: 25 });
