@@ -1,5 +1,5 @@
 # core/application/services/regime_service.py
-from typing import List
+from typing import List, Optional
 
 from core.application.ports import (
     AgentRepositoryPort,
@@ -23,9 +23,15 @@ class RegimeService:
         self.agent_repo = agent_repo
         self.regime_repo = regime_repo
 
+    def count(self) -> int:
+        return self.regime_repo.count()
+
     def get_by_id(self, regime_id: int) -> Regime | None:
         return self.regime_repo.get_by_id(regime_id)
-    
+
+    def list(self, *, limit: Optional[int] = None, offset: int = 0) -> List[Regime]:
+        return self.regime_repo.list(limit=limit, offset=offset)
+
     def list_all(self) -> List[Regime]:
         return self.regime_repo.list_all()
 
@@ -40,16 +46,17 @@ class RegimeService:
         if not regime:
             return None
 
-        # Charger les agents
+        return self._enrich_regime(regime)
+
+    def list_regimes_complets(
+        self, *, limit: Optional[int] = None, offset: int = 0
+    ) -> List[Regime]:
+        """Retourne tous les régimes sous forme d'entités métier."""
+        regimes = self.regime_repo.list(limit=limit, offset=offset)
+
+        return [self._enrich_regime(regime) for regime in regimes]
+    
+    def _enrich_regime(self, regime: Regime) -> Regime:
         regime.set_agents(self.agent_repo.list_by_regime_id(regime.id))
 
         return regime
-
-    def list_regimes_complets(self) -> List[Regime]:
-        """Retourne tous les régimes sous forme d'entités métier."""
-        regimes = self.regime_repo.list_all()
-
-        for r in regimes:
-            r.set_agents(self.agent_repo.list_by_regime_id(r.id))
-
-        return regimes

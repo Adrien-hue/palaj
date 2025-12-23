@@ -10,6 +10,9 @@ class PosteRepository(SQLRepository[PosteModel, PosteEntity]):
     def __init__(self):
         super().__init__(db, PosteModel, PosteEntity)
 
+    def _default_order_by(self):
+        return (PosteModel.nom.asc(), PosteModel.id.asc())
+
     def get_by_id(self, poste_id: int) -> PosteEntity | None:
         """
         Récupère un poste par son ID.

@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from backend.app.api.deps import get_agent_service
-from backend.app.dto.agents import AgentDetailDTO, AgentListDTO
-from backend.app.mappers.agents import to_agent_detail_dto, to_agent_list_item_dto
+from backend.app.dto.agents import AgentDTO, AgentDetailDTO
+from backend.app.dto.common.pagination import build_page, Page, PaginationParams, pagination_params
+from backend.app.mappers.agents import to_agent_detail_dto
 from core.application.services.agent_service import AgentService
 
 router = APIRouter(prefix="/agents", tags=["Agents"])
@@ -13,12 +14,11 @@ def get_agent(agent_id: int, agent_service: AgentService = Depends(get_agent_ser
         raise HTTPException(status_code=404, detail="Agent not found")
     return to_agent_detail_dto(agent)
 
-@router.get("", response_model=AgentListDTO)
+@router.get("/", response_model=Page[AgentDTO])
 def list_agents(
     agent_service: AgentService = Depends(get_agent_service),
-) -> AgentListDTO:
-    agents = agent_service.list_all()
-    return AgentListDTO(
-        items=[to_agent_list_item_dto(a) for a in agents],
-        total=len(agents),
-    )
+    p: PaginationParams = Depends(pagination_params)
+):
+    items = agent_service.list(limit=p.limit, offset=p.offset)
+    total = agent_service.count()
+    return build_page(items=items, total=total, p=p)

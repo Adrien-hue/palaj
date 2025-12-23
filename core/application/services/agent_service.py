@@ -1,5 +1,5 @@
 # core/application/service/agent_service.py
-from typing import List
+from typing import List, Optional
 
 from core.application.ports import (
     AffectationRepositoryPort,
@@ -32,11 +32,17 @@ class AgentService:
         self.regime_repo = regime_repo
         self.qualification_repo = qualification_repo
 
-    def list_all(self) -> List[Agent]:
-        return self.agent_repo.list_all()
+    def count(self) -> int:
+        return self.agent_repo.count()
     
     def get_by_id(self, agent_id: int) -> Agent | None:
         return self.agent_repo.get_by_id(agent_id)
+    
+    def list(self, *, limit: Optional[int] = None, offset: int = 0) -> List[Agent]:
+        return self.agent_repo.list(limit=limit, offset=offset)
+    
+    def list_all(self) -> List[Agent]:
+        return self.agent_repo.list_all()
 
     # =========================================================
     # 🔹 Chargement complet
@@ -49,32 +55,23 @@ class AgentService:
         if not agent:
             return None
 
-        # Charger le régime
-        if agent.regime_id:
-            agent.set_regime(self.regime_repo.get_by_id(agent.regime_id))
+        return self._enrich_agent(agent)
 
-        # Charger les affectations
-        agent.set_affectations(self.affectation_repo.list_for_agent(agent.id))
-
-        agent.set_etat_jours(self.etat_jour_agent_repo.list_for_agent(agent.id))
-
-        agent.set_qualifications(self.qualification_repo.list_for_agent(agent.id))
-
-        return agent
-
-    def list_agents_complets(self) -> List[Agent]:
+    def list_agents_complets(
+        self, *, limit: Optional[int] = None, offset: int = 0
+    ) -> List[Agent]:
         """
         Retourne tous les agents enrichis avec leur régime, affectations et états journalier.
         """
-        agents = self.agent_repo.list_all()
-        for a in agents:
-            if a.regime_id:
-                a.set_regime(self.regime_repo.get_by_id(a.regime_id))
+        agents = self.agent_repo.list(limit=limit, offset=offset)
 
-            a.set_affectations(self.affectation_repo.list_for_agent(a.id))
+        return [self._enrich_agent(agent) for agent in agents]
+    
+    def _enrich_agent(self, agent: Agent) -> Agent:
+        if agent.regime_id:
+            agent.set_regime(self.regime_repo.get_by_id(agent.regime_id))
 
-            a.set_etat_jours(self.etat_jour_agent_repo.list_for_agent(a.id))
-
-            a.set_qualifications(self.qualification_repo.list_for_agent(a.id))
-
-        return agents
+        agent.set_affectations(self.affectation_repo.list_for_agent(agent.id))
+        agent.set_etat_jours(self.etat_jour_agent_repo.list_for_agent(agent.id))
+        agent.set_qualifications(self.qualification_repo.list_for_agent(agent.id))
+        return agent

@@ -14,6 +14,9 @@ class RegimeRepository(SQLRepository[RegimeModel, RegimeEntity]):
     def __init__(self):
         super().__init__(db, RegimeModel, RegimeEntity)
 
+    def _default_order_by(self):
+        return (RegimeModel.nom.asc(), RegimeModel.id.asc())
+
     def get_by_id(self, regime_id: int) -> RegimeEntity | None:
         """
         Récupère un régime de travail par son ID.

@@ -1,5 +1,5 @@
 # db/sql_repository.py
-from typing import Generic, TypeVar, Type, List, Literal, Optional, Sequence
+from typing import Any, Generic, TypeVar, Type, List, Literal, Optional, Sequence
 
 from sqlalchemy.orm import DeclarativeBase, selectinload, joinedload
 
@@ -83,6 +83,15 @@ class SQLRepository(Generic[TModel, TEntity]):
 
         return query
     
+    def _default_order_by(self) -> Sequence[Any]:
+        """
+        Hook overrideable par repo enfant.
+        Retourne un ou plusieurs critères SQLAlchemy pour order_by().
+        """
+        if hasattr(self.model_class, "id"):
+            return (getattr(self.model_class, "id"),)
+        return ()
+    
     def get_model(
         self,
         object_id: int,
@@ -113,22 +122,47 @@ class SQLRepository(Generic[TModel, TEntity]):
         eager_relations: Optional[Sequence[str]] = None,
         load_strategy: LoadStrategy = "selectin",
     ) -> List[TModel]:
+        return self.list_models(limit=None, offset=0, eager_relations=eager_relations, load_strategy=load_strategy)
+        
+    def list_models(
+        self,
+        *,
+        limit: Optional[int] = None,
+        offset: int = 0,
+        eager_relations: Optional[Sequence[str]] = None,
+        load_strategy: LoadStrategy = "selectin",
+        order_by=None,
+    ) -> List[TModel]:
         """
-        Retourne la liste complète des modèles ORM.
-
-        :param eager_relations: Liste optionnelle de relations à précharger
-        :param load_strategy: "selectin", "joined" ou "none"
-        :return: Liste de modèles SQLAlchemy
-
-        ---
-        💡 Exemple :
-        ```python
-        models = affectation_repo.list_all_models(eager_relations=["agent", "agent.regime"])
-        ```
+        Liste paginée des modèles ORM.
+        - limit=None => pas de limite (retourne tout)
+        - offset par défaut 0
         """
+        if offset < 0:
+            raise ValueError("offset doit être >= 0")
+        if limit is not None and limit < 0:
+            raise ValueError("limit doit être >= 0 ou None")
+
         with self.db.session_scope() as session:
             query = session.query(self.model_class)
             query = self._apply_eager_loading(query, eager_relations, load_strategy)
+
+            if order_by is None:
+                default_order = self._default_order_by()
+                if default_order:
+                    query = query.order_by(*default_order)
+            else:
+                # accepte: un critère unique ou une séquence
+                if isinstance(order_by, (list, tuple)):
+                    query = query.order_by(*order_by)
+                else:
+                    query = query.order_by(order_by)
+
+            if offset:
+                query = query.offset(offset)
+            if limit is not None:
+                query = query.limit(limit)
+
             return query.all()
 
     # =========================================================
@@ -190,7 +224,32 @@ class SQLRepository(Generic[TModel, TEntity]):
         affectations = affectation_repo.list_all(eager_relations=["agent", "agent.regime"])
         ```
         """
-        models = self.list_all_models(eager_relations=eager_relations, load_strategy=load_strategy)
+        return self.list(
+            limit=None,
+            offset=0,
+            eager_relations=eager_relations,
+            load_strategy=load_strategy,
+        )
+    
+    def list(
+        self,
+        *,
+        limit: Optional[int] = None,
+        offset: int = 0,
+        eager_relations: Optional[Sequence[str]] = None,
+        load_strategy: LoadStrategy = "selectin",
+        order_by=None,
+    ) -> List[TEntity]:
+        """
+        Liste paginée des entités métier.
+        """
+        models = self.list_models(
+            limit=limit,
+            offset=offset,
+            eager_relations=eager_relations,
+            load_strategy=load_strategy,
+            order_by=order_by,
+        )
         return [
             e for m in models
             if (e := EntityMapper.model_to_entity(m, self.entity_class)) is not None

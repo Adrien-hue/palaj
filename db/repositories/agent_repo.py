@@ -15,6 +15,9 @@ class AgentRepository(SQLRepository[AgentModel, AgentEntity]):
     def __init__(self):
         super().__init__(db, AgentModel, AgentEntity)
 
+    def _default_order_by(self):
+        return (AgentModel.nom.asc(), AgentModel.prenom.asc(), AgentModel.id.asc())
+
     def get_by_full_name(self, nom: str, prenom: str) -> AgentEntity | None:
         """
         Recherche un agent par nom et prénom (insensible à la casse).
