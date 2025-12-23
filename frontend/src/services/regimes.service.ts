@@ -1,6 +1,6 @@
 import { apiFetch } from "@/lib/api";
 import type { ListParams, ListResponse } from "@/types/api";
-import type { Regime } from "@/types/regimes";
+import type { Regime } from "@/types";
 
 export async function listRegimes(params: ListParams = {page: 1, page_size: 20}) {
   const search = new URLSearchParams();

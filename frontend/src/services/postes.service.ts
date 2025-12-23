@@ -1,6 +1,6 @@
 import { apiFetch } from "@/lib/api";
 import type { ListParams, ListResponse } from "@/types/api";
-import type { Poste } from "@/types/poste";
+import type { Poste } from "@/types";
 
 export async function listPostes(params: ListParams = {page: 1, page_size: 20}) {
   const search = new URLSearchParams();

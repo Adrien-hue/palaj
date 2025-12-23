@@ -1,6 +1,6 @@
 import { apiFetch } from "@/lib/api";
 import type { ListParams, ListResponse } from "@/types/api";
-import type { Agent } from "@/types/agent";
+import type { Agent } from "@/types";
 
 export type ListAgentsParams = {
   page?: number;
