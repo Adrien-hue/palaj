@@ -6,18 +6,21 @@ if (!BASE_URL) {
 
 type FetchOptions = Omit<RequestInit, "body"> & { body?: unknown };
 
-export async function apiFetch<T>(path: string, options: FetchOptions = {}): Promise<T> {
+export async function apiFetch<T>(
+  path: string,
+  options: FetchOptions = {}
+): Promise<T> {
   const url = `${BASE_URL}${path.startsWith("/") ? path : `/${path}`}`;
 
   const res = await fetch(url, {
     ...options,
     headers: {
+      Accept: "application/json",
       "Content-Type": "application/json",
       ...(options.headers ?? {}),
     },
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-    // Si ton backend utilise cookies/session plus tard:
-    // credentials: "include",
+    credentials: "include",
   });
 
   if (!res.ok) {
