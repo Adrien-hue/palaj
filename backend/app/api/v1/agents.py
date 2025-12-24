@@ -7,14 +7,14 @@ from core.application.services.agent_service import AgentService
 
 router = APIRouter(prefix="/agents", tags=["Agents"])
 
-@router.patch("/agents/{agent_id}/activate", status_code=status.HTTP_204_NO_CONTENT)
+@router.patch("/{agent_id}/activate", status_code=status.HTTP_204_NO_CONTENT)
 def activate_agent(agent_id: int, agent_service: AgentService = Depends(get_agent_service)):
     ok = agent_service.activate(agent_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Agent not found")
     return None
 
-@router.patch("/agents/{agent_id}/deactivate", status_code=status.HTTP_204_NO_CONTENT)
+@router.patch("/{agent_id}/deactivate", status_code=status.HTTP_204_NO_CONTENT)
 def deactivate_agent(agent_id: int, agent_service: AgentService = Depends(get_agent_service)):
     ok = agent_service.deactivate(agent_id)
     if not ok:
