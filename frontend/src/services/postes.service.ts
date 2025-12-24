@@ -11,3 +11,7 @@ export async function listPostes(params: ListParams = {page: 1, page_size: 20}) 
   const qs = search.toString();
   return apiFetch<ListResponse<Poste>>(`/postes${qs ? `?${qs}` : ""}`);
 }
+
+export async function removePoste(id: number) {
+  return apiFetch<void>(`/postes/${id}`, { method: "DELETE" });
+}

@@ -16,3 +16,7 @@ export async function listAgents(params: ListParams = {page: 1, page_size: 20}) 
   const qs = search.toString();
   return apiFetch<ListResponse<Agent>>(`/agents${qs ? `?${qs}` : ""}`);
 }
+
+export async function removeAgent(id: number) {
+  return apiFetch<void>(`/agents/${id}`, { method: "DELETE" });
+}

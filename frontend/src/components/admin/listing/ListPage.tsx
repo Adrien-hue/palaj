@@ -1,40 +1,46 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type { ReactNode, RefObject } from "react";
 import type { ColumnDef } from "./DataTable";
 import { DataTable } from "./DataTable";
 import { Pagination } from "./Pagination";
 import { useListing } from "./useListing";
+import { ListResponse } from "@/types";
 
 export function ListPage<T>({
   title,
   description,
-  path,
+  fetcher,
   columns,
   getRowId,
   headerRight,
   emptyTitle = "Aucun résultat",
   emptyDescription = "Aucune donnée à afficher pour le moment.",
+  listingRef,
   pageSizeOptions = true,
-  query,
 }: {
   title: string;
   description?: string;
-  path: string;
+  fetcher: (args: { page: number; pageSize: number }) => Promise<ListResponse<T>>;
   columns: ColumnDef<T>[];
   getRowId: (row: T) => string | number;
   headerRight?: ReactNode;
   emptyTitle?: string;
   emptyDescription?: string;
+  listingRef?: RefObject<{ refresh: () => void }>;
   pageSizeOptions?: boolean;
-  query?: Record<string, string | number | boolean | undefined>;
 }) {
   const listing = useListing<T>({
-    path,
+    fetcher,
     initialPage: 1,
     initialPageSize: 10,
-    query,
   });
+
+  if (listingRef) {
+    (listingRef as React.RefObject<{ refresh: () => void }>).current = {
+      refresh: listing.refresh,
+    };
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">

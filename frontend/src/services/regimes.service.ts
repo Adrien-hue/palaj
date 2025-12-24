@@ -11,3 +11,7 @@ export async function listRegimes(params: ListParams = {page: 1, page_size: 20})
   const qs = search.toString();
   return apiFetch<ListResponse<Regime>>(`/regimes${qs ? `?${qs}` : ""}`);
 }
+
+export async function removeRegime(id: number) {
+  return apiFetch<void>(`/regimes/${id}`, { method: "DELETE" });
+}

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { apiFetch } from "@/lib/api";
 import type { ListResponse } from "@/types";
 
 export type ListingState<T> = {
@@ -20,31 +19,17 @@ export type ListingState<T> = {
 };
 
 export function useListing<T>(opts: {
-  path: string;
+  fetcher: (args: { page: number; pageSize: number }) => Promise<ListResponse<T>>;
   initialPage?: number;
   initialPageSize?: number;
-  query?: Record<string, string | number | boolean | undefined>;
 }): ListingState<T> {
-  const { path, initialPage = 1, initialPageSize = 10, query = {} } = opts;
-
+  const { fetcher, initialPage = 1, initialPageSize = 10 } = opts;
   const [page, setPage] = useState(initialPage);
   const [pageSize, setPageSize] = useState(initialPageSize);
   const [data, setData] = useState<ListResponse<T> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [bump, setBump] = useState(0);
-
-  const qs = useMemo(() => {
-    const params = new URLSearchParams();
-    params.set("page", String(page));
-    params.set("page_size", String(pageSize));
-
-    for (const [k, v] of Object.entries(query)) {
-      if (v === undefined) continue;
-      params.set(k, String(v));
-    }
-    return params.toString();
-  }, [page, pageSize, query]);
 
   useEffect(() => {
     let cancelled = false;
@@ -53,7 +38,7 @@ export function useListing<T>(opts: {
       setLoading(true);
       setError(null);
       try {
-        const res = await apiFetch<ListResponse<T>>(`${path}?${qs}`);
+        const res = await fetcher({ page, pageSize: pageSize });
         if (!cancelled) setData(res);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Erreur inconnue");
@@ -66,7 +51,12 @@ export function useListing<T>(opts: {
     return () => {
       cancelled = true;
     };
-  }, [path, qs, bump]);
+  }, [fetcher, page, pageSize, bump]);
+
+  useEffect(() => {
+    if (!data) return;
+    if (page > (data.meta.pages || 1)) setPage(data.meta.pages || 1);
+  }, [data, page]);
 
   const totalPages = data?.meta.pages ?? 1;
   const total = data?.meta.total ?? 0;

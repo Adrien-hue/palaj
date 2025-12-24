@@ -1,5 +1,5 @@
 export type Regime = {
-  id: string;
+  id: number;
   nom: string;
   desc: string;
 };
