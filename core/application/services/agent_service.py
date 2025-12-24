@@ -32,8 +32,14 @@ class AgentService:
         self.regime_repo = regime_repo
         self.qualification_repo = qualification_repo
 
+    def activate(self, agent_id: int) -> bool:
+        return self.agent_repo.set_active(agent_id, True)
+
     def count(self) -> int:
         return self.agent_repo.count()
+    
+    def deactivate(self, agent_id: int) -> bool:
+        return self.agent_repo.set_active(agent_id, False)
     
     def get_by_id(self, agent_id: int) -> Agent | None:
         return self.agent_repo.get_by_id(agent_id)

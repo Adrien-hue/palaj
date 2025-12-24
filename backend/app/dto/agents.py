@@ -24,6 +24,7 @@ class AgentDetailDTO(BaseModel):
     nom: str
     prenom: str
     code_personnel: str = ""
+    actif: bool
     regime_id: Optional[int] = None
 
     regime: Optional[RegimeDTO] = None

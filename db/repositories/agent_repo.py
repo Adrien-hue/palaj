@@ -56,3 +56,12 @@ class AgentRepository(SQLRepository[AgentModel, AgentEntity]):
                 e for m in models
                 if (e := EntityMapper.model_to_entity(m, AgentEntity)) is not None
             ]
+
+    def set_active(self, agent_id: int, is_active: bool) -> bool:
+        with self.db.session_scope() as session:
+            model = session.get(AgentModel, agent_id)
+            if model is None:
+                return False
+
+            model.actif = is_active
+            return True

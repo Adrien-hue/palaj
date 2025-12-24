@@ -24,7 +24,7 @@ class Agent(Base):
     __tablename__ = "agents"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    actif = Column(Boolean, nullable=False, server_default="1")
+    actif: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     nom = Column(String(100), nullable=False)
     prenom = Column(String(100), nullable=False)
     code_personnel = Column(String(50), nullable=True)

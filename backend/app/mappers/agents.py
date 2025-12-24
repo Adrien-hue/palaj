@@ -11,7 +11,7 @@ def to_agent_list_item_dto(agent) -> AgentDTO:
         nom=agent.nom,
         prenom=agent.prenom,
         code_personnel=agent.code_personnel,
-        actif=getattr(agent, "actif", True),
+        actif=agent.actif,
     )
 
 def to_agent_detail_dto(agent) -> AgentDetailDTO:
@@ -20,6 +20,7 @@ def to_agent_detail_dto(agent) -> AgentDetailDTO:
         nom=agent.nom,
         prenom=agent.prenom,
         code_personnel=agent.code_personnel,
+        actif=agent.actif,
         regime_id=agent.regime_id,
         regime=to_regime_dto(agent.regime) if agent.regime else None,
         qualifications=[to_qualification_dto(q) for q in agent.qualifications],
