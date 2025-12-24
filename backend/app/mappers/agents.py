@@ -5,7 +5,7 @@ from backend.app.mappers.qualifications import to_qualification_dto
 from backend.app.mappers.affectations import to_affectation_dto
 from backend.app.mappers.etats_jours_agents import to_etat_jour_agent_dto
 
-def to_agent_list_item_dto(agent) -> AgentDTO:
+def to_agent_dto(agent) -> AgentDTO:
     return AgentDTO(
         id=agent.id,
         nom=agent.nom,

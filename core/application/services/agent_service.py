@@ -1,5 +1,5 @@
 # core/application/service/agent_service.py
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from core.application.ports import (
     AffectationRepositoryPort,
@@ -38,6 +38,25 @@ class AgentService:
     def count(self) -> int:
         return self.agent_repo.count()
     
+    def create(
+        self,
+        *,
+        nom: str,
+        prenom: str,
+        code_personnel: str = "",
+        regime_id: Optional[int] = None,
+        actif: bool = True,
+    ) -> Agent:
+        agent = Agent(
+            id=0,
+            nom=nom,
+            prenom=prenom,
+            code_personnel=code_personnel,
+            regime_id=regime_id,
+            actif=actif,
+        )
+        return self.agent_repo.create(agent)
+    
     def deactivate(self, agent_id: int) -> bool:
         return self.agent_repo.set_active(agent_id, False)
     
@@ -49,6 +68,25 @@ class AgentService:
     
     def list_all(self) -> List[Agent]:
         return self.agent_repo.list_all()
+    
+    def update(self, agent_id: int, **changes: Any) -> Optional[Agent]:
+        agent = self.agent_repo.get_by_id(agent_id)
+        if not agent:
+            return None
+
+        # applique seulement ce qui est présent dans changes
+        if "nom" in changes:
+            agent.nom = changes["nom"]
+        if "prenom" in changes:
+            agent.prenom = changes["prenom"]
+        if "code_personnel" in changes:
+            agent.code_personnel = changes["code_personnel"]
+        if "regime_id" in changes:
+            agent.regime_id = changes["regime_id"]
+        if "actif" in changes:
+            agent.actif = changes["actif"]
+
+        return self.agent_repo.update(agent)
 
     # =========================================================
     # 🔹 Chargement complet

@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from backend.app.api.deps import get_agent_service
-from backend.app.dto.agents import AgentDTO, AgentDetailDTO
+from backend.app.dto.agents import AgentCreateDTO, AgentDTO, AgentDetailDTO, AgentUpdateDTO
 from backend.app.dto.common.pagination import build_page, Page, PaginationParams, pagination_params
-from backend.app.mappers.agents import to_agent_detail_dto
+from backend.app.mappers.agents import to_agent_dto, to_agent_detail_dto
 from core.application.services.agent_service import AgentService
 
 router = APIRouter(prefix="/agents", tags=["Agents"])
@@ -13,6 +13,11 @@ def activate_agent(agent_id: int, agent_service: AgentService = Depends(get_agen
     if not ok:
         raise HTTPException(status_code=404, detail="Agent not found")
     return None
+
+@router.post("/", response_model=AgentDTO, status_code=status.HTTP_201_CREATED)
+def create_agent(payload: AgentCreateDTO, agent_service: AgentService = Depends(get_agent_service)):
+    agent = agent_service.create(**payload.model_dump())
+    return to_agent_dto(agent)
 
 @router.patch("/{agent_id}/deactivate", status_code=status.HTTP_204_NO_CONTENT)
 def deactivate_agent(agent_id: int, agent_service: AgentService = Depends(get_agent_service)):
@@ -36,3 +41,15 @@ def list_agents(
     items = agent_service.list(limit=p.limit, offset=p.offset)
     total = agent_service.count()
     return build_page(items=items, total=total, p=p)
+
+@router.patch("/{agent_id}", response_model=AgentDTO)
+def update_agent(agent_id: int, payload: AgentUpdateDTO, agent_service: AgentService = Depends(get_agent_service)):
+    changes = payload.model_dump(exclude_unset=True)
+    if not changes:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    agent = agent_service.update(agent_id, **changes)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    return to_agent_dto(agent)

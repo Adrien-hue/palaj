@@ -120,8 +120,13 @@ class EntityMapper:
             return None
 
         data = entity.__dict__.copy()
-        valid_fields = set(model_class.__mapper__.attrs.keys())  # typé OK
+        valid_fields = set(model_class.__mapper__.attrs.keys())
+
         filtered_data = {k: v for k, v in data.items() if k in valid_fields}
+
+        if "id" in filtered_data and filtered_data["id"] in (0, None):
+            filtered_data.pop("id", None)
+
         return model_class(**filtered_data)
 
     # =========================================================
@@ -136,9 +141,13 @@ class EntityMapper:
             return model
 
         valid_fields = set(model.__mapper__.attrs.keys())
+
+        pk_keys = {col.key for col in model.__mapper__.primary_key}
+
         for k, v in vars(entity).items():
-            if k in valid_fields:
+            if k in valid_fields and k not in pk_keys:
                 setattr(model, k, v)
+
         return model
 
     # =========================================================
