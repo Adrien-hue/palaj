@@ -1,6 +1,7 @@
 "use client";
 
-import type { ReactNode, RefObject } from "react";
+import { useEffect } from "react"
+import type { ReactNode } from "react";
 import type { ColumnDef } from "./DataTable";
 import { DataTable } from "./DataTable";
 import { Pagination } from "./Pagination";
@@ -16,7 +17,7 @@ export function ListPage<T>({
   headerRight,
   emptyTitle = "Aucun résultat",
   emptyDescription = "Aucune donnée à afficher pour le moment.",
-  listingRef,
+  onReady,
   pageSizeOptions = true,
 }: {
   title: string;
@@ -27,7 +28,7 @@ export function ListPage<T>({
   headerRight?: ReactNode;
   emptyTitle?: string;
   emptyDescription?: string;
-  listingRef?: RefObject<{ refresh: () => void }>;
+  onReady?: (api: { refresh: () => void }) => void;
   pageSizeOptions?: boolean;
 }) {
   const listing = useListing<T>({
@@ -36,11 +37,9 @@ export function ListPage<T>({
     initialPageSize: 10,
   });
 
-  if (listingRef) {
-    (listingRef as React.RefObject<{ refresh: () => void }>).current = {
-      refresh: listing.refresh,
-    };
-  }
+  useEffect(() => {
+    onReady?.({ refresh: listing.refresh });
+  }, [onReady, listing.refresh]);
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">

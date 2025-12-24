@@ -2,12 +2,15 @@
 
 import type { ColumnDef } from "@/components/admin/listing/DataTable";
 import RowActions from "@/components/admin/listing/RowActions";
+import { ActiveSwitch } from "@/components/ui";
 import type { Agent } from "@/types";
 
 export function getAgentColumns(opts: {
   onView: (a: Agent) => void;
   onEdit: (a: Agent) => void;
   onDelete: (a: Agent) => void;
+  onToggleActive: (a: Agent) => void;
+  togglingIds?: Set<number>;
 }): ColumnDef<Agent>[] {
   return [
     { key: "nom", header: "Nom", cell: (a) => <span className="font-medium">{a.nom}</span> },
@@ -17,14 +20,13 @@ export function getAgentColumns(opts: {
       key: "actif",
       header: "Actif",
       cell: (a) => (
-        <span
-          className={[
-            "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-            a.actif ? "bg-green-100 text-green-700" : "bg-zinc-100 text-zinc-600",
-          ].join(" ")}
-        >
-          {a.actif ? "Actif" : "Inactif"}
-        </span>
+        <ActiveSwitch
+          checked={a.actif}
+          onToggle={() => opts.onToggleActive(a)}
+          disabled={opts.togglingIds?.has(a.id)}
+          tooltipOn="Désactiver l'agent"
+          tooltipOff="Activer l'agent"
+        />
       ),
     },
     {

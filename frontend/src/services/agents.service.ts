@@ -7,6 +7,14 @@ export type ListAgentsParams = {
   page_size?: number;
 };
 
+export async function activateAgent(id: number) {
+  return apiFetch<void>(`/agents/${id}/activate`, { method: "PATCH" });
+}
+
+export async function deactivateAgent(id: number) {
+  return apiFetch<void>(`/agents/${id}/deactivate`, { method: "PATCH" });
+}
+
 export async function listAgents(params: ListParams = {page: 1, page_size: 20}) {
   const search = new URLSearchParams();
 
