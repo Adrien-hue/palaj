@@ -24,6 +24,7 @@ class Agent(Base):
     __tablename__ = "agents"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    actif = Column(Boolean, nullable=False, server_default="1")
     nom = Column(String(100), nullable=False)
     prenom = Column(String(100), nullable=False)
     code_personnel = Column(String(50), nullable=True)

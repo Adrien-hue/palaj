@@ -17,11 +17,13 @@ class Agent:
         prenom: str,
         code_personnel: str = "",
         regime_id: Optional[int] = None,
+        actif: bool = True,
     ):
         self.id = id
         self.nom = nom
         self.prenom = prenom
         self.code_personnel = code_personnel
+        self.actif = actif
 
         self.regime_id = regime_id
         self._regime: Optional[Regime] = None

@@ -27,8 +27,7 @@ target_metadata = Base.metadata
 from backend.app.settings import settings
 config.set_main_option("sqlalchemy.url", settings.database_url)
 
-# --- OPTION SAFE: ne gérer que la table 'users' au début ---
-MANAGED_TABLES = {"users"}  # tu pourras élargir plus tard
+MANAGED_TABLES = {"agents", "users"}
 
 def include_object(object_, name, type_, reflected, compare_to):
     if type_ == "table":
