@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { Button, SecondaryButton, FormError, RequiredFieldsNote, SelectField, TextField } from "@/components/ui";
 import { useRegimeOptions } from "@/features/regimes/useRegimeOptions";
-import type { Agent } from "@/types";
+import type { AgentDetails } from "@/types";
 
 export type AgentFormValues = {
   nom: string;
@@ -21,7 +21,7 @@ export default function AgentForm({
   submitting,
 }: {
   mode: "create" | "edit";
-  initialAgent?: Agent | null;
+  initialAgent?: AgentDetails | null;
   onSubmit: (values: {
     nom: string;
     prenom: string;

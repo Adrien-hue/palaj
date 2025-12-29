@@ -5,8 +5,9 @@ import { useMemo, useRef } from "react";
 import { useConfirm } from "@/components/admin/dialogs/useConfirm";
 import { ListPage } from "@/components/admin/listing/ListPage";
 import { useToast } from "@/components/admin/toast/ToastProvider";
-import { Button, Dialog } from "@/components/ui";
+import { Button, Dialog, SecondaryButton } from "@/components/ui";
 import { getAgentColumns } from "@/features/agents/agents.columns";
+import AgentDetails from "@/features/agents/agent.details";
 import AgentForm from "@/features/agents/agent.form";
 import { listAgents } from "@/services/agents.service";
 import type { Agent } from "@/types";
@@ -33,7 +34,7 @@ export default function AgentsPage() {
   const columns = useMemo(
     () =>
       getAgentColumns({
-        onView: (a) => alert(`TODO voir ${a.id}`),
+        onView: crud.openView,
         onEdit: crud.openEdit,
         onDelete: crud.deleteAgent,
         togglingIds: crud.togglingIds,
@@ -65,8 +66,38 @@ export default function AgentsPage() {
       <ConfirmDialog />
 
       <Dialog
+        open={crud.detailsOpen}
+        title="Détail agent"
+        onClose={crud.closeView}
+        maxWidthClassName="max-w-2xl"
+      >
+        {crud.detailsAgent ? (
+          <div className="space-y-4">
+            <AgentDetails agent={crud.detailsAgent as any} />
+
+            <div className="flex justify-end gap-2">
+              <SecondaryButton onClick={crud.closeView}>Fermer</SecondaryButton>
+
+              <Button
+                onClick={() => {
+                  crud.closeView();
+                  crud.openEdit(crud.detailsAgent as any);
+                }}
+              >
+                Éditer
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="text-sm text-zinc-600">Aucune donnée.</div>
+        )}
+      </Dialog>
+
+      <Dialog
         open={crud.modalOpen}
-        title={crud.modalMode === "create" ? "Créer un agent" : "Modifier l'agent"}
+        title={
+          crud.modalMode === "create" ? "Créer un agent" : "Modifier l'agent"
+        }
         onClose={crud.closeModal}
       >
         <AgentForm

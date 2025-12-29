@@ -1,6 +1,6 @@
 import { apiFetch } from "@/lib/api";
 import type { ListParams, ListResponse } from "@/types/api";
-import type { Agent, CreateAgentBody, PatchAgentBody } from "@/types";
+import type { Agent, AgentDetails, CreateAgentBody, PatchAgentBody } from "@/types";
 
 export async function activateAgent(id: number) {
   return apiFetch<void>(`/agents/${id}/activate`, { method: "PATCH" });
@@ -20,7 +20,7 @@ export async function deactivateAgent(id: number) {
 }
 
 export async function getAgent(id: number) {
-  return apiFetch<Agent>(`/agents/${id}`);
+  return apiFetch<AgentDetails>(`/agents/${id}`);
 }
 
 export async function listAgents(params: ListParams = {page: 1, page_size: 20}) {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import type { Agent } from "@/types";
+import type { Agent, AgentDetails } from "@/types";
 import {
   activateAgent,
   createAgent,
@@ -10,7 +10,10 @@ import {
   patchAgent,
   removeAgent,
 } from "@/services/agents.service";
-import { buildAgentPatch, type AgentFormSubmitValues } from "@/features/agents/buildAgentPatch";
+import {
+  buildAgentPatch,
+  type AgentFormSubmitValues,
+} from "@/features/agents/buildAgentPatch";
 
 export type ConfirmFn = (opts: {
   title: string;
@@ -36,12 +39,43 @@ export function useAgentsCrud(opts: {
 
   const [editLoadingId, setEditLoadingId] = useState<number | null>(null);
 
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [detailsAgent, setDetailsAgent] = useState<AgentDetails | null>(null);
+  const [viewLoadingId, setViewLoadingId] = useState<number | null>(null);
+
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<"create" | "edit">("create");
-  const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
+  const [selectedAgent, setSelectedAgent] = useState<AgentDetails | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const [togglingIds, setTogglingIds] = useState<Set<number>>(new Set());
+
+  const closeView = useCallback(() => {
+    setDetailsOpen(false);
+  }, []);
+
+  const openView = useCallback(
+    async (a: Agent) => {
+      if (viewLoadingId === a.id) return;
+
+      setViewLoadingId(a.id);
+      try {
+        const full = await getAgent(a.id);
+        setDetailsAgent(full);
+        setDetailsOpen(true);
+      } catch (e) {
+        showToast({
+          type: "error",
+          title: "Chargement impossible",
+          message: e instanceof Error ? e.message : "Erreur inconnue",
+          durationMs: 6000,
+        });
+      } finally {
+        setViewLoadingId(null);
+      }
+    },
+    [showToast, viewLoadingId]
+  );
 
   const openCreate = useCallback(() => {
     setSelectedAgent(null);
@@ -133,7 +167,9 @@ export function useAgentsCrud(opts: {
         showToast({
           type: "success",
           title: a.actif ? "Agent désactivé" : "Agent activé",
-          message: `${a.nom} ${a.prenom} est maintenant ${a.actif ? "inactif" : "actif"}.`,
+          message: `${a.nom} ${a.prenom} est maintenant ${
+            a.actif ? "inactif" : "actif"
+          }.`,
         });
 
         refresh();
@@ -196,6 +232,9 @@ export function useAgentsCrud(opts: {
 
   return {
     // state
+    detailsOpen,
+    detailsAgent,
+    viewLoadingId,
     editLoadingId,
     modalOpen,
     modalMode,
@@ -204,6 +243,8 @@ export function useAgentsCrud(opts: {
     togglingIds,
 
     // actions
+    openView,
+    closeView,
     openCreate,
     openEdit,
     closeModal,
