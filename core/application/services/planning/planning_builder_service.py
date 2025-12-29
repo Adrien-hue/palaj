@@ -44,6 +44,8 @@ class PlanningBuilderService:
         start_date: date,
         end_date: date
     ) -> AgentPlanning:
+        if start_date > end_date:
+            raise ValueError("start_date must be <= end_date")
 
         agent = self.agent_service.get_agent_complet(agent_id)
         if not agent:

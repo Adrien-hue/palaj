@@ -1,9 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from backend.app.api.deps import get_agent_service
+from datetime import date
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from backend.app.api.deps import get_agent_service, get_planning_builder_service
 from backend.app.dto.agents import AgentCreateDTO, AgentDTO, AgentDetailDTO, AgentUpdateDTO
 from backend.app.dto.common.pagination import build_page, Page, PaginationParams, pagination_params
+from backend.app.dto.planning import AgentPlanningResponseDTO
 from backend.app.mappers.agents import to_agent_dto, to_agent_detail_dto
+from backend.app.mappers.planning import to_agent_planning_response
 from core.application.services.agent_service import AgentService
+from core.application.services.planning.planning_builder_service import PlanningBuilderService
 
 router = APIRouter(prefix="/agents", tags=["Agents"])
 
@@ -32,6 +36,19 @@ def get_agent(agent_id: int, agent_service: AgentService = Depends(get_agent_ser
     if agent is None:
         raise HTTPException(status_code=404, detail="Agent not found")
     return to_agent_detail_dto(agent)
+
+@router.get("/{agent_id}/planning", response_model=AgentPlanningResponseDTO)
+def get_agent_planning(
+    agent_id: int,
+    start_date: date = Query(..., description="YYYY-MM-DD"),
+    end_date: date = Query(..., description="YYYY-MM-DD"),
+    planning_builder_service: PlanningBuilderService = Depends(get_planning_builder_service),
+):
+    try:
+        planning = planning_builder_service.build_agent_planning(agent_id=agent_id, start_date=start_date, end_date=end_date)
+        return to_agent_planning_response(planning)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/", response_model=Page[AgentDTO])
 def list_agents(
