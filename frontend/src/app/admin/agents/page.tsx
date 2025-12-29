@@ -1,19 +1,27 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef } from "react";
 
 import { useConfirm } from "@/components/admin/dialogs/useConfirm";
 import { ListPage } from "@/components/admin/listing/ListPage";
 import { useToast } from "@/components/admin/toast/ToastProvider";
+import { Button, Dialog } from "@/components/ui";
 import { getAgentColumns } from "@/features/agents/agents.columns";
-import { activateAgent, deactivateAgent, listAgents, removeAgent } from "@/services/agents.service";
+import AgentForm from "@/features/agents/agent.form";
+import { listAgents } from "@/services/agents.service";
 import type { Agent } from "@/types";
+import { useAgentsCrud } from "@/features/agents/useAgentCrud";
 
 export default function AgentsPage() {
   const refreshRef = useRef<null | (() => void)>(null);
   const { confirm, ConfirmDialog } = useConfirm();
   const { showToast } = useToast();
-  const [togglingIds, setTogglingIds] = useState<Set<number>>(new Set());
+
+  const crud = useAgentsCrud({
+    confirm,
+    showToast,
+    refresh: () => refreshRef.current?.(),
+  });
 
   const fetcher = useMemo(
     () =>
@@ -22,84 +30,17 @@ export default function AgentsPage() {
     []
   );
 
-  const columns = getAgentColumns({
-    onView: (a) => alert(`TODO voir ${a.id}`),
-    onEdit: (a) => alert(`TODO edit ${a.id}`),
-    onDelete: async (a) => {
-      const ok = await confirm({
-        title: "Supprimer l'agent",
-        description: `Confirmer la suppression de ${a.nom} ${a.prenom} ?`,
-        confirmText: "Supprimer",
-        cancelText: "Annuler",
-        variant: "danger",
-      });
-      if (!ok) return;
-
-      try {
-        await removeAgent(a.id);
-
-        showToast({
-          type: "success",
-          title: "Agent supprimé",
-          message: `${a.nom} ${a.prenom} a été supprimé.`,
-        });
-
-        refreshRef.current?.();
-      } catch (e) {
-        showToast({
-          type: "error",
-          title: "Suppression impossible",
-          message: e instanceof Error ? e.message : "Erreur inconnue",
-          durationMs: 6000,
-        });
-      }
-    },
-    togglingIds,
-    onToggleActive: async (a) => {
-      if (a.actif) {
-        const ok = await confirm({
-          title: "Désactiver l'agent",
-          description: `Confirmer la désactivation de ${a.nom} ${a.prenom} ?`,
-          confirmText: "Désactiver",
-          cancelText: "Annuler",
-          variant: "danger",
-        });
-        if (!ok) return;
-      }
-
-      setTogglingIds((prev) => new Set(prev).add(a.id));
-      try {
-        if (a.actif) {
-          await deactivateAgent(a.id);
-        } else {
-          await activateAgent(a.id);
-        }
-
-        showToast({
-          type: "success",
-          title: a.actif ? "Agent désactivé" : "Agent activé",
-          message: `${a.nom} ${a.prenom} est maintenant ${
-            a.actif ? "inactif" : "actif"
-          }.`,
-        });
-
-        refreshRef.current?.();
-      } catch (e) {
-        showToast({
-          type: "error",
-          title: "Action impossible",
-          message: e instanceof Error ? e.message : "Erreur inconnue",
-          durationMs: 6000,
-        });
-      } finally {
-        setTogglingIds((prev) => {
-          const next = new Set(prev);
-          next.delete(a.id);
-          return next;
-        });
-      }
-    },
-  });
+  const columns = useMemo(
+    () =>
+      getAgentColumns({
+        onView: (a) => alert(`TODO voir ${a.id}`),
+        onEdit: crud.openEdit,
+        onDelete: crud.deleteAgent,
+        togglingIds: crud.togglingIds,
+        onToggleActive: crud.toggleActive,
+      }),
+    [crud.deleteAgent, crud.openEdit, crud.toggleActive, crud.togglingIds]
+  );
 
   return (
     <>
@@ -110,12 +51,9 @@ export default function AgentsPage() {
         columns={columns}
         getRowId={(a) => a.id}
         headerRight={
-          <button
-            className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800"
-            onClick={() => alert("TODO ouvrir modal Create")}
-          >
+          <Button variant="success" onClick={crud.openCreate}>
             Créer
-          </button>
+          </Button>
         }
         emptyTitle="Aucun agent"
         emptyDescription="Commence par créer ton premier agent."
@@ -125,6 +63,21 @@ export default function AgentsPage() {
       />
 
       <ConfirmDialog />
+
+      <Dialog
+        open={crud.modalOpen}
+        title={crud.modalMode === "create" ? "Créer un agent" : "Modifier l'agent"}
+        onClose={crud.closeModal}
+      >
+        <AgentForm
+          key={`${crud.modalMode}-${crud.selectedAgent?.id ?? "new"}`}
+          mode={crud.modalMode}
+          initialAgent={crud.selectedAgent}
+          submitting={crud.submitting}
+          onCancel={crud.closeModal}
+          onSubmit={crud.submitForm}
+        />
+      </Dialog>
     </>
   );
 }
