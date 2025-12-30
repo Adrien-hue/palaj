@@ -1,6 +1,8 @@
 from .base import Base
 
 from .affectation import Affectation
+from .agent_day_assignment import AgentDayAssignment
+from .agent_day import AgentDay
 from .agent import Agent
 from .etat_jour_agent import EtatJourAgent
 from .poste import Poste
