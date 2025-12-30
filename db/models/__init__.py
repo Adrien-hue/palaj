@@ -1,8 +1,9 @@
 from .base import Base
 
+from .affectation import Affectation
 from .poste import Poste
 from .regime import Regime
 from .tranche import Tranche
 from .user import User
 
-from ._legacy import Agent, Affectation, EtatJourAgent, Qualification
+from ._legacy import Agent, EtatJourAgent, Qualification
