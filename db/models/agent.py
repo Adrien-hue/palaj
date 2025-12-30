@@ -1,25 +1,10 @@
-from sqlalchemy import (
-    Boolean,
-    Column,
-    Integer,
-    String,
-    Date,
-    Time,
-    ForeignKey,
-    Enum as SAEnum,
-    Text,
-    UniqueConstraint,
-)
+# db/models/agent.py
+from sqlalchemy import Boolean, Column, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from db.models.base import Base
-
-from core.domain.entities.etat_jour_agent import TypeJour
+from .base import Base
 
 
-# =====================================================
-#   Agent
-# =====================================================
 class Agent(Base):
     __tablename__ = "agents"
 
