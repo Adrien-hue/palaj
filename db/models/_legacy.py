@@ -138,24 +138,6 @@ class Qualification(Base):
     def __repr__(self):
         return f"<Qualification agent={self.agent_id} poste={self.poste_id}>"
 
-
-# =====================================================
-#   Régime
-# =====================================================
-class Regime(Base):
-    __tablename__ = "regimes"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    nom = Column(String(50), nullable=False, unique=True)
-    desc = Column(Text, nullable=True)
-    duree_moyenne_journee_service_min = Column(Integer, nullable=False)
-    repos_periodiques_annuels = Column(Integer, nullable=True)
-
-    agents = relationship("Agent", back_populates="regime")
-
-    def __repr__(self):
-        return f"<Regime {self.nom}>"
-
 class User(Base):
     __tablename__ = "users"
 
