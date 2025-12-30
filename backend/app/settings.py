@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/v1"
     debug: bool = True
 
-    database_url: str = "sqlite:///./data/planning.db"
+    database_url: str = "sqlite:///./data/palaj.db"
 
     jwt_secret: str = "CHANGE_ME"
     jwt_expires_minutes: int = 60 * 8

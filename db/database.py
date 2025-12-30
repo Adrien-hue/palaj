@@ -30,7 +30,7 @@ class SQLiteDatabase:
 
     def __init__(
         self,
-        db_path: str = "data/planning.db",
+        db_path: str = "data/palaj.db",
         echo: bool = False,
         debug: bool = True,
         future: bool = True,
