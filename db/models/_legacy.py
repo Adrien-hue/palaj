@@ -12,7 +12,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from db.base import Base
+from db.models.base import Base
 
 from core.domain.entities.etat_jour_agent import TypeJour
 
