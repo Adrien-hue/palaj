@@ -1,9 +1,10 @@
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
-
 from alembic import context
+from sqlalchemy import engine_from_config, pool
+
+from typing import Optional
+
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -16,8 +17,9 @@ if config.config_file_name is not None:
 
 # add your model's MetaData object here
 # for 'autogenerate' support
-from db.base import Base
+from db.models import Base
 import db.models # noqa: F401
+
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,
@@ -27,12 +29,9 @@ target_metadata = Base.metadata
 from backend.app.settings import settings
 config.set_main_option("sqlalchemy.url", settings.database_url)
 
-MANAGED_TABLES = {"agents", "users"}
 
-def include_object(object_, name, type_, reflected, compare_to):
-    if type_ == "table":
-        return name in MANAGED_TABLES
-    return True
+def _is_sqlite(url: Optional[str]) -> bool:
+    return bool(url) and url.startswith("sqlite")
 
 
 def run_migrations_offline() -> None:
@@ -53,8 +52,8 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
-        include_object=include_object,
         compare_type=True,
+        render_as_batch=_is_sqlite(url),
     )
 
     with context.begin_transaction():
@@ -75,11 +74,12 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
+        url = str(connectable.url)
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
-            include_object=include_object,
             compare_type=True,
+            render_as_batch=_is_sqlite(url),
         )
 
         with context.begin_transaction():
