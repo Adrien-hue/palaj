@@ -1,24 +1,46 @@
 # db/models/agent.py
-from sqlalchemy import Boolean, Column, ForeignKey, Integer, String
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Optional
+
+from sqlalchemy import Boolean, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
+
+if TYPE_CHECKING:
+    from .regime import Regime
+    from .affectation import Affectation
+    from .etat_jour_agent import EtatJourAgent
+    from .qualification import Qualification
 
 
 class Agent(Base):
     __tablename__ = "agents"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     actif: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    nom = Column(String(100), nullable=False)
-    prenom = Column(String(100), nullable=False)
-    code_personnel = Column(String(50), nullable=True)
-    regime_id = Column(Integer, ForeignKey("regimes.id"), nullable=True)
+    nom: Mapped[str] = mapped_column(String(100), nullable=False)
+    prenom: Mapped[str] = mapped_column(String(100), nullable=False)
+    code_personnel: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    regime_id: Mapped[Optional[int]] = mapped_column(ForeignKey("regimes.id"), nullable=True)
 
-    regime = relationship("Regime", back_populates="agents")
-    affectations = relationship("Affectation", back_populates="agent", cascade="all, delete-orphan")
-    etats = relationship("EtatJourAgent", back_populates="agent", cascade="all, delete-orphan")
-    qualifications = relationship("Qualification", back_populates="agent", cascade="all, delete-orphan")
+    regime: Mapped[Optional[Regime]] = relationship("Regime", back_populates="agents")
+    affectations: Mapped[list[Affectation]] = relationship(
+        "Affectation",
+        back_populates="agent",
+        cascade="all, delete-orphan",
+    )
+    etats: Mapped[list[EtatJourAgent]] = relationship(
+        "EtatJourAgent",
+        back_populates="agent",
+        cascade="all, delete-orphan",
+    )
+    qualifications: Mapped[list[Qualification]] = relationship(
+        "Qualification",
+        back_populates="agent",
+        cascade="all, delete-orphan",
+    )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<Agent {self.prenom} {self.nom}>"
