@@ -7,6 +7,7 @@ from core.application.services import (
     AgentService,
     EtatJourAgentService,
     PlanningBuilderService,
+    PlanningDayAssembler,
     PosteService,
     QualificationService,
     RegimeService,
@@ -15,6 +16,7 @@ from core.application.services import (
 
 from db.repositories import (
     agent_repo,
+    agent_day_repo,
     affectation_repo,
     etat_jour_agent_repo,
     poste_repo,
@@ -22,6 +24,8 @@ from db.repositories import (
     regime_repo,
     tranche_repo,
 )
+
+from backend.app.settings import settings
 
 # ---------------------------------------------------------
 # Repositories -> Services
@@ -79,12 +83,19 @@ agent_planning_validator_service = AgentPlanningValidatorService(
 # ---------------------------------------------------------
 # Planning
 # ---------------------------------------------------------
+planning_day_assembler = PlanningDayAssembler(
+    agent_day_repo=agent_day_repo,
+    tranche_repo=tranche_repo,
+)
+
 planning_builder_service = PlanningBuilderService(
     affectation_service=affectation_service,
     agent_service=agent_service,
     etat_service=etat_jour_agent_service,
     poste_service=poste_service,
     tranche_service=tranche_service,
+    planning_day_assembler=planning_day_assembler,
+    enable_agent_day_db_read=settings.FEATURE_AGENT_DAY_READ_DB,
 )
 
 __all__ = [
