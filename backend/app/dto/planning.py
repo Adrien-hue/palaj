@@ -4,6 +4,7 @@ from datetime import date
 from typing import List
 
 from backend.app.dto.agents import AgentDTO
+from backend.app.dto.planning_day import PlanningDayDTO
 from backend.app.dto.work_days import WorkDayDTO
 
 
@@ -14,3 +15,5 @@ class AgentPlanningResponseDTO(BaseModel):
     end_date: date
 
     work_days: List[WorkDayDTO]
+
+    days: List[PlanningDayDTO]

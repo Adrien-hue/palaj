@@ -1,5 +1,6 @@
 from backend.app.dto.agents import AgentDTO
 from backend.app.dto.planning import AgentPlanningResponseDTO
+from backend.app.mappers.planning_day import to_planning_day_dto
 from backend.app.mappers.work_days import to_work_day_dto
 
 def to_agent_planning_response(planning) -> AgentPlanningResponseDTO:
@@ -16,4 +17,5 @@ def to_agent_planning_response(planning) -> AgentPlanningResponseDTO:
         start_date=planning.start_date,
         end_date=planning.end_date,
         work_days=[to_work_day_dto(wd) for wd in sorted_work_days],
+        days=[to_planning_day_dto(day) for day in planning.days]
     )
