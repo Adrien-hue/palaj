@@ -37,7 +37,7 @@ class AgentDayRepository(SQLRepository[AgentDayModel, AgentDayEntity]):
                 .first()
             )
 
-            return EntityMapper.model_to_entity(model, AgentDayEntity) if model else None
+            return self._model_to_entity(model) if model else None
 
     def list_by_agent_and_range(
         self,
@@ -65,6 +65,14 @@ class AgentDayRepository(SQLRepository[AgentDayModel, AgentDayEntity]):
             )
 
             return [
-                e for m in models
-                if (e := EntityMapper.model_to_entity(m, AgentDayEntity)) is not None
+                self._model_to_entity(m)
+                for m in models
             ]
+
+    def _model_to_entity(self, model: AgentDayModel) -> AgentDayEntity:
+        day = EntityMapper.model_to_entity(model, AgentDayEntity)
+        if day is None:
+            raise ValueError("Failed to map AgentDayModel to AgentDayEntity")
+
+        day.set_tranche_ids([a.tranche_id for a in model.assignments])
+        return day
