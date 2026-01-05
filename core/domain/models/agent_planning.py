@@ -5,6 +5,7 @@ from datetime import date, timedelta
 from typing import List, Optional, Tuple
 
 from core.domain.entities import Agent, Affectation, EtatJourAgent, Tranche, TypeJour
+from core.domain.models.planning_day import PlanningDay
 from core.domain.models.work_day import WorkDay
 
 
@@ -24,6 +25,8 @@ class AgentPlanning:
     tranches: List[Tranche]  # optionnel : si tu veux accélérer WorkDay
 
     work_days: List[WorkDay]
+
+    days: Optional[List[PlanningDay]] = None
 
     @classmethod
     def build(cls,
