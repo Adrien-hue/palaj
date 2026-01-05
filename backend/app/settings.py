@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: str = ""
 
-    FEATURE_AGENT_DAY_READ_DB: bool = False
+    FEATURE_AGENT_DAY_READ_DB: bool = True
 
     class Config:
         env_prefix = "APP_"
