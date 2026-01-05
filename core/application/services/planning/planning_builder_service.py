@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Dict, TYPE_CHECKING
 
+from core.application.services.planning.planning_day_assembler import PlanningDayAssembler
 from core.domain.entities import Tranche
 from core.domain.models.agent_planning import AgentPlanning
 from core.domain.models.poste_planning import PostePlanning
@@ -17,8 +18,10 @@ if TYPE_CHECKING:
 
 class PlanningBuilderService:
     """
-    Service applicatif responsable de construire un AgentPlanning
-    à partir de la base SQLite.
+    Application service responsible for building a xxxPlanning
+    from persistence layers.
+
+    Legacy sources remain available; AgentDay DB read is optional (feature flag).
     """
 
     def __init__(
@@ -28,12 +31,17 @@ class PlanningBuilderService:
         etat_service: EtatJourAgentService,
         poste_service: PosteService,
         tranche_service: TrancheService,
+        planning_day_assembler: PlanningDayAssembler,
+        enable_agent_day_db_read: bool = False,
     ):
         self.affectation_service = affectation_service
         self.agent_service = agent_service
         self.etat_service = etat_service
         self.poste_service = poste_service
         self.tranche_service = tranche_service
+
+        self.planning_day_assembler = planning_day_assembler
+        self.enable_agent_day_db_read = enable_agent_day_db_read
 
     # -----------------------------------------------------
     # Public API
@@ -51,6 +59,9 @@ class PlanningBuilderService:
         if not agent:
             raise ValueError(f"Agent {agent_id} introuvable.")
 
+        # -----------------------------
+        # Legacy load (unchanged)
+        # -----------------------------
         etats = [
             e for e in self.etat_service.list_for_agent(agent_id)
             if start_date <= e.jour <= end_date
@@ -77,6 +88,14 @@ class PlanningBuilderService:
             affectations=affectations,
             tranches_by_id=tranches_by_id
         )
+
+        # -----------------------------
+        # New AgentDay DB read (optional)
+        # -----------------------------
+        if self.enable_agent_day_db_read:
+            days = self.planning_day_assembler.build_for_agent(agent_id, start_date, end_date)
+            if days:
+                planning.days = days
 
         return planning
 

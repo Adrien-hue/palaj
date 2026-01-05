@@ -5,6 +5,7 @@ from core.application.services.agent_service import AgentService
 from core.application.services.agent_planning_validator_service import AgentPlanningValidatorService
 from core.application.services.etat_jour_agent_service import EtatJourAgentService
 from core.application.services.planning.planning_builder_service import PlanningBuilderService
+from core.application.services.planning.planning_day_assembler import PlanningDayAssembler
 from core.application.services.poste_service import PosteService
 from core.application.services.qualification_service import QualificationService
 from core.application.services.regime_service import RegimeService
@@ -17,6 +18,7 @@ __all__ = [
     "AgentPlanningValidatorService",
     "EtatJourAgentService",
     "PlanningBuilderService",
+    "PlanningDayAssembler",
     "PosteService",
     "QualificationService",
     "RegimeService",
