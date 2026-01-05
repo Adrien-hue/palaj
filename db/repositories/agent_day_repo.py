@@ -7,7 +7,7 @@ from sqlalchemy.orm import selectinload
 from db import db
 
 from db.models import AgentDay as AgentDayModel
-from core.domain.models.agent_day import AgentDay as AgentDayEntity
+from core.domain.entities.agent_day import AgentDay as AgentDayEntity
 from db.sql_repository import SQLRepository
 from core.adapters.entity_mapper import EntityMapper
 

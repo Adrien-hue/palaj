@@ -1,4 +1,5 @@
 # db/repositories/tranche_repo.py
+from typing import List
 from sqlalchemy import func
 from db import db
 from db.models import Tranche as TrancheModel
@@ -25,7 +26,6 @@ class TrancheRepository(SQLRepository[TrancheModel, TrancheEntity]):
         """
         Recherche une ou plusieurs tranches par nom (insensible à la casse).
         Comparaison effectuée côté SQL via LOWER().
-        ⚠️ Les accents sont conservés.
         """
         with self.db.session_scope() as session:
             model = (
@@ -34,6 +34,21 @@ class TrancheRepository(SQLRepository[TrancheModel, TrancheEntity]):
                 .first()
             )
             return EntityMapper.model_to_entity(model, TrancheEntity) if model else None
+        
+    def list_by_ids(self, ids: List[int]) -> List[TrancheEntity]:
+        if not ids:
+            return []
+        with self.db.session_scope() as session:
+            models = (
+                session.query(TrancheModel)
+                .filter(TrancheModel.id.in_(ids))
+                .all()
+            )
+            
+            return [
+                e for m in models
+                if (e := EntityMapper.model_to_entity(m, TrancheEntity)) is not None
+            ]
 
     def list_by_poste_id(self, poste_id: int) -> list[TrancheEntity]:
         """
