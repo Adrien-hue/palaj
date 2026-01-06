@@ -1,35 +1,85 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: 0 0% 100%;
+  --foreground: 222 47% 11%;
+
+  --muted: 210 40% 96%;
+  --muted-foreground: 215 20% 35%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 11%;
+
+  --border: 214 32% 88%;
+  --input: 214 32% 88%;
+
+  --ring: 222 47% 11%;
 
   --palaj-l: rgb(210, 130, 190); /* Ligne L */
   --palaj-a: rgb(255, 20, 0);    /* Ligne A */
   --palaj-j: rgb(210, 210, 0); /* Ligne J */
+
+  --palaj-danger: rgb(220, 38, 38);        /* red-600 */
+  --palaj-danger-soft: rgb(254, 226, 226); /* red-100 */
+  --palaj-danger-border: rgb(252, 165, 165); /* red-300 */
+
+  --timeline-tick: rgba(0, 0, 0, 0.15);
+  --timeline-bar: rgba(23, 23, 23, 0.85);
+  --timeline-bar-text: #ffffff;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+
+  --color-border: hsl(var(--border));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
+
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: 222 47% 6%;
+    --foreground: 210 40% 98%;
+
+    --muted: 217 33% 14%;
+    --muted-foreground: 215 20% 70%;
+
+    --card: 222 47% 8%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 222 47% 8%;
+    --popover-foreground: 210 40% 98%;
+
+    --border: 217 33% 18%;
+    --input: 217 33% 18%;
+
+    --ring: 215 20% 65%;
+
+    --timeline-tick: rgba(255, 255, 255, 0.15);
+    --timeline-bar: rgba(237, 237, 237, 0.85);
+    --timeline-bar-text: #0a0a0a;
   }
 }
+
 
 html, body {
   height: 100%;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
   font-family: Arial, Helvetica, sans-serif;
 
   margin: 0;
