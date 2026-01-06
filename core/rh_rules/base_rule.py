@@ -1,14 +1,11 @@
 # core/rh_rules/base_rule.py
 from abc import ABC, abstractmethod
-from enum import Enum
 from typing import List, Tuple, Optional
 from datetime import date
 
+from core.rh_rules.models.rh_violation import RhViolation
+from core.rh_rules.models.rule_scope import RuleScope
 from core.utils.domain_alert import DomainAlert, Severity
-
-class RuleScope(Enum):
-    DAY = "day"
-    PERIOD = "period"
 
 class BaseRule(ABC):
     """Classe de base pour toutes les règles RH."""
@@ -61,3 +58,37 @@ class BaseRule(ABC):
     
     def error(self, msg: str, jour: Optional[date] = None, code: Optional[str] = None) -> DomainAlert:
         return self._alert(message=msg, severity=Severity.ERROR, jour=jour, code=code)
+    
+    def _violation(
+        self,
+        message: str,
+        severity: Severity,
+        code: str,
+        *,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        start_dt=None,
+        end_dt=None,
+        meta: dict | None = None,
+    ) -> RhViolation:
+        return RhViolation(
+            code=code,
+            rule_name=self.name,
+            severity=severity,
+            message=message,
+            scope=self.scope,
+            start_date=start_date,
+            end_date=end_date,
+            start_dt=start_dt,
+            end_dt=end_dt,
+            meta=meta or {},
+        )
+
+    def error_v(self, msg: str, code: str, **kwargs) -> RhViolation:
+        return self._violation(msg, Severity.ERROR, code, **kwargs)
+
+    def info_v(self, msg: str, code: str, **kwargs) -> RhViolation:
+        return self._violation(msg, Severity.INFO, code, **kwargs)
+
+    def warn_v(self, msg: str, code: str, **kwargs) -> RhViolation:
+        return self._violation(msg, Severity.WARNING, code, **kwargs)
