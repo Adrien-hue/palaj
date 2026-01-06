@@ -17,12 +17,19 @@ def seed():
     agent_code = "0106135P"
 
     poste_nom = "POSTE_TEST"
-    tranche_nom = "T1"
-    tranche_start = time(6, 0)
-    tranche_end = time(14, 0)
+    tranche1_nom = "T1"
+    tranche1_start = time(6, 0)
+    tranche1_end = time(14, 0)
+    tranche2_nom = "T2"
+    tranche2_start = time(22, 0)
+    tranche2_end = time(6, 0)
 
-    start = date(2026, 1, 1)
-    end = date(2026, 1, 7)
+    start_matin = date(2026, 1, 1)
+    end_matin = date(2026, 1, 7)
+    start_repos = date(2026, 1, 8)
+    end_repos = date(2026, 1, 10)
+    start_nuit = date(2026, 1, 11)
+    end_nuit = date(2026, 1, 17)
 
     with db.session_scope() as session:
         # -------------------------
@@ -42,20 +49,29 @@ def seed():
         # -------------------------
         # 3) Tranche
         # -------------------------
-        tranche = TrancheModel(
-            nom=tranche_nom,
-            heure_debut=tranche_start,
-            heure_fin=tranche_end,
+        tranche1 = TrancheModel(
+            nom=tranche1_nom,
+            heure_debut=tranche1_start,
+            heure_fin=tranche1_end,
             poste_id=poste.id,
         )
-        session.add(tranche)
+        session.add(tranche1)
+        session.flush()
+        
+        tranche2 = TrancheModel(
+            nom=tranche2_nom,
+            heure_debut=tranche2_start,
+            heure_fin=tranche2_end,
+            poste_id=poste.id,
+        )
+        session.add(tranche2)
         session.flush()
 
         # -------------------------
         # 4) AgentDays + 5) Assignments
         # -------------------------
-        current = start
-        while current <= end:
+        current = start_matin
+        while current <= end_matin:
             day = AgentDayModel(
                 agent_id=agent.id,
                 day_date=current,
@@ -69,14 +85,49 @@ def seed():
             # Liaison tranche <-> jour
             link = AgentDayAssignmentModel(
                 agent_day_id=day.id,
-                tranche_id=tranche.id,
+                tranche_id=tranche1.id,
+            )
+            session.add(link)
+
+            current += timedelta(days=1)
+        
+        current = start_repos
+        while current <= end_repos:
+            day = AgentDayModel(
+                agent_id=agent.id,
+                day_date=current,
+                day_type="rest",
+                description=None,
+                is_off_shift=False,
+            )
+            session.add(day)
+            session.flush()  # pour day.id
+
+            current += timedelta(days=1)
+
+        current = start_nuit
+        while current <= end_nuit:
+            day = AgentDayModel(
+                agent_id=agent.id,
+                day_date=current,
+                day_type="working",
+                description=None,
+                is_off_shift=False,
+            )
+            session.add(day)
+            session.flush()  # pour day.id
+
+            # Liaison tranche <-> jour
+            link = AgentDayAssignmentModel(
+                agent_day_id=day.id,
+                tranche_id=tranche2.id,
             )
             session.add(link)
 
             current += timedelta(days=1)
 
         # commit implicite via session_scope() (selon ton impl)
-        print(f"Seed OK: agent_id={agent.id}, poste_id={poste.id}, tranche_id={tranche.id}")
+        print(f"Seed OK: agent_id={agent.id}, poste_id={poste.id}, tranche1_id={tranche1.id}, tranche2_id={tranche2.id}")
 
 
 if __name__ == "__main__":
