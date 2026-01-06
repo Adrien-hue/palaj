@@ -1,17 +1,10 @@
 # core/utils/domain_alert.py
 from dataclasses import dataclass
-from enum import Enum
 from datetime import date
 from typing import Optional
 import textwrap
 
-
-class Severity(str, Enum):
-    INFO = "info"
-    WARNING = "warning"
-    ERROR = "error"
-    SUCCESS = "success"
-
+from core.utils.severity import Severity
 
 @dataclass
 class DomainAlert:
