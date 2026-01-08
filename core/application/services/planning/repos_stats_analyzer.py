@@ -13,11 +13,14 @@ from core.application.services.planning.periode_repos_analyzer import (
 )
 from core.domain.models.work_day import WorkDay
 
+from core.rh_rules.models.rest_period import RestPeriod
+from core.rh_rules.models.rh_day import RhDay
+
 
 @dataclass
 class ReposSummary:
     """Résumé agrégé des périodes de repos sur un PlanningContext."""
-    periodes: List[PeriodeRepos]
+    periodes: List[RestPeriod]
 
     # Ensemble de tous les jours de repos (sans doublons)
     rp_days: Set[date]
@@ -66,6 +69,66 @@ class ReposStatsAnalyzer:
             return self.summarize_workdays([])
 
         return self.summarize_workdays(context.work_days)
+    
+    def summarize_rh_days(self, rh_days: List[RhDay]) -> ReposSummary:
+        periodes = self.periode_analyzer.detect_from_rh_days(rh_days)
+
+        if not periodes:
+            return ReposSummary(
+                periodes=[],
+                rp_days=set(),
+                total_rp_days=0,
+                total_rp_sundays=0,
+                rp_simple=0,
+                rp_double=0,
+                rp_triple=0,
+                rp_4plus=0,
+                rpsd=0,
+                werp=0,
+            )
+
+        rp_days: set[date] = set()
+        total_sundays = 0
+
+        rp_simple = rp_double = rp_triple = rp_4plus = 0
+        rpsd = werp = 0
+
+        for pr in periodes:
+            # Aggregate unique rest days + Sundays count
+            for d in pr.days:
+                if d not in rp_days:
+                    rp_days.add(d)
+                    if d.weekday() == 6:  # Sunday
+                        total_sundays += 1
+
+            # Period classification
+            if pr.is_simple():
+                rp_simple += 1
+            elif pr.is_double():
+                rp_double += 1
+            elif pr.is_triple():
+                rp_triple += 1
+            elif pr.is_4plus():
+                rp_4plus += 1
+
+            # Weekend qualifiers
+            if pr.is_rpsd():
+                rpsd += 1
+            if pr.is_werp():
+                werp += 1
+
+        return ReposSummary(
+            periodes=periodes,
+            rp_days=rp_days,
+            total_rp_days=len(rp_days),
+            total_rp_sundays=total_sundays,
+            rp_simple=rp_simple,
+            rp_double=rp_double,
+            rp_triple=rp_triple,
+            rp_4plus=rp_4plus,
+            rpsd=rpsd,
+            werp=werp,
+        )
         
 
     def summarize_workdays(self, work_days: List[WorkDay]) -> ReposSummary:
