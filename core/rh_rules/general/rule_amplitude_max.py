@@ -27,12 +27,11 @@ class AmplitudeMaxRule(DayRule):
         context: PlanningContext,
         work_day: WorkDay,
     ) -> Tuple[bool, List[DomainAlert]]:
+        rh_day = rh_day_from_workday(context.agent.id, work_day)
 
-        # Si la journée n'est pas travaillée → rien à contrôler
-        if not work_day.is_working():
+        if not rh_day.is_working():
             return True, []
 
-        rh_day = rh_day_from_workday(context.agent.id, work_day)
         amplitude = amplitude_minutes(rh_day)
 
         if amplitude <= self.MAX_AMPLITUDE_MIN:
@@ -49,8 +48,8 @@ class AmplitudeMaxRule(DayRule):
                 f"{minutes_to_duree_str(amplitude)} "
                 f"(max {minutes_to_duree_str(self.MAX_AMPLITUDE_MIN)})"
             ),
-            start_date=work_day.jour,
-            end_date=work_day.jour,
+            start_date=rh_day.day_date,
+            end_date=rh_day.day_date,
             start_dt=start_dt,
             end_dt=end_dt,
             meta={
