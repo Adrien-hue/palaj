@@ -41,8 +41,6 @@ class CongesAnnuelRule(YearRule):
         is_full: bool,
         work_days: List[WorkDay],
     ) -> Tuple[bool, List[DomainAlert]]:
-        alerts: List[DomainAlert] = []
-
         if not work_days:
             v = self.info_v(
                 code="CONGES_ANNUELS_EMPTY_YEAR",
@@ -53,26 +51,26 @@ class CongesAnnuelRule(YearRule):
             )
             return True, [to_domain_alert(v)]
 
-        # Canonical RH input
         rh_days = [rh_day_from_workday(context.agent.id, wd) for wd in work_days]
         rh_days.sort(key=lambda d: d.day_date)
 
-        # RH-first analyzer
         periodes = self.analyzer.detect_from_rh_days(rh_days)
 
-        # Count annual leave days from DayType
-        total_conges = sum(1 for d in rh_days if d.day_type == DayType.LEAVE)
+        total_leave = sum(1 for d in rh_days if d.day_type == DayType.LEAVE)
 
         longest_block = max((p.nb_jours for p in periodes), default=0)
         nb_blocks_15_plus = sum(1 for p in periodes if p.nb_jours >= self.MIN_CONGE_BLOCK)
 
+        # Optional if you implement LeavePeriod.leave_days
+        longest_block_leave_days = max((getattr(p, "leave_days", 0) for p in periodes), default=0)
+
         summary = (
-            f"[{year}] Congés annuels : {total_conges} jour(s) pris. "
+            f"[{year}] Congés annuels : {total_leave} jour(s) pris. "
             f"Période de congés (congé+repos) la plus longue : {longest_block} jour(s). "
             f"Périodes de congés ≥ {self.MIN_CONGE_BLOCK} jours : {nb_blocks_15_plus}."
         )
 
-        alerts.append(
+        alerts: List[DomainAlert] = [
             to_domain_alert(
                 self.info_v(
                     code="CONGES_ANNUELS_SYNTHESIS",
@@ -82,28 +80,25 @@ class CongesAnnuelRule(YearRule):
                     meta={
                         "year": year,
                         "is_full": is_full,
-                        "total_leave_days": total_conges,
+                        "total_leave_days": total_leave,
                         "longest_block_days": longest_block,
+                        "longest_block_leave_days": longest_block_leave_days,
                         "blocks_15_plus": nb_blocks_15_plus,
                     },
                 )
             )
-        )
+        ]
 
         if is_full:
-            if total_conges < self.MIN_CONGES_ANNUELS:
+            if total_leave < self.MIN_CONGES_ANNUELS:
                 alerts.append(
                     to_domain_alert(
                         self.error_v(
                             code="CONGES_ANNUELS_QUOTA_INSUFFISANT",
-                            msg=f"[{year}] Nombre de congés annuels insuffisant : {total_conges}/{self.MIN_CONGES_ANNUELS}.",
+                            msg=f"[{year}] Nombre de congés annuels insuffisant : {total_leave}/{self.MIN_CONGES_ANNUELS}.",
                             start_date=year_start,
                             end_date=year_end,
-                            meta={
-                                "year": year,
-                                "leave_days": total_conges,
-                                "min_required": self.MIN_CONGES_ANNUELS,
-                            },
+                            meta={"year": year, "leave_days": total_leave, "min_required": self.MIN_CONGES_ANNUELS},
                         )
                     )
                 )
