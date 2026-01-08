@@ -3,8 +3,10 @@ from dataclasses import dataclass
 from datetime import date
 from typing import List
 
+from core.domain.enums.day_type import DayType
+from core.rh_rules.models.rh_day import RhDay
 from core.domain.models.work_day import WorkDay
-from core.domain.entities import TypeJour
+from core.rh_rules.adapters.workday_adapter import rh_day_from_workday
 
 
 @dataclass
@@ -12,91 +14,70 @@ class PeriodeConges:
     """
     Période de congés au sens RH SNCF :
 
-    - regroupe des WorkDay **consécutifs** sur le calendrier
-    - chaque jour est soit CONGE soit REPOS
-    - la période doit contenir **au moins un jour CONGE**
-    - les jours de REPOS ne cassent pas la période, ils en font partie
-
-    Exemple :
-        C C R C R  →  une seule PeriodeConges
-        (C = congé, R = repos)
+    - jours consécutifs sur le calendrier
+    - chaque jour est soit LEAVE soit REST
+    - contient au moins un jour LEAVE
     """
 
-    workdays: List[WorkDay]
+    days: List[RhDay]
 
-    # -------------------------
-    # Propriétés de base
-    # -------------------------
     @property
     def jours(self) -> List[date]:
-        return [wd.jour for wd in self.workdays]
+        return [d.day_date for d in self.days]
 
     @property
     def start(self) -> date:
-        return min(wd.jour for wd in self.workdays)
+        return min(d.day_date for d in self.days)
 
     @property
     def end(self) -> date:
-        return max(wd.jour for wd in self.workdays)
+        return max(d.day_date for d in self.days)
 
     @property
     def nb_jours(self) -> int:
-        """Nombre total de jours dans la période (congés + repos)."""
-        # On suppose les jours distincts et consécutifs
-        return len(self.workdays)
+        return len(self.days)
 
     @property
     def nb_conges(self) -> int:
-        """Nombre de jours réellement en CONGE dans la période."""
-        return sum(1 for wd in self.workdays if wd.type() == TypeJour.CONGE)
+        return sum(1 for d in self.days if d.day_type == DayType.LEAVE)
 
-    # -------------------------
-    # Qualification / affichage
-    # -------------------------
     def label(self) -> str:
         return f"Période de congés {self.nb_jours}j ({self.nb_conges}j de congés)"
 
     def __str__(self) -> str:
         return f"{self.label()} du {self.start} au {self.end}"
 
-    # -------------------------
-    # Fabrique
-    # -------------------------
+    @classmethod
+    def from_rh_days(cls, days: List[RhDay]) -> "PeriodeConges":
+        if not days:
+            raise ValueError("PeriodeConges.from_rh_days() nécessite au moins un RhDay.")
+
+        sorted_days = sorted(days, key=lambda d: d.day_date)
+
+        for prev, curr in zip(sorted_days, sorted_days[1:]):
+            if (curr.day_date - prev.day_date).days != 1:
+                raise ValueError(
+                    f"Jours non consécutifs dans PeriodeConges : {prev.day_date} → {curr.day_date}"
+                )
+
+        for d in sorted_days:
+            if d.day_type not in (DayType.LEAVE, DayType.REST):
+                raise ValueError(
+                    f"PeriodeConges ne peut contenir que LEAVE/REST (trouvé {d.day_type} le {d.day_date})"
+                )
+
+        if sum(1 for d in sorted_days if d.day_type == DayType.LEAVE) == 0:
+            raise ValueError("PeriodeConges doit contenir au moins un jour LEAVE.")
+
+        return cls(days=sorted_days)
+
     @classmethod
     def from_workdays(cls, workdays: List[WorkDay]) -> "PeriodeConges":
         """
-        Construit une PeriodeConges à partir d'une liste de WorkDay.
-
-        Vérifie :
-        - liste non vide
-        - jours triés et consécutifs (écart = 1 jour)
-        - uniquement des jours CONGE ou REPOS
-        - au moins un jour CONGE
+        Compat legacy : convertit WorkDay -> RhDay puis délègue.
         """
         if not workdays:
             raise ValueError("PeriodeConges.from_workdays() nécessite au moins un WorkDay.")
 
-        # tri par date
-        sorted_days = sorted(workdays, key=lambda wd: wd.jour)
-
-        # vérification consécutive
-        for prev, curr in zip(sorted_days, sorted_days[1:]):
-            if (curr.jour - prev.jour).days != 1:
-                raise ValueError(
-                    f"WorkDays non consécutifs dans PeriodeConges : {prev.jour} → {curr.jour}"
-                )
-
-        # vérification des types
-        for wd in sorted_days:
-            t = wd.type()
-            if t not in (TypeJour.CONGE, TypeJour.REPOS):
-                raise ValueError(
-                    f"PeriodeConges ne peut contenir que CONGE/REPOS (trouvé {t} le {wd.jour})"
-                )
-
-        # au moins un congé réel
-        nb_conges = sum(1 for wd in sorted_days if wd.type() == TypeJour.CONGE)
-        if nb_conges == 0:
-            raise ValueError("PeriodeConges doit contenir au moins un jour CONGE.")
-
-        return cls(workdays=sorted_days)
+        rh_days = [rh_day_from_workday(agent_id=0, wd=wd) for wd in workdays]
+        return cls.from_rh_days(rh_days)
