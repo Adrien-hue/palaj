@@ -6,6 +6,7 @@ from typing import List
 from core.domain.models.work_day import WorkDay
 from core.domain.entities.tranche import Tranche
 from core.rh_rules.models.rh_day import RhDay, RhInterval
+from core.rh_rules.mappers.day_type_mapper import day_type_from_type_jour
 
 
 def _interval_from_tranche(day_date, t: Tranche) -> RhInterval:
@@ -32,6 +33,6 @@ def rh_day_from_workday(agent_id: int, wd: WorkDay) -> RhDay:
     return RhDay(
         agent_id=agent_id,
         day_date=wd.jour,
+        day_type=day_type_from_type_jour(wd.type()),
         intervals=intervals,
-        day_type=str(wd.type().value) if hasattr(wd.type(), "value") else str(wd.type()),
     )
