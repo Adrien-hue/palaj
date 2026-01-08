@@ -1,37 +1,26 @@
-from typing import List, Tuple
-from datetime import date
+from __future__ import annotations
 
-from core.domain.contexts.planning_context import PlanningContext
-from core.domain.models.work_day import WorkDay
-from core.rh_rules.year_rule import YearRule
-from core.utils.domain_alert import DomainAlert, Severity
+from datetime import date
+from typing import List, Tuple
 
 from core.application.services.planning.repos_stats_analyzer import ReposStatsAnalyzer
+from core.domain.contexts.planning_context import PlanningContext
+from core.domain.models.work_day import WorkDay
+from core.rh_rules.adapters.workday_adapter import rh_day_from_workday
+from core.rh_rules.mappers.violation_to_domain_alert import to_domain_alert
+from core.rh_rules.year_rule import YearRule
+from core.utils.domain_alert import DomainAlert
+from core.utils.severity import Severity
 
 
 class ReposAnnuelRule(YearRule):
     """
-    Règle annuelle RH :
-    - Comptabilise RP simples, doubles, triples, 4+ jours
-    - Compte RPSD (samedi→dimanche)
-    - Compte WERP (samedi→dimanche ou dimanche→lundi)
+    Annual rest rule:
+    - Count rest periods (1/2/3/4+ days)
+    - Count RPSD (Sat->Sun) and WERP (Sat->Sun or Sun->Mon)
 
-    Comportement par année civile (via YearRule) :
-
-    - Pour chaque année couverte par le contexte, YearRule appelle :
-        check_year(context, year, year_start, year_end, is_full, work_days)
-
-      où :
-        - year_start = 01/01/year
-        - year_end   = 31/12/year
-        - work_days  = sous-ensemble des WorkDay de cette année dans l'intervalle
-                       réellement couvert par le contexte
-        - is_full    = True si le contexte couvre toute l'année civile
-
-    - Si is_full == True (année complète) :
-        → alerte ERROR si minima non atteints
-    - Sinon :
-        → alerte INFO de suivi uniquement
+    Full year: enforce minima (ERROR)
+    Partial year: INFO only
     """
 
     name = "ReposAnnuelRule"
@@ -56,24 +45,30 @@ class ReposAnnuelRule(YearRule):
         alerts: List[DomainAlert] = []
 
         if not work_days:
-            alerts.append(
-                self.info(
-                    f"[{year}] Aucun jour planifié sur cette année dans le contexte.",
-                    code="REPOS_ANNUEL_EMPTY_YEAR",
-                )
+            v = self.info_v(
+                code="REPOS_ANNUEL_EMPTY_YEAR",
+                msg=f"[{year}] Aucun jour planifié sur cette année dans le contexte.",
+                start_date=year_start,
+                end_date=year_end,
+                meta={"year": year, "is_full": is_full},
             )
-            return True, alerts
+            return True, [to_domain_alert(v)]
 
-        repos_summary = self.analyzer.summarize_workdays(work_days)
+        # Canonical RH input
+        rh_days = [rh_day_from_workday(context.agent.id, wd) for wd in work_days]
+        rh_days.sort(key=lambda d: d.day_date)
+
+        repos_summary = self.analyzer.summarize_rh_days(rh_days)
 
         if not repos_summary.periodes:
-            alerts.append(
-                self.info(
-                    f"[{year}] Aucune période de repos détectée.",
-                    code="REPOS_ANNUEL_AUCUN_REPOS",
-                )
+            v = self.info_v(
+                code="REPOS_ANNUEL_AUCUN_REPOS",
+                msg=f"[{year}] Aucune période de repos détectée.",
+                start_date=year_start,
+                end_date=year_end,
+                meta={"year": year, "is_full": is_full},
             )
-            return True, alerts
+            return True, [to_domain_alert(v)]
 
         rp_simple = repos_summary.rp_simple
         rp_double = repos_summary.rp_double
@@ -89,16 +84,32 @@ class ReposAnnuelRule(YearRule):
             f"RPSD={rpsd}, WERP={werp}."
         )
         alerts.append(
-            self.info(
-                msg=resume_info,
-                code="REPOS_ANNUEL_INFO",
+            to_domain_alert(
+                self.info_v(
+                    code="REPOS_ANNUEL_INFO",
+                    msg=resume_info,
+                    start_date=year_start,
+                    end_date=year_end,
+                    meta={
+                        "year": year,
+                        "is_full": is_full,
+                        "rp_simple": rp_simple,
+                        "rp_double": rp_double,
+                        "rp_triple": rp_triple,
+                        "rp_4plus": rp_4plus,
+                        "rpsd": rpsd,
+                        "werp": werp,
+                    },
+                )
             )
         )
 
+        # Partial year: INFO only
         if not is_full:
             is_valid_partial = all(a.severity != Severity.ERROR for a in alerts)
             return is_valid_partial, alerts
 
+        # Full year: enforce minima
         total_double_equiv = rp_double + rp_triple + rp_4plus
 
         if total_double_equiv < self.MIN_RP_DOUBLE:
@@ -108,25 +119,47 @@ class ReposAnnuelRule(YearRule):
                 f"(dont {rp_triple} triples, {rp_4plus} de 4+ jours)."
             )
             alerts.append(
-                self.error(
-                    msg=msg,
-                    code="REPOS_ANNUEL_RP_DOUBLE_INSUFFISANT",
+                to_domain_alert(
+                    self.error_v(
+                        code="REPOS_ANNUEL_RP_DOUBLE_INSUFFISANT",
+                        msg=msg,
+                        start_date=year_start,
+                        end_date=year_end,
+                        meta={
+                            "year": year,
+                            "double_equiv": total_double_equiv,
+                            "min_required": self.MIN_RP_DOUBLE,
+                            "rp_double": rp_double,
+                            "rp_triple": rp_triple,
+                            "rp_4plus": rp_4plus,
+                        },
+                    )
                 )
             )
 
         if werp < self.MIN_WERP:
             alerts.append(
-                self.error(
-                    msg=f"[{year}] WERP insuffisants : {werp}/{self.MIN_WERP}.",
-                    code="REPOS_ANNUEL_WERP_INSUFFISANT",
+                to_domain_alert(
+                    self.error_v(
+                        code="REPOS_ANNUEL_WERP_INSUFFISANT",
+                        msg=f"[{year}] WERP insuffisants : {werp}/{self.MIN_WERP}.",
+                        start_date=year_start,
+                        end_date=year_end,
+                        meta={"year": year, "werp": werp, "min_required": self.MIN_WERP},
+                    )
                 )
             )
 
         if rpsd < self.MIN_RPSD:
             alerts.append(
-                self.error(
-                    msg=f"[{year}] RPSD insuffisants : {rpsd}/{self.MIN_RPSD}.",
-                    code="REPOS_ANNUEL_RPSD_INSUFFISANT",
+                to_domain_alert(
+                    self.error_v(
+                        code="REPOS_ANNUEL_RPSD_INSUFFISANT",
+                        msg=f"[{year}] RPSD insuffisants : {rpsd}/{self.MIN_RPSD}.",
+                        start_date=year_start,
+                        end_date=year_end,
+                        meta={"year": year, "rpsd": rpsd, "min_required": self.MIN_RPSD},
+                    )
                 )
             )
 
