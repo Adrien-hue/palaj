@@ -3,10 +3,10 @@ from __future__ import annotations
 from datetime import date
 from typing import List, Tuple
 
-from core.application.services.planning.repos_stats_analyzer import ReposStatsAnalyzer
 from core.domain.contexts.planning_context import PlanningContext
 from core.domain.models.work_day import WorkDay
 from core.rh_rules.adapters.workday_adapter import rh_day_from_workday
+from core.rh_rules.analyzers.rest_stats_analyzer import RestStatsAnalyzer
 from core.rh_rules.mappers.violation_to_domain_alert import to_domain_alert
 from core.rh_rules.year_rule import YearRule
 from core.utils.domain_alert import DomainAlert
@@ -30,8 +30,8 @@ class ReposAnnuelRule(YearRule):
     MIN_WERP = 14
     MIN_RPSD = 12
 
-    def __init__(self, analyzer: ReposStatsAnalyzer | None = None) -> None:
-        self.analyzer = analyzer or ReposStatsAnalyzer()
+    def __init__(self, analyzer: RestStatsAnalyzer | None = None) -> None:
+        self.analyzer = analyzer or RestStatsAnalyzer()
 
     def check_year(
         self,
@@ -60,7 +60,7 @@ class ReposAnnuelRule(YearRule):
 
         repos_summary = self.analyzer.summarize_rh_days(rh_days)
 
-        if not repos_summary.periodes:
+        if not repos_summary.periods:
             v = self.info_v(
                 code="REPOS_ANNUEL_AUCUN_REPOS",
                 msg=f"[{year}] Aucune période de repos détectée.",
