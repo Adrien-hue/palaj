@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import date
 from typing import List, Tuple
 
-from core.application.services.planning.periode_conges_analyzer import PeriodeCongesAnalyzer
 from core.domain.contexts.planning_context import PlanningContext
 from core.domain.models.work_day import WorkDay
 from core.rh_rules.year_rule import YearRule
@@ -12,8 +11,8 @@ from core.utils.severity import Severity
 
 from core.domain.enums.day_type import DayType
 from core.rh_rules.adapters.workday_adapter import rh_day_from_workday
+from core.rh_rules.analyzers.leave_period_analyzer import LeavePeriodAnalyzer
 from core.rh_rules.mappers.violation_to_domain_alert import to_domain_alert
-from core.rh_rules.models.rule_scope import RuleScope
 
 
 class CongesAnnuelRule(YearRule):
@@ -29,8 +28,8 @@ class CongesAnnuelRule(YearRule):
     MIN_CONGES_ANNUELS = 28
     MIN_CONGE_BLOCK = 15
 
-    def __init__(self, analyzer: PeriodeCongesAnalyzer | None = None) -> None:
-        self.analyzer = analyzer or PeriodeCongesAnalyzer()
+    def __init__(self, analyzer: LeavePeriodAnalyzer | None = None) -> None:
+        self.analyzer = analyzer or LeavePeriodAnalyzer()
 
     def check_year(
         self,
