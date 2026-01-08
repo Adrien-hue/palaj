@@ -1,4 +1,5 @@
 # core/application/services/planning/periode_repos_analyzer.py
+from datetime import date
 from typing import List
 
 from core.domain.contexts.planning_context import PlanningContext
@@ -6,20 +7,53 @@ from core.domain.models.periode_repos import PeriodeRepos
 from core.domain.models.work_day import WorkDay
 from core.domain.entities import TypeJour
 
+from core.domain.enums.day_type import DayType
+from core.rh_rules.models.rest_period import RestPeriod
+from core.rh_rules.models.rh_day import RhDay
+
 
 class PeriodeReposAnalyzer:
     """
-    Analyse des WorkDay et extraction de toutes les périodes de repos consécutifs.
+    Extract consecutive REST periods.
 
-    Un repos = TypeJour.REPOS uniquement.
+    Source of truth:
+      - detect_from_rh_days(rh_days) -> List[RestPeriod]
 
-    API principale :
-        - detect_from_workdays(work_days: List[WorkDay]) -> List[PeriodeRepos]
-
-    API legacy (pour compatibilité) :
-        - detect(context: PlanningContext) -> List[PeriodeRepos]
-          qui délègue simplement à detect_from_workdays(context.work_days)
+    Compatibility wrappers:
+      - detect_from_workdays(work_days) -> List[RestPeriod]
+      - detect(context) -> List[RestPeriod]
     """
+
+    def detect_from_rh_days(self, rh_days: List[RhDay]) -> List[RestPeriod]:
+        if not rh_days:
+            return []
+
+        sorted_days = sorted(rh_days, key=lambda d: d.day_date)
+
+        periods: List[RestPeriod] = []
+        current_block: List[date] = []
+
+        def close_block():
+            nonlocal current_block
+            if current_block:
+                periods.append(RestPeriod(days=tuple(current_block)))
+                current_block = []
+
+        for d in sorted_days:
+            if d.day_type == DayType.REST:
+                if not current_block:
+                    current_block = [d.day_date]
+                else:
+                    if (d.day_date - current_block[-1]).days == 1:
+                        current_block.append(d.day_date)
+                    else:
+                        close_block()
+                        current_block = [d.day_date]
+            else:
+                close_block()
+
+        close_block()
+        return periods
 
     def detect_from_workdays(self, work_days: List[WorkDay]) -> List[PeriodeRepos]:
         """
