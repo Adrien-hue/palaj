@@ -3,12 +3,10 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import List, Tuple
 
-from core.application.services.planning.grande_periode_travail_analyzer import (
-    GrandePeriodeTravailAnalyzer,
-)
 from core.domain.contexts.planning_context import PlanningContext
 from core.domain.enums.day_type import DayType
 from core.rh_rules.adapters.workday_adapter import rh_day_from_workday
+from core.rh_rules.analyzers.gpt_analyzer import GptAnalyzer
 from core.rh_rules.base_rule import BaseRule, RuleScope
 from core.rh_rules.mappers.violation_to_domain_alert import to_domain_alert
 from core.utils.domain_alert import DomainAlert
@@ -26,8 +24,8 @@ class ReposDoubleRule(BaseRule):
 
     NB_JOURS_REPOS_MIN = 2
 
-    def __init__(self, analyzer: GrandePeriodeTravailAnalyzer | None = None):
-        self.gpt_service = analyzer or GrandePeriodeTravailAnalyzer()
+    def __init__(self, analyzer: GptAnalyzer | None = None):
+        self.gpt_service = analyzer or GptAnalyzer()
 
     def check(self, context: PlanningContext) -> Tuple[bool, List[DomainAlert]]:
         if not context.work_days:
