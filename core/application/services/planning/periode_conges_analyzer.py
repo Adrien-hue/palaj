@@ -7,6 +7,9 @@ from core.domain.entities import TypeJour
 from core.domain.models.work_day import WorkDay
 from core.domain.models.periode_conges import PeriodeConges
 
+from core.domain.enums.day_type import DayType
+from core.rh_rules.models.rh_day import RhDay
+
 
 class PeriodeCongesAnalyzer:
     """
@@ -71,6 +74,40 @@ class PeriodeCongesAnalyzer:
         # fin de boucle : on ne doit pas oublier le dernier bloc
         if current_block and has_conge:
             periodes.append(PeriodeConges.from_workdays(current_block))
+
+        return periodes
+    
+    def detect_from_rh_days(self, days: List[RhDay]) -> List[PeriodeConges]:
+        days_sorted = sorted(days, key=lambda d: d.day_date)
+        periodes: List[PeriodeConges] = []
+
+        current_block: List[RhDay] = []
+        has_leave = False
+
+        for d in days_sorted:
+            if d.day_type in (DayType.LEAVE, DayType.REST):
+                if not current_block:
+                    current_block = [d]
+                    has_leave = (d.day_type == DayType.LEAVE)
+                else:
+                    prev = current_block[-1]
+                    if (d.day_date - prev.day_date).days == 1:
+                        current_block.append(d)
+                        if d.day_type == DayType.LEAVE:
+                            has_leave = True
+                    else:
+                        if has_leave:
+                            periodes.append(PeriodeConges.from_rh_days(current_block))
+                        current_block = [d]
+                        has_leave = (d.day_type == DayType.LEAVE)
+            else:
+                if current_block and has_leave:
+                    periodes.append(PeriodeConges.from_rh_days(current_block))
+                current_block = []
+                has_leave = False
+
+        if current_block and has_leave:
+            periodes.append(PeriodeConges.from_rh_days(current_block))
 
         return periodes
 
