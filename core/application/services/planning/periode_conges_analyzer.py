@@ -1,5 +1,6 @@
 # core/application/services/planning/periode_conges_analyzer.py
 from __future__ import annotations
+from datetime import date
 from typing import List
 
 from core.domain.contexts.planning_context import PlanningContext
@@ -8,6 +9,7 @@ from core.domain.models.work_day import WorkDay
 from core.domain.models.periode_conges import PeriodeConges
 
 from core.domain.enums.day_type import DayType
+from core.rh_rules.models.leave_period import LeavePeriod
 from core.rh_rules.models.rh_day import RhDay
 
 
@@ -77,39 +79,44 @@ class PeriodeCongesAnalyzer:
 
         return periodes
     
-    def detect_from_rh_days(self, days: List[RhDay]) -> List[PeriodeConges]:
-        days_sorted = sorted(days, key=lambda d: d.day_date)
-        periodes: List[PeriodeConges] = []
+    def detect_from_rh_days(self, rh_days: List[RhDay]) -> List[LeavePeriod]:
+        if not rh_days:
+            return []
 
-        current_block: List[RhDay] = []
-        has_leave = False
+        sorted_days = sorted(rh_days, key=lambda d: d.day_date)
+        periods: List[LeavePeriod] = []
 
-        for d in days_sorted:
-            if d.day_type in (DayType.LEAVE, DayType.REST):
-                if not current_block:
-                    current_block = [d]
-                    has_leave = (d.day_type == DayType.LEAVE)
+        block: List[date] = []
+        leave_count = 0
+
+        def close():
+            nonlocal block, leave_count
+            if block and leave_count > 0:
+                periods.append(LeavePeriod(days=tuple(block), leave_days=leave_count))
+            block = []
+            leave_count = 0
+
+        for d in sorted_days:
+            t = d.day_type
+
+            if t in (DayType.LEAVE, DayType.REST):
+                if not block:
+                    block = [d.day_date]
+                    leave_count = 1 if t == DayType.LEAVE else 0
                 else:
-                    prev = current_block[-1]
-                    if (d.day_date - prev.day_date).days == 1:
-                        current_block.append(d)
-                        if d.day_type == DayType.LEAVE:
-                            has_leave = True
+                    if (d.day_date - block[-1]).days == 1:
+                        block.append(d.day_date)
+                        if t == DayType.LEAVE:
+                            leave_count += 1
                     else:
-                        if has_leave:
-                            periodes.append(PeriodeConges.from_rh_days(current_block))
-                        current_block = [d]
-                        has_leave = (d.day_type == DayType.LEAVE)
+                        close()
+                        block = [d.day_date]
+                        leave_count = 1 if t == DayType.LEAVE else 0
             else:
-                if current_block and has_leave:
-                    periodes.append(PeriodeConges.from_rh_days(current_block))
-                current_block = []
-                has_leave = False
+                close()
 
-        if current_block and has_leave:
-            periodes.append(PeriodeConges.from_rh_days(current_block))
-
-        return periodes
+        close()
+        return periods
 
     def detect(self, context: PlanningContext) -> List[PeriodeConges]:
         """
