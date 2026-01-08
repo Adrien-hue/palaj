@@ -1,4 +1,3 @@
-# core/rh_rules/rule_repos_regime_c.py
 from __future__ import annotations
 
 from datetime import date
@@ -6,18 +5,24 @@ from typing import List, Tuple
 
 from core.domain.contexts.planning_context import PlanningContext
 from core.domain.models.work_day import WorkDay
+from core.rh_rules.adapters.workday_adapter import rh_day_from_workday
+from core.rh_rules.analyzers.rest_stats_analyzer import RestStatsAnalyzer
+from core.rh_rules.mappers.violation_to_domain_alert import to_domain_alert
 from core.rh_rules.year_rule import YearRule
-from core.utils.domain_alert import DomainAlert, Severity
-from core.application.services.planning.repos_stats_analyzer import ReposStatsAnalyzer
+from core.utils.domain_alert import DomainAlert
+from core.utils.severity import Severity
 
 
 class RegimeCReposRule(YearRule):
     """
-    Règle spécifique au régime C (regime_id = 2).
+    Regime C (regime_id = 2)
 
-    Exigences (par année civile complète) :
-    - Au moins 118 jours de repos périodiques (RP)
-    - Dont 52 dimanches de repos
+    Full civil year requirements:
+    - At least 118 periodic rest days (RP)
+    - Including at least 52 Sundays of rest
+
+    Partial year:
+    - INFO only (no blocking controls)
     """
 
     name = "RegimeCReposRule"
@@ -26,29 +31,23 @@ class RegimeCReposRule(YearRule):
     MIN_RP_ANNUELS = 118
     MIN_RP_DIMANCHES = 52
 
-    def __init__(self, analyzer: ReposStatsAnalyzer | None = None) -> None:
-        self.analyzer = analyzer or ReposStatsAnalyzer()
+    def __init__(self, analyzer: RestStatsAnalyzer | None = None) -> None:
+        self.analyzer = analyzer or RestStatsAnalyzer()
 
     # ---------------------------------------------------------
-    # Applicabilité de la règle
+    # Applicability
     # ---------------------------------------------------------
     def applies_to(self, context: PlanningContext) -> bool:
-        """
-        La règle ne s'applique qu'aux agents de régime C (regime_id = 2).
-        Si l'agent n'a pas de regime_id, on considère que la règle ne s'applique pas.
-        """
         regime_id = getattr(context.agent, "regime_id", None)
         return regime_id == 2
 
-    # On surcharge check pour court-circuiter si le régime n'est pas C,
-    # puis on délègue à YearRule.check pour le découpage par année.
     def check(self, context: PlanningContext) -> Tuple[bool, List[DomainAlert]]:
         if not self.applies_to(context):
             return True, []
         return super().check(context)
 
     # ---------------------------------------------------------
-    # Implémentation annuelle
+    # Year logic
     # ---------------------------------------------------------
     def check_year(
         self,
@@ -61,70 +60,103 @@ class RegimeCReposRule(YearRule):
     ) -> Tuple[bool, List[DomainAlert]]:
         alerts: List[DomainAlert] = []
 
-        # Aucun jour dans cette année pour cet agent → info et on sort
+        # No data for this year
         if not work_days:
-            alerts.append(
-                self.info(
-                    msg=f"[{year}] Aucun jour planifié pour cet agent en régime C.",
-                    code="REGIME_C_EMPTY_YEAR",
-                )
+            v = self.info_v(
+                code="REGIME_C_EMPTY_YEAR",
+                msg=f"[{year}] Aucun jour planifié pour cet agent en régime C.",
+                start_date=year_start,
+                end_date=year_end,
+                meta={"year": year, "is_full": is_full, "regime_id": 2},
             )
-            return True, alerts
+            return True, [to_domain_alert(v)]
 
-        # 1) Statistiques de repos pour CETTE année
-        repos_summary = self.analyzer.summarize_workdays(work_days)
+        # Canonical RH input
+        rh_days = [rh_day_from_workday(context.agent.id, wd) for wd in work_days]
+        rh_days.sort(key=lambda d: d.day_date)
 
-        # 2) Résumé informatif systématique
+        # RH-first summary
+        repos_summary = self.analyzer.summarize_rh_days(rh_days)
+
+        # Always add a synthesis line
         summary_msg = (
             f"[{year}] Régime C - Repos périodiques détectés : "
-            f"{repos_summary.total_rp_days} RP au total, "
-            f"dont {repos_summary.total_rp_sundays} dimanches. "
+            f"{repos_summary.total_rest_days} RP au total, "
+            f"dont {repos_summary.total_rest_sundays} dimanches. "
             f"Minima annuels attendus : "
             f"{self.MIN_RP_ANNUELS} RP / {self.MIN_RP_DIMANCHES} dimanches."
         )
         alerts.append(
-            self.info(
-                msg=summary_msg,
-                code="REGIME_C_REPOS_SYNTHESIS",
+            to_domain_alert(
+                self.info_v(
+                    code="REGIME_C_REPOS_SYNTHESIS",
+                    msg=summary_msg,
+                    start_date=year_start,
+                    end_date=year_end,
+                    meta={
+                        "year": year,
+                        "is_full": is_full,
+                        "regime_id": 2,
+                        "total_rest_days": repos_summary.total_rest_days,
+                        "total_rest_sundays": repos_summary.total_rest_sundays,
+                        "min_rp_days": self.MIN_RP_ANNUELS,
+                        "min_rp_sundays": self.MIN_RP_DIMANCHES,
+                    },
+                )
             )
         )
 
-        # 3) Si année incomplète → pas de contrôle bloquant
+        # Partial year: info only
         if not is_full:
-            info_msg = (
-                f"[{year}] Période incomplète : les minima annuels pour le régime C "
-                "ne sont pas contrôlés de manière stricte sur une portion d'année."
+            v = self.info_v(
+                code="REGIME_C_REPOS_PARTIAL_YEAR",
+                msg=(
+                    f"[{year}] Période incomplète : les minima annuels pour le régime C "
+                    "ne sont pas contrôlés de manière stricte sur une portion d'année."
+                ),
+                start_date=year_start,
+                end_date=year_end,
+                meta={"year": year, "regime_id": 2},
             )
-            alerts.append(
-                self.info(
-                    msg=info_msg,
-                    code="REGIME_C_REPOS_PARTIAL_YEAR",
-                )
-            )
+            alerts.append(to_domain_alert(v))
             return True, alerts
 
-        # 4) Année civile complète → contrôles stricts
-        if repos_summary.total_rp_days < self.MIN_RP_ANNUELS:
-            alerts.append(
-                self.error(
-                    msg=(
-                        f"[{year}] Repos périodiques insuffisants pour le régime C : "
-                        f"{repos_summary.total_rp_days}/{self.MIN_RP_ANNUELS} jours sur l'année."
-                    ),
-                    code="REGIME_C_REPOS_RP_INSUFFISANTS",
-                )
+        # Full year: strict controls
+        if repos_summary.total_rest_days < self.MIN_RP_ANNUELS:
+            v = self.error_v(
+                code="REGIME_C_REPOS_RP_INSUFFISANTS",
+                msg=(
+                    f"[{year}] Repos périodiques insuffisants pour le régime C : "
+                    f"{repos_summary.total_rest_days}/{self.MIN_RP_ANNUELS} jours sur l'année."
+                ),
+                start_date=year_start,
+                end_date=year_end,
+                meta={
+                    "year": year,
+                    "regime_id": 2,
+                    "total_rest_days": repos_summary.total_rest_days,
+                    "min_required": self.MIN_RP_ANNUELS,
+                },
             )
+            alerts.append(to_domain_alert(v))
 
-        if repos_summary.total_rp_sundays < self.MIN_RP_DIMANCHES:
-            alerts.append(
-                self.error(
-                    msg=(
-                        f"[{year}] Dimanches de repos insuffisants pour le régime C : "
-                        f"{repos_summary.total_rp_sundays}/{self.MIN_RP_DIMANCHES} dimanches sur l'année."
-                    ),
-                    code="REGIME_C_REPOS_DIMANCHES_INSUFFISANTS",
-                )
+        if repos_summary.total_rest_sundays < self.MIN_RP_DIMANCHES:
+            v = self.error_v(
+                code="REGIME_C_REPOS_DIMANCHES_INSUFFISANTS",
+                msg=(
+                    f"[{year}] Dimanches de repos insuffisants pour le régime C : "
+                    f"{repos_summary.total_rest_sundays}/{self.MIN_RP_DIMANCHES} dimanches sur l'année."
+                ),
+                start_date=year_start,
+                end_date=year_end,
+                meta={
+                    "year": year,
+                    "regime_id": 2,
+                    "total_rest_sundays": repos_summary.total_rest_sundays,
+                    "min_required": self.MIN_RP_DIMANCHES,
+                },
             )
+            alerts.append(to_domain_alert(v))
 
         is_valid = all(a.severity != Severity.ERROR for a in alerts)
         return is_valid, alerts

@@ -1,4 +1,3 @@
-# core/rh_rules/rule_repos_regime_b25_annuel.py
 from __future__ import annotations
 
 from datetime import date
@@ -6,18 +5,24 @@ from typing import List, Tuple
 
 from core.domain.contexts.planning_context import PlanningContext
 from core.domain.models.work_day import WorkDay
+from core.rh_rules.adapters.workday_adapter import rh_day_from_workday
+from core.rh_rules.analyzers.rest_stats_analyzer import RestStatsAnalyzer
+from core.rh_rules.mappers.violation_to_domain_alert import to_domain_alert
 from core.rh_rules.year_rule import YearRule
-from core.utils.domain_alert import DomainAlert, Severity
-from core.application.services.planning.repos_stats_analyzer import ReposStatsAnalyzer
+from core.utils.domain_alert import DomainAlert
+from core.utils.severity import Severity
 
 
 class RegimeB25ReposAnnuelRule(YearRule):
     """
-    Règle annuelle spécifique au régime B25 (regime_id = 1).
+    Regime B25 (regime_id = 1)
 
-    Exigences (par année civile complète) :
-    - Au moins 114 jours de repos périodiques (RP)
-    - Dont au moins 30 dimanches de repos
+    Full civil year requirements:
+    - At least 114 periodic rest days (RP)
+    - Including at least 30 Sundays of rest
+
+    Partial year:
+    - INFO only (no blocking controls)
     """
 
     name = "RegimeB25ReposAnnuelRule"
@@ -26,28 +31,23 @@ class RegimeB25ReposAnnuelRule(YearRule):
     MIN_RP_ANNUELS = 114
     MIN_RP_DIMANCHES = 30
 
-    def __init__(self, analyzer: ReposStatsAnalyzer | None = None) -> None:
-        self.analyzer = analyzer or ReposStatsAnalyzer()
+    def __init__(self, analyzer: RestStatsAnalyzer | None = None) -> None:
+        self.analyzer = analyzer or RestStatsAnalyzer()
 
     # ---------------------------------------------------------
-    # Applicabilité de la règle
+    # Applicability
     # ---------------------------------------------------------
     def applies_to(self, context: PlanningContext) -> bool:
-        """
-        La règle ne s'applique qu'aux agents de régime B25 (regime_id = 1).
-        """
         regime_id = getattr(context.agent, "regime_id", None)
         return regime_id == 1
 
-    # On surcharge check pour ignorer les agents hors B25,
-    # puis laisser YearRule gérer le découpage par année.
     def check(self, context: PlanningContext) -> Tuple[bool, List[DomainAlert]]:
         if not self.applies_to(context):
             return True, []
         return super().check(context)
 
     # ---------------------------------------------------------
-    # Implémentation annuelle (par année civile)
+    # Year logic
     # ---------------------------------------------------------
     def check_year(
         self,
@@ -60,68 +60,104 @@ class RegimeB25ReposAnnuelRule(YearRule):
     ) -> Tuple[bool, List[DomainAlert]]:
         alerts: List[DomainAlert] = []
 
-        # Aucun jour pour cette année → simple info
+        # No data for this year
         if not work_days:
-            alerts.append(
-                self.info(
-                    msg=f"[{year}] Régime B25 : aucun jour planifié dans cette année.",
-                    code="B25_ANNUEL_ANNEE_VIDE",
-                )
+            v = self.info_v(
+                code="B25_ANNUEL_ANNEE_VIDE",
+                msg=f"[{year}] Régime B25 : aucun jour planifié dans cette année.",
+                start_date=year_start,
+                end_date=year_end,
+                meta={"year": year, "is_full": is_full, "regime_id": 1},
             )
-            return True, alerts
+            return True, [to_domain_alert(v)]
 
-        # Statistiques de repos pour CETTE année (sur les work_days filtrés de l'année)
-        repos_summary = self.analyzer.summarize_workdays(work_days)
+        # Canonical RH input
+        rh_days = [rh_day_from_workday(context.agent.id, wd) for wd in work_days]
+        rh_days.sort(key=lambda d: d.day_date)
 
-        # Résumé informatif systématique
+        # RH-first summary
+        repos_summary = self.analyzer.summarize_rh_days(rh_days)
+
+        # Always add a synthesis line
+        summary_msg = (
+            f"[{year}] Régime B25 - Repos périodiques détectés : "
+            f"{repos_summary.total_rest_days} jours de repos, "
+            f"dont {repos_summary.total_rest_sundays} dimanches. "
+            f"Minima attendus : {self.MIN_RP_ANNUELS} RP / "
+            f"{self.MIN_RP_DIMANCHES} dimanches."
+        )
         alerts.append(
-            self.info(
-                msg=(
-                    f"[{year}] Régime B25 - Repos périodiques détectés : "
-                    f"{repos_summary.total_rp_days} jours de repos, "
-                    f"dont {repos_summary.total_rp_sundays} dimanches. "
-                    f"Minima attendus : {self.MIN_RP_ANNUELS} RP / "
-                    f"{self.MIN_RP_DIMANCHES} dimanches."
-                ),
-                code="B25_ANNUEL_SYNTHESIS",
+            to_domain_alert(
+                self.info_v(
+                    code="B25_ANNUEL_SYNTHESIS",
+                    msg=summary_msg,
+                    start_date=year_start,
+                    end_date=year_end,
+                    meta={
+                        "year": year,
+                        "is_full": is_full,
+                        "regime_id": 1,
+                        "total_rest_days": repos_summary.total_rest_days,
+                        "total_rest_sundays": repos_summary.total_rest_sundays,
+                        "min_rest_days": self.MIN_RP_ANNUELS,
+                        "min_rest_sundays": self.MIN_RP_DIMANCHES,
+                    },
+                )
             )
         )
 
-        # Année incomplète → pas de contrôle bloquant, info uniquement
+        # Partial year: info only
         if not is_full:
-            alerts.append(
-                self.info(
-                    msg=(
-                        f"[{year}] Période incomplète : les minima annuels B25 "
-                        "(114 RP / 30 dimanches) ne sont pas contrôlés strictement."
-                    ),
-                    code="B25_ANNUEL_PERIODE_PARTIELLE",
-                )
+            v = self.info_v(
+                code="B25_ANNUEL_PERIODE_PARTIELLE",
+                msg=(
+                    f"[{year}] Période incomplète : les minima annuels B25 "
+                    f"({self.MIN_RP_ANNUELS} RP / {self.MIN_RP_DIMANCHES} dimanches) "
+                    "ne sont pas contrôlés strictement."
+                ),
+                start_date=year_start,
+                end_date=year_end,
+                meta={"year": year, "regime_id": 1},
             )
+            alerts.append(to_domain_alert(v))
             return True, alerts
 
-        # Année civile complète → contrôles stricts
-        if repos_summary.total_rp_days < self.MIN_RP_ANNUELS:
-            alerts.append(
-                self.error(
-                    msg=(
-                        f"[{year}] Repos périodiques insuffisants pour le régime B25 : "
-                        f"{repos_summary.total_rp_days}/{self.MIN_RP_ANNUELS} jours sur l'année."
-                    ),
-                    code="B25_ANNUEL_RP_INSUFFISANTS",
-                )
+        # Full year: strict controls
+        if repos_summary.total_rest_days < self.MIN_RP_ANNUELS:
+            v = self.error_v(
+                code="B25_ANNUEL_RP_INSUFFISANTS",
+                msg=(
+                    f"[{year}] Repos périodiques insuffisants pour le régime B25 : "
+                    f"{repos_summary.total_rest_days}/{self.MIN_RP_ANNUELS} jours sur l'année."
+                ),
+                start_date=year_start,
+                end_date=year_end,
+                meta={
+                    "year": year,
+                    "regime_id": 1,
+                    "total_rest_days": repos_summary.total_rest_days,
+                    "min_required": self.MIN_RP_ANNUELS,
+                },
             )
+            alerts.append(to_domain_alert(v))
 
-        if repos_summary.total_rp_sundays < self.MIN_RP_DIMANCHES:
-            alerts.append(
-                self.error(
-                    msg=(
-                        f"[{year}] Dimanches de repos insuffisants pour le régime B25 : "
-                        f"{repos_summary.total_rp_sundays}/{self.MIN_RP_DIMANCHES} dimanches sur l'année."
-                    ),
-                    code="B25_ANNUEL_DIMANCHES_INSUFFISANTS",
-                )
+        if repos_summary.total_rest_sundays < self.MIN_RP_DIMANCHES:
+            v = self.error_v(
+                code="B25_ANNUEL_DIMANCHES_INSUFFISANTS",
+                msg=(
+                    f"[{year}] Dimanches de repos insuffisants pour le régime B25 : "
+                    f"{repos_summary.total_rest_sundays}/{self.MIN_RP_DIMANCHES} dimanches sur l'année."
+                ),
+                start_date=year_start,
+                end_date=year_end,
+                meta={
+                    "year": year,
+                    "regime_id": 1,
+                    "total_rest_sundays": repos_summary.total_rest_sundays,
+                    "min_required": self.MIN_RP_DIMANCHES,
+                },
             )
+            alerts.append(to_domain_alert(v))
 
         is_valid = all(a.severity != Severity.ERROR for a in alerts)
         return is_valid, alerts
