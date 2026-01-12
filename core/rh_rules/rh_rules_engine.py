@@ -2,20 +2,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List
 
 from core.rh_rules.base_rule import BaseRule
-from core.rh_rules.contexts import RhContext
+from core.rh_rules.contexts.rh_context import RhContext
 from core.rh_rules.day_rule import DayRule
+from core.rh_rules.models.rh_violation import RhViolation
 from core.rh_rules.models.rule_scope import RuleScope
-from core.utils.domain_alert import DomainAlert
 from core.utils.severity import Severity
 
 
 @dataclass(frozen=True)
 class EngineResult:
     is_valid: bool
-    alerts: List[DomainAlert]
+    violations: tuple[RhViolation, ...]
 
 
 class RHRulesEngine:
@@ -26,7 +26,7 @@ class RHRulesEngine:
     - PERIOD rules: executed once for the whole RhContext
     """
 
-    def __init__(self, rules: List[BaseRule] | None = None):
+    def __init__(self, rules: List[BaseRule] | None = None) -> None:
         self.rules: List[BaseRule] = rules or []
 
     def register_rule(self, rule: BaseRule) -> None:
@@ -35,39 +35,45 @@ class RHRulesEngine:
     def list_rules(self) -> List[str]:
         return [f"{r.name} ({r.scope.value})" for r in self.rules]
 
-    def run(self, context: RhContext) -> Tuple[bool, List[DomainAlert]]:
+    # -------------------------------------------------
+    # Core execution
+    # -------------------------------------------------
+    def run(self, context: RhContext) -> EngineResult:
         if not context.days:
-            return True, []
+            return EngineResult(is_valid=True, violations=())
 
-        all_alerts: List[DomainAlert] = []
+        violations: list[RhViolation] = []
 
-        # --- DAY rules
-        day_rules: List[DayRule] = [r for r in self.rules if isinstance(r, DayRule)]
+        # -------------------------
+        # DAY rules
+        # -------------------------
+        day_rules: list[DayRule] = [
+            r for r in self.rules if isinstance(r, DayRule)
+        ]
 
         for day in context.days:
             for rule in day_rules:
                 if not rule.applies_to(context):
                     continue
 
-                # DayRule exposes check_day; if rule is not a DayRule subclass but uses DAY scope,
-                # it should implement check(context, day=...) but we keep it strict here.
-                if hasattr(rule, "check_day"):
-                    _, alerts = rule.check_day(context, day)  # type: ignore[attr-defined]
-                else:
-                    # fallback to rule.check(context) if needed (rare)
-                    _, alerts = rule.check(context)
+                ok, day_violations = rule.check_day(context, day)
+                violations.extend(day_violations)
 
-                all_alerts.extend(alerts)
-
-        # --- PERIOD rules
+        # -------------------------
+        # PERIOD rules
+        # -------------------------
         for rule in self.rules:
             if rule.scope is not RuleScope.PERIOD:
                 continue
             if not rule.applies_to(context):
                 continue
 
-            _, alerts = rule.check(context)
-            all_alerts.extend(alerts)
+            ok, rule_violations = rule.check(context)
+            violations.extend(rule_violations)
 
-        is_valid = all(a.severity != Severity.ERROR for a in all_alerts)
-        return is_valid, all_alerts
+        is_valid = all(v.severity != Severity.ERROR for v in violations)
+
+        return EngineResult(
+            is_valid=is_valid,
+            violations=tuple(violations),
+        )
