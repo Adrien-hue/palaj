@@ -1,19 +1,12 @@
 # core/rh_rules/general/rule_repos_quotidien.py
 from __future__ import annotations
 
-from typing import List, Tuple
-
-from core.domain.contexts.planning_context import PlanningContext
-from core.domain.models.work_day import WorkDay
+from core.rh_rules.contexts.rh_context import RhContext
 from core.rh_rules.day_rule import DayRule
-from core.rh_rules.mappers.violation_to_domain_alert import to_domain_alert
-from core.rh_rules.models.rh_violation import RhViolation
-from core.rh_rules.models.rule_scope import RuleScope
-from core.rh_rules.adapters.workday_adapter import rh_day_from_workday
+from core.rh_rules.models.rh_day import RhDay
+from core.rh_rules.models.rule_result import RuleResult
 from core.rh_rules.utils.rh_bounds import work_bounds
 from core.rh_rules.utils.rh_night import rh_day_is_nocturne
-from core.utils.domain_alert import DomainAlert
-from core.utils.severity import Severity
 from core.utils.time_helpers import minutes_to_duree_str
 
 
@@ -35,34 +28,24 @@ class ReposQuotidienRule(DayRule):
 
     def check_day(
         self,
-        context: PlanningContext,
-        work_day: WorkDay,
-    ) -> Tuple[bool, List[DomainAlert]]:
-
-        # Build RH input from current day (no RH logic from WorkDay used)
-        curr_rh = rh_day_from_workday(context.agent.id, work_day)
-
+        context: RhContext,
+        day: RhDay,
+    ) -> RuleResult:
         # Rule applies only to working days
-        if curr_rh.is_rest() or not curr_rh.is_working():
-            return True, []
-
-        # Legacy: retrieve previous working day via context (still returns WorkDay)
-        prev_wd = context.get_previous_working_day(curr_rh.day_date)
-        if not prev_wd:
-            return True, []
-
-        prev_rh = rh_day_from_workday(context.agent.id, prev_wd)
+        if not day.is_working():
+            return RuleResult.ok()
 
         # Ensure previous day is actually a working day in RH terms
-        if prev_rh.is_rest() or not prev_rh.is_working():
-            return True, []
+        prev_day = context.previous(day.day_date, working_only=True)
+        if not prev_day:
+            return RuleResult.ok()
 
         # Compute datetime bounds of work for both days
-        prev_bounds = work_bounds(prev_rh)
-        curr_bounds = work_bounds(curr_rh)
+        prev_bounds = work_bounds(prev_day)
+        curr_bounds = work_bounds(day)
         if not prev_bounds or not curr_bounds:
             # No valid intervals → nothing to check
-            return True, []
+            return RuleResult.ok()
 
         prev_start_dt, prev_end_dt = prev_bounds
         curr_start_dt, curr_end_dt = curr_bounds
@@ -70,15 +53,32 @@ class ReposQuotidienRule(DayRule):
         # Rest minutes between last end and next start
         repos_minutes = int((curr_start_dt - prev_end_dt).total_seconds() / 60)
         if repos_minutes < 0:
-            # Should not happen with datetime-based bounds; keep safe fallback
-            return True, []
+            v = self.error_v(
+                code="REPOS_QUOTIDIEN_COHERENCE_DATES",
+                msg=(
+                    "Incohérence planning : le début du service suivant est avant la fin "
+                    "du service précédent (repos négatif)."
+                ),
+                start_date=prev_day.day_date,
+                end_date=day.day_date,
+                start_dt=prev_end_dt,
+                end_dt=curr_start_dt,
+                meta={
+                    "rest_min": repos_minutes,
+                    "prev_work_start": prev_start_dt.isoformat(),
+                    "prev_work_end": prev_end_dt.isoformat(),
+                    "curr_work_start": curr_start_dt.isoformat(),
+                    "curr_work_end": curr_end_dt.isoformat(),
+                },
+            )
+            return RuleResult(violations=[v])
 
         # Night rest threshold if either day involves night work
-        requires_night_rest = rh_day_is_nocturne(prev_rh) or rh_day_is_nocturne(curr_rh)
+        requires_night_rest = rh_day_is_nocturne(prev_day) or rh_day_is_nocturne(day)
         repos_min = self.REPOS_MIN_NUIT_MIN if requires_night_rest else self.REPOS_MIN_STANDARD_MIN
 
         if repos_minutes >= repos_min:
-            return True, []
+            return RuleResult.ok()
 
         violation = self.error_v(
             code="REPOS_QUOTIDIEN_INSUFFISANT",
@@ -86,16 +86,16 @@ class ReposQuotidienRule(DayRule):
                 "Repos quotidien insuffisant : "
                 f"{minutes_to_duree_str(repos_minutes)} < {minutes_to_duree_str(repos_min)}"
             ),
-            start_date=prev_rh.day_date,
-            end_date=curr_rh.day_date,
+            start_date=prev_day.day_date,
+            end_date=day.day_date,
             start_dt=prev_end_dt,
             end_dt=curr_start_dt,
             meta={
                 "rest_min": repos_minutes,
                 "min_required": repos_min,
                 "night_required": requires_night_rest,
-                "prev_day_type": str(prev_rh.day_type),
-                "curr_day_type": str(curr_rh.day_type),
+                "prev_day_type": str(prev_day.day_type),
+                "curr_day_type": str(day.day_type),
                 "prev_work_start": prev_start_dt.isoformat(),
                 "prev_work_end": prev_end_dt.isoformat(),
                 "curr_work_start": curr_start_dt.isoformat(),
@@ -103,4 +103,4 @@ class ReposQuotidienRule(DayRule):
             },
         )
 
-        return False, [to_domain_alert(violation)]
+        return RuleResult(violations=[violation])

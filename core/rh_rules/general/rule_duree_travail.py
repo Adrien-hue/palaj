@@ -1,17 +1,15 @@
 # core/rh_rules/general/rule_duree_travail.py
 from __future__ import annotations
 
-from typing import List, Tuple
+from typing import List
 
-from core.domain.contexts.planning_context import PlanningContext
-from core.domain.models.work_day import WorkDay
+from core.rh_rules.contexts.rh_context import RhContext
 from core.rh_rules.day_rule import DayRule
-from core.rh_rules.adapters.workday_adapter import rh_day_from_workday
-from core.rh_rules.mappers.violation_to_domain_alert import to_domain_alert
-from core.rh_rules.models.rule_scope import RuleScope
+from core.rh_rules.models.rh_day import RhDay
+from core.rh_rules.models.rh_violation import RhViolation
+from core.rh_rules.models.rule_result import RuleResult
 from core.rh_rules.utils.rh_night import rh_day_is_nocturne
 from core.rh_rules.utils.time_calculations import worked_minutes
-from core.utils.domain_alert import DomainAlert
 from core.utils.time_helpers import minutes_to_duree_str
 
 
@@ -32,22 +30,19 @@ class DureeTravailRule(DayRule):
 
     def check_day(
         self,
-        context: PlanningContext,
-        work_day: WorkDay,
-    ) -> Tuple[bool, List[DomainAlert]]:
-        # Build canonical RH day
-        rh_day = rh_day_from_workday(context.agent.id, work_day)
+        context: RhContext,
+        day: RhDay,
+    ) -> RuleResult:
 
         # No work -> nothing to check
-        if not rh_day.is_working():
-            return True, []
+        if not day.is_working():
+            return RuleResult.ok()
 
-        total_minutes = int(worked_minutes(rh_day))
-        is_night = bool(rh_day_is_nocturne(rh_day))
-
+        total_minutes = int(worked_minutes(day))
+        is_night = bool(rh_day_is_nocturne(day))
         max_allowed = self.DUREE_MAX_NUIT_MIN if is_night else self.DUREE_MAX_MIN
 
-        alerts: List[DomainAlert] = []
+        violations: List[RhViolation] = []
 
         if total_minutes < self.DUREE_MIN_MIN:
             v = self.error_v(
@@ -57,15 +52,17 @@ class DureeTravailRule(DayRule):
                     f"{minutes_to_duree_str(total_minutes)} < "
                     f"{minutes_to_duree_str(self.DUREE_MIN_MIN)}"
                 ),
-                start_date=work_day.jour,
-                end_date=work_day.jour,
+                start_date=day.day_date,
+                end_date=day.day_date,
                 meta={
                     "total_minutes": total_minutes,
                     "min_minutes": self.DUREE_MIN_MIN,
                     "is_night": is_night,
+                    "start_dt": min(i.start for i in day.intervals),
+                    "end_dt": max(i.end for i in day.intervals),
                 },
             )
-            alerts.append(to_domain_alert(v))
+            violations.append(v)
 
         if total_minutes > max_allowed:
             v = self.error_v(
@@ -75,14 +72,16 @@ class DureeTravailRule(DayRule):
                     f"{minutes_to_duree_str(total_minutes)} > "
                     f"{minutes_to_duree_str(int(max_allowed))}"
                 ),
-                start_date=work_day.jour,
-                end_date=work_day.jour,
+                start_date=day.day_date,
+                end_date=day.day_date,
                 meta={
                     "total_minutes": total_minutes,
                     "max_minutes": int(max_allowed),
                     "is_night": is_night,
+                    "start_dt": min(i.start for i in day.intervals),
+                    "end_dt": max(i.end for i in day.intervals),
                 },
             )
-            alerts.append(to_domain_alert(v))
+            violations.append(v)
 
-        return len(alerts) == 0, alerts
+        return RuleResult(violations=violations)
