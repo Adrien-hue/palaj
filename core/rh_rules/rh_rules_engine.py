@@ -32,7 +32,7 @@ class RHRulesEngine:
     # -------------------------------------------------
     def run(self, context: RhContext) -> RuleResult:
         if not context.days:
-            return RuleResult(violations=[])
+            return RuleResult.ok()
 
         violations: list[RhViolation] = []
 

@@ -68,7 +68,7 @@ class MonthRule(BaseRule, ABC):
             return RuleResult(violations=[v])
 
         if not context.days:
-            return RuleResult(violations=[])
+            return RuleResult.ok()
 
         violations: list[RhViolation] = []
 
