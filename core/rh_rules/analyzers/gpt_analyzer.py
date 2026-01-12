@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 from core.domain.enums.day_type import DayType
 from core.rh_rules.models.gpt_block import GptBlock
@@ -14,7 +14,7 @@ class GptAnalyzer:
 
     def detect_from_rh_days(
         self,
-        days: List[RhDay],
+        days: Sequence[RhDay],
         window_start: Optional[date] = None,
         window_end: Optional[date] = None,
     ) -> List[GptBlock]:

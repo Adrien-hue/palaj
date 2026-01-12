@@ -67,12 +67,15 @@ class RhContext:
     def effective_end(self) -> Optional[date]:
         return self.window_end or self.end_date
 
+    def contains(self, d: date) -> bool:
+        return d in self._by_date
+
     def get(self, d: date) -> Optional[RhDay]:
         return self._by_date.get(d)
 
     @staticmethod
     def _is_working(day: RhDay) -> bool:
-        return day.day_type in (DayType.WORKING, DayType.ZCOT)
+        return day.is_working()
 
     def previous(self, d: date, *, working_only: bool = False) -> Optional[RhDay]:
         """
