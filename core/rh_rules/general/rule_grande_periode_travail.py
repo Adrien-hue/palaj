@@ -1,15 +1,13 @@
 # core/rh_rules/rule_grande_periode_travail.py
 from __future__ import annotations
 
-from typing import List, Tuple
+from typing import List
 
-from core.domain.contexts.planning_context import PlanningContext
 from core.rh_rules.base_rule import BaseRule, RuleScope
-from core.rh_rules.adapters.workday_adapter import rh_day_from_workday
 from core.rh_rules.analyzers.gpt_analyzer import GptAnalyzer
-from core.rh_rules.mappers.violation_to_domain_alert import to_domain_alert
-from core.utils.domain_alert import DomainAlert
-from core.utils.severity import Severity
+from core.rh_rules.contexts.rh_context import RhContext
+from core.rh_rules.models.rh_violation import RhViolation
+from core.rh_rules.models.rule_result import RuleResult
 from core.utils.time_helpers import minutes_to_duree_str
 
 
@@ -34,7 +32,7 @@ class GrandePeriodeTravailRule(BaseRule):
     def __init__(self, analyzer: GptAnalyzer | None = None):
         self.gpt_service = analyzer or GptAnalyzer()
 
-    def check(self, context: PlanningContext) -> Tuple[bool, List[DomainAlert]]:
+    def check(self, context: RhContext) -> RuleResult:
         start, end = context.start_date, context.end_date
 
         if not start or not end:
@@ -44,37 +42,22 @@ class GrandePeriodeTravailRule(BaseRule):
                 start_date=start,
                 end_date=end,
             )
-            return False, [to_domain_alert(v)]
+            return RuleResult(violations=[v])
 
-        if not context.work_days:
-            v = self.info_v(
-                code="GPT_NO_WORKDAYS",
-                msg="Aucun jour planifié dans le contexte, aucune GPT à analyser.",
-                start_date=start,
-                end_date=end,
-            )
-            return True, [to_domain_alert(v)]
-
-        # Canonical RH input (no WorkDay-based RH logic)
-        rh_days = [rh_day_from_workday(context.agent.id, wd) for wd in context.work_days]
+        if not context.days:
+            return RuleResult.ok()
 
         # RH-first GPT detection (returns GptBlock)
         gpts = self.gpt_service.detect_from_rh_days(
-            rh_days,
+            context.days,
             window_start=start,
             window_end=end,
         )
 
         if not gpts:
-            v = self.info_v(
-                code="GPT_NONE",
-                msg="Aucune Grande Période de Travail détectée.",
-                start_date=start,
-                end_date=end,
-            )
-            return True, [to_domain_alert(v)]
+            return RuleResult.ok()
 
-        alerts: List[DomainAlert] = []
+        violations: List[RhViolation] = []
 
         count_total = len(gpts)
         count_valid = 0
@@ -91,19 +74,17 @@ class GrandePeriodeTravailRule(BaseRule):
             # Too short (< 3 days) -> warning only if fully contained in window
             if nb_jours < self.GPT_MIN_JOURS and not truncated:
                 count_too_short += 1
-                alerts.append(
-                    to_domain_alert(
-                        self.warn_v(
-                            code="GPT_TROP_COURTE",
-                            msg=f"GPT trop courte : {nb_jours} jours (< {self.GPT_MIN_JOURS}).",
-                            start_date=gpt.start,
-                            end_date=gpt.end,
-                            meta={
-                                "nb_days": nb_jours,
-                                "min_days": self.GPT_MIN_JOURS,
-                                "truncated": truncated,
-                            },
-                        )
+                violations.append(
+                    self.warn_v(
+                        code="GPT_TROP_COURTE",
+                        msg=f"GPT trop courte : {nb_jours} jours (< {self.GPT_MIN_JOURS}).",
+                        start_date=gpt.start,
+                        end_date=gpt.end,
+                        meta={
+                            "nb_days": nb_jours,
+                            "min_days": self.GPT_MIN_JOURS,
+                            "truncated": truncated,
+                        },
                     )
                 )
                 continue
@@ -111,18 +92,16 @@ class GrandePeriodeTravailRule(BaseRule):
             # Too long (> 6 days) -> blocking always
             if nb_jours > self.GPT_MAX_JOURS:
                 count_too_long += 1
-                alerts.append(
-                    to_domain_alert(
-                        self.error_v(
-                            code="GPT_TROP_LONGUE",
-                            msg=f"GPT trop longue : {nb_jours} jours (> {self.GPT_MAX_JOURS}).",
-                            start_date=gpt.start,
-                            end_date=gpt.end,
-                            meta={
-                                "nb_days": nb_jours,
-                                "max_days": self.GPT_MAX_JOURS,
-                            },
-                        )
+                violations.append(
+                    self.error_v(
+                        code="GPT_TROP_LONGUE",
+                        msg=f"GPT trop longue : {nb_jours} jours (> {self.GPT_MAX_JOURS}).",
+                        start_date=gpt.start,
+                        end_date=gpt.end,
+                        meta={
+                            "nb_days": nb_jours,
+                            "max_days": self.GPT_MAX_JOURS,
+                        },
                     )
                 )
                 continue
@@ -130,39 +109,26 @@ class GrandePeriodeTravailRule(BaseRule):
             # Workload > 48h -> blocking
             if total_minutes > self.GPT_MAX_MINUTES:
                 count_too_loaded += 1
-                alerts.append(
-                    to_domain_alert(
-                        self.error_v(
-                            code="GPT_CHARGE_TROP_ELEVEE",
-                            msg=(
-                                "Charge horaire excessive : "
-                                f"{minutes_to_duree_str(total_minutes)} "
-                                f"(> {minutes_to_duree_str(self.GPT_MAX_MINUTES)})."
-                            ),
-                            start_date=gpt.start,
-                            end_date=gpt.end,
-                            meta={
-                                "total_minutes": total_minutes,
-                                "max_minutes": self.GPT_MAX_MINUTES,
-                            },
-                        )
+                violations.append(
+                    self.error_v(
+                        code="GPT_CHARGE_TROP_ELEVEE",
+                        msg=(
+                            "Charge horaire excessive : "
+                            f"{minutes_to_duree_str(total_minutes)} "
+                            f"(> {minutes_to_duree_str(self.GPT_MAX_MINUTES)})."
+                        ),
+                        start_date=gpt.start,
+                        end_date=gpt.end,
+                        meta={
+                            "total_minutes": total_minutes,
+                            "max_minutes": self.GPT_MAX_MINUTES,
+                        },
                     )
                 )
 
             # GPT = 6 days -> RP double expected
             if nb_jours == self.GPT_MAX_JOURS:
                 count_requires_rp_double += 1
-                alerts.append(
-                    to_domain_alert(
-                        self.info_v(
-                            code="GPT_RP_DOUBLE_ATTENDU",
-                            msg="GPT de 6 jours → repos double obligatoire.",
-                            start_date=gpt.start,
-                            end_date=gpt.end,
-                            meta={"nb_days": nb_jours},
-                        )
-                    )
-                )
 
             count_valid += 1
 
@@ -175,25 +141,22 @@ class GrandePeriodeTravailRule(BaseRule):
             f"{count_requires_rp_double} nécessitent un RP double."
         )
 
-        alerts.insert(
+        violations.insert(
             0,
-            to_domain_alert(
-                self.info_v(
-                    code="GPT_SYNTHESE",
-                    msg=summary,
-                    start_date=start,
-                    end_date=end,
-                    meta={
-                        "total": count_total,
-                        "valid": count_valid,
-                        "too_short": count_too_short,
-                        "too_long": count_too_long,
-                        "too_loaded": count_too_loaded,
-                        "rp_double": count_requires_rp_double,
-                    },
-                )
+            self.info_v(
+                code="GPT_SYNTHESE",
+                msg=summary,
+                start_date=start,
+                end_date=end,
+                meta={
+                    "total": count_total,
+                    "valid": count_valid,
+                    "too_short": count_too_short,
+                    "too_long": count_too_long,
+                    "too_loaded": count_too_loaded,
+                    "rp_double": count_requires_rp_double,
+                },
             )
         )
 
-        is_valid = all(a.severity != Severity.ERROR for a in alerts)
-        return is_valid, alerts
+        return RuleResult(violations=violations)

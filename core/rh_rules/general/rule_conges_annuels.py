@@ -1,18 +1,16 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import List, Tuple
+from typing import List
 
-from core.domain.contexts.planning_context import PlanningContext
-from core.domain.models.work_day import WorkDay
+from core.rh_rules.contexts.rh_context import RhContext
+from core.rh_rules.models.rh_day import RhDay
+from core.rh_rules.models.rh_violation import RhViolation
+from core.rh_rules.models.rule_result import RuleResult
 from core.rh_rules.year_rule import YearRule
-from core.utils.domain_alert import DomainAlert
-from core.utils.severity import Severity
 
 from core.domain.enums.day_type import DayType
-from core.rh_rules.adapters.workday_adapter import rh_day_from_workday
 from core.rh_rules.analyzers.leave_period_analyzer import LeavePeriodAnalyzer
-from core.rh_rules.mappers.violation_to_domain_alert import to_domain_alert
 
 
 class CongesAnnuelRule(YearRule):
@@ -33,90 +31,49 @@ class CongesAnnuelRule(YearRule):
 
     def check_year(
         self,
-        context: PlanningContext,
+        context: RhContext,
         year: int,
         year_start: date,
         year_end: date,
         is_full: bool,
-        work_days: List[WorkDay],
-    ) -> Tuple[bool, List[DomainAlert]]:
-        if not work_days:
-            v = self.info_v(
-                code="CONGES_ANNUELS_EMPTY_YEAR",
-                msg=f"[{year}] Aucun jour planifié sur cette année dans le contexte.",
-                start_date=year_start,
-                end_date=year_end,
-                meta={"year": year, "is_full": is_full},
-            )
-            return True, [to_domain_alert(v)]
+        days: List[RhDay],
+    ) -> RuleResult:
+        if not days:
+            return RuleResult.ok()
 
-        rh_days = [rh_day_from_workday(context.agent.id, wd) for wd in work_days]
-        rh_days.sort(key=lambda d: d.day_date)
+        periodes = self.analyzer.detect_from_rh_days(days)
 
-        periodes = self.analyzer.detect_from_rh_days(rh_days)
+        total_leave = sum(1 for d in days if d.day_type == DayType.LEAVE)
 
-        total_leave = sum(1 for d in rh_days if d.day_type == DayType.LEAVE)
-
-        longest_block = max((p.nb_jours for p in periodes), default=0)
         nb_blocks_15_plus = sum(1 for p in periodes if p.nb_jours >= self.MIN_CONGE_BLOCK)
+        longest_block = max((p.nb_jours for p in periodes), default=0)
 
-        # Optional if you implement LeavePeriod.leave_days
-        longest_block_leave_days = max((getattr(p, "leave_days", 0) for p in periodes), default=0)
-
-        summary = (
-            f"[{year}] Congés annuels : {total_leave} jour(s) pris. "
-            f"Période de congés (congé+repos) la plus longue : {longest_block} jour(s). "
-            f"Périodes de congés ≥ {self.MIN_CONGE_BLOCK} jours : {nb_blocks_15_plus}."
-        )
-
-        alerts: List[DomainAlert] = [
-            to_domain_alert(
-                self.info_v(
-                    code="CONGES_ANNUELS_SYNTHESIS",
-                    msg=summary,
-                    start_date=year_start,
-                    end_date=year_end,
-                    meta={
-                        "year": year,
-                        "is_full": is_full,
-                        "total_leave_days": total_leave,
-                        "longest_block_days": longest_block,
-                        "longest_block_leave_days": longest_block_leave_days,
-                        "blocks_15_plus": nb_blocks_15_plus,
-                    },
-                )
-            )
-        ]
+        violations: List[RhViolation] = []
 
         if is_full:
             if total_leave < self.MIN_CONGES_ANNUELS:
-                alerts.append(
-                    to_domain_alert(
-                        self.error_v(
-                            code="CONGES_ANNUELS_QUOTA_INSUFFISANT",
-                            msg=f"[{year}] Nombre de congés annuels insuffisant : {total_leave}/{self.MIN_CONGES_ANNUELS}.",
-                            start_date=year_start,
-                            end_date=year_end,
-                            meta={"year": year, "leave_days": total_leave, "min_required": self.MIN_CONGES_ANNUELS},
-                        )
+                violations.append(
+                    self.error_v(
+                        code="CONGES_ANNUELS_QUOTA_INSUFFISANT",
+                        msg=f"[{year}] Nombre de congés annuels insuffisant : {total_leave}/{self.MIN_CONGES_ANNUELS}.",
+                        start_date=year_start,
+                        end_date=year_end,
+                        meta={"year": year, "leave_days": total_leave, "min_required": self.MIN_CONGES_ANNUELS},
                     )
                 )
 
             if nb_blocks_15_plus == 0:
-                alerts.append(
-                    to_domain_alert(
-                        self.error_v(
-                            code="CONGES_ANNUELS_BLOC_LONG_MANQUANT",
-                            msg=(
-                                f"[{year}] Aucune période de congés consécutifs "
-                                f"(congé + repos) de {self.MIN_CONGE_BLOCK} jours ou plus détectée."
-                            ),
-                            start_date=year_start,
-                            end_date=year_end,
-                            meta={"year": year, "min_block_days": self.MIN_CONGE_BLOCK},
-                        )
+                violations.append(
+                    self.error_v(
+                        code="CONGES_ANNUELS_BLOC_LONG_MANQUANT",
+                        msg=(
+                            f"[{year}] Aucune période de congés consécutifs "
+                            f"(congé + repos) de {self.MIN_CONGE_BLOCK} jours ou plus détectée."
+                        ),
+                        start_date=year_start,
+                        end_date=year_end,
+                        meta={"year": year, "min_block_days": self.MIN_CONGE_BLOCK, "longest_block_days": longest_block},
                     )
                 )
 
-        is_valid = all(a.severity != Severity.ERROR for a in alerts)
-        return is_valid, alerts
+        return RuleResult(violations=violations)

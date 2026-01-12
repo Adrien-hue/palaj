@@ -1,21 +1,20 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import List, Tuple
+from typing import List
 
-from core.domain.contexts.planning_context import PlanningContext
 from core.domain.enums.day_type import DayType
-from core.rh_rules.adapters.workday_adapter import rh_day_from_workday
 from core.rh_rules.analyzers.gpt_analyzer import GptAnalyzer
 from core.rh_rules.base_rule import BaseRule, RuleScope
-from core.rh_rules.mappers.violation_to_domain_alert import to_domain_alert
-from core.utils.domain_alert import DomainAlert
-from core.utils.severity import Severity
+from core.rh_rules.contexts.rh_context import RhContext
+from core.rh_rules.models.rh_violation import RhViolation
+from core.rh_rules.models.rule_result import RuleResult
 
 
 class ReposDoubleRule(BaseRule):
     """
-    After a complete 6-day GPT, the agent must have at least 2 consecutive REST days.
+    After a complete 6-day GPT (fully started inside the window),
+    the agent must have at least 2 consecutive REST days immediately after.
     """
 
     name = "ReposDoubleRule"
@@ -23,83 +22,83 @@ class ReposDoubleRule(BaseRule):
     scope = RuleScope.PERIOD
 
     NB_JOURS_REPOS_MIN = 2
+    GPT_TARGET_DAYS = 6
 
     def __init__(self, analyzer: GptAnalyzer | None = None):
         self.gpt_service = analyzer or GptAnalyzer()
 
-    def check(self, context: PlanningContext) -> Tuple[bool, List[DomainAlert]]:
-        if not context.work_days:
-            return True, []
+    def check(self, context: RhContext) -> RuleResult:
+        if not context.days:
+            return RuleResult.ok()
 
-        start, end = context.start_date, context.end_date
+        start = context.effective_start
+        end = context.effective_end
+
+        # Uniformize with other PERIOD rules
         if not start or not end:
-            # Comportement: l’ancienne règle ne gérait pas ce cas explicitement,
-            # mais BaseRule le fait souvent. Ici on reste soft:
-            return True, []
+            v = self.error_v(
+                code="REPOS_DOUBLE_DATES_MISSING",
+                msg="Impossible de récupérer la date de début ou de fin pour vérifier le repos double.",
+                start_date=start,
+                end_date=end,
+            )
+            return RuleResult(violations=[v])
 
-        # Canonical RH days
-        rh_days = [rh_day_from_workday(context.agent.id, wd) for wd in context.work_days]
-        rh_days.sort(key=lambda d: d.day_date)
-
-        # GPT blocks from RH-first analyzer (returns GptBlock)
         gpts = self.gpt_service.detect_from_rh_days(
-            rh_days,
+            context.days,
             window_start=start,
             window_end=end,
         )
         if not gpts:
-            return True, []
+            return RuleResult.ok()
 
-        # We need quick access by date for post-GPT checks
-        rh_by_date = {d.day_date: d for d in rh_days}
-        all_dates = sorted(rh_by_date.keys())
-
-        alerts: List[DomainAlert] = []
+        by_date = context.by_date
+        violations: List[RhViolation] = []
 
         for gpt in gpts:
+            # Ignore left-truncated blocks (partial start)
             if gpt.is_left_truncated:
                 continue
 
-            if gpt.nb_jours != 6:
+            # Must be exactly 6 days
+            if gpt.nb_jours != self.GPT_TARGET_DAYS:
                 continue
 
-            # Ensure we have at least NB_JOURS_REPOS_MIN dates after GPT end in the context
-            days_after = [d for d in all_dates if d > gpt.end]
-            if len(days_after) < self.NB_JOURS_REPOS_MIN:
-                continue  # context too short to judge
+            # Context must include at least the needed days after GPT end to judge
+            last_needed_day = gpt.end + timedelta(days=self.NB_JOURS_REPOS_MIN)
+            if last_needed_day > end:
+                continue
 
-            # Count consecutive REST days starting the day after GPT end
+            # Count consecutive REST days right after GPT end
             consecutive_rest = 0
             for i in range(1, self.NB_JOURS_REPOS_MIN + 1):
-                day = gpt.end + timedelta(days=i)
-                d = rh_by_date.get(day)
-                if d and d.day_type == DayType.REST:
+                d = gpt.end + timedelta(days=i)
+                rh_day = by_date.get(d)
+                if rh_day and rh_day.day_type == DayType.REST:
                     consecutive_rest += 1
                 else:
                     break
 
             if consecutive_rest < self.NB_JOURS_REPOS_MIN:
-                v = self.error_v(
-                    code="REPOS_DOUBLE_MANQUANT",
-                    msg=(
-                        "Repos double manquant après GPT de 6 jours : "
-                        f"{consecutive_rest} jour(s) détecté(s), "
-                        f"attendu ≥ {self.NB_JOURS_REPOS_MIN}."
-                    ),
-                    start_date=gpt.start,
-                    end_date=gpt.end + timedelta(days=self.NB_JOURS_REPOS_MIN),
-                    start_dt=None,
-                    end_dt=None,
-                    meta={
-                        "gpt_start": str(gpt.start),
-                        "gpt_end": str(gpt.end),
-                        "required_rest_days": self.NB_JOURS_REPOS_MIN,
-                        "detected_rest_days": consecutive_rest,
-                        "is_left_truncated": getattr(gpt, "is_left_truncated", False),
-                        "is_right_truncated": getattr(gpt, "is_right_truncated", False),
-                    },
+                violations.append(
+                    self.error_v(
+                        code="REPOS_DOUBLE_MANQUANT",
+                        msg=(
+                            "Repos double manquant après GPT de 6 jours : "
+                            f"{consecutive_rest} jour(s) détecté(s), "
+                            f"attendu ≥ {self.NB_JOURS_REPOS_MIN}."
+                        ),
+                        start_date=gpt.start,
+                        end_date=last_needed_day,
+                        meta={
+                            "gpt_start": str(gpt.start),
+                            "gpt_end": str(gpt.end),
+                            "required_rest_days": self.NB_JOURS_REPOS_MIN,
+                            "detected_rest_days": consecutive_rest,
+                            "is_left_truncated": gpt.is_left_truncated,
+                            "is_right_truncated": gpt.is_right_truncated,
+                        },
+                    )
                 )
-                alerts.append(to_domain_alert(v))
 
-        is_valid = all(a.severity != Severity.ERROR for a in alerts)
-        return is_valid, alerts
+        return RuleResult(violations=violations)
