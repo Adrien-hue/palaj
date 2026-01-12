@@ -1,12 +1,11 @@
 # core/rh_rules/base_rule.py
 from abc import ABC, abstractmethod
-from typing import List, Tuple
 from datetime import date
 
 from core.rh_rules.contexts import RhContext
 from core.rh_rules.models.rh_violation import RhViolation
+from core.rh_rules.models.rule_result import RuleResult
 from core.rh_rules.models.rule_scope import RuleScope
-from core.utils.domain_alert import DomainAlert
 from core.utils.severity import Severity
 
 class BaseRule(ABC):
@@ -28,9 +27,9 @@ class BaseRule(ABC):
         return True
 
     @abstractmethod
-    def check(self, context: RhContext) -> Tuple[bool, List[DomainAlert]]:
+    def check(self, context: RhContext) -> RuleResult:
         """
-        Vérifie la règle et retourne (is_valid, [DomainAlert])
+        Vérifie la règle et retourne un RuleResult.
         Le paramètre `context` contient le planning ou agent concerné.
         """
         pass

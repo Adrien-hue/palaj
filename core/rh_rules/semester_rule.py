@@ -3,14 +3,14 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from datetime import date
-from typing import List, Tuple
+from typing import List
 
 from core.rh_rules.base_rule import BaseRule
 from core.rh_rules.contexts import RhContext
 from core.rh_rules.models.rh_day import RhDay
+from core.rh_rules.models.rh_violation import RhViolation
+from core.rh_rules.models.rule_result import RuleResult
 from core.rh_rules.models.rule_scope import RuleScope
-from core.rh_rules.mappers.violation_to_domain_alert import to_domain_alert
-from core.utils.domain_alert import DomainAlert
 
 
 class SemesterRule(BaseRule, ABC):
@@ -32,7 +32,7 @@ class SemesterRule(BaseRule, ABC):
         sem_end: date,
         is_full: bool,
         days: List[RhDay],
-    ) -> Tuple[bool, List[DomainAlert]]:
+    ) -> RuleResult:
         raise NotImplementedError
 
     def _semester_ranges_for_year(self, year: int) -> list[tuple[str, date, date]]:
@@ -41,7 +41,7 @@ class SemesterRule(BaseRule, ABC):
             ("S2", date(year, 7, 1), date(year, 12, 31)),
         ]
 
-    def check(self, context: RhContext) -> Tuple[bool, List[DomainAlert]]:
+    def check(self, context: RhContext) -> RuleResult:
         start = context.effective_start
         end = context.effective_end
 
@@ -56,13 +56,12 @@ class SemesterRule(BaseRule, ABC):
                     "window_end": str(context.window_end) if context.window_end else None,
                 },
             )
-            return False, [to_domain_alert(v)]
+            return RuleResult(violations=[v])
 
         if not context.days:
-            return True, []
+            return RuleResult(violations=[])
 
-        alerts: List[DomainAlert] = []
-        is_valid_global = True
+        violations: list[RhViolation] = []
 
         for year in range(start.year, end.year + 1):
             for label, sem_start, sem_end in self._semester_ranges_for_year(year):
@@ -74,7 +73,7 @@ class SemesterRule(BaseRule, ABC):
                 days_sem = [d for d in context.days if overlap_start <= d.day_date <= overlap_end]
                 is_full = (start <= sem_start) and (end >= sem_end)
 
-                ok, sem_alerts = self.check_semester(
+                result = self.check_semester(
                     context=context,
                     year=year,
                     label=label,
@@ -83,8 +82,6 @@ class SemesterRule(BaseRule, ABC):
                     is_full=is_full,
                     days=days_sem,
                 )
+                violations.extend(result.violations)
 
-                is_valid_global = is_valid_global and ok
-                alerts.extend(sem_alerts)
-
-        return is_valid_global, alerts
+        return RuleResult(violations=violations)

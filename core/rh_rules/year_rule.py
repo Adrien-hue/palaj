@@ -3,14 +3,14 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from datetime import date
-from typing import List, Tuple
+from typing import List
 
 from core.rh_rules.base_rule import BaseRule
 from core.rh_rules.contexts import RhContext
 from core.rh_rules.models.rh_day import RhDay
+from core.rh_rules.models.rh_violation import RhViolation
+from core.rh_rules.models.rule_result import RuleResult
 from core.rh_rules.models.rule_scope import RuleScope
-from core.rh_rules.mappers.violation_to_domain_alert import to_domain_alert
-from core.utils.domain_alert import DomainAlert
 
 
 class YearRule(BaseRule, ABC):
@@ -31,10 +31,10 @@ class YearRule(BaseRule, ABC):
         year_end: date,
         is_full: bool,
         days: List[RhDay],
-    ) -> Tuple[bool, List[DomainAlert]]:
+    ) -> RuleResult:
         raise NotImplementedError
 
-    def check(self, context: RhContext) -> Tuple[bool, List[DomainAlert]]:
+    def check(self, context: RhContext) -> RuleResult:
         ctx_start = context.effective_start
         ctx_end = context.effective_end
 
@@ -49,13 +49,12 @@ class YearRule(BaseRule, ABC):
                     "window_end": str(context.window_end) if context.window_end else None,
                 },
             )
-            return False, [to_domain_alert(v)]
+            return RuleResult(violations=[v])
 
         if not context.days:
-            return True, []
+            return RuleResult(violations=[])
 
-        alerts: List[DomainAlert] = []
-        is_valid_global = True
+        violations: list[RhViolation] = []
 
         for y in range(ctx_start.year, ctx_end.year + 1):
             year_start = date(y, 1, 1)
@@ -69,7 +68,7 @@ class YearRule(BaseRule, ABC):
             days_year = [d for d in context.days if overlap_start <= d.day_date <= overlap_end]
             is_full = (ctx_start <= year_start) and (ctx_end >= year_end)
 
-            ok, year_alerts = self.check_year(
+            result = self.check_year(
                 context=context,
                 year=y,
                 year_start=year_start,
@@ -78,7 +77,6 @@ class YearRule(BaseRule, ABC):
                 days=days_year,
             )
 
-            is_valid_global = is_valid_global and ok
-            alerts.extend(year_alerts)
+            violations.extend(result.violations)
 
-        return is_valid_global, alerts
+        return RuleResult(violations=violations)

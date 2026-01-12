@@ -1,22 +1,14 @@
 # core/rh_rules/rh_rules_engine.py
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import List
 
 from core.rh_rules.base_rule import BaseRule
 from core.rh_rules.contexts.rh_context import RhContext
 from core.rh_rules.day_rule import DayRule
 from core.rh_rules.models.rh_violation import RhViolation
+from core.rh_rules.models.rule_result import RuleResult
 from core.rh_rules.models.rule_scope import RuleScope
-from core.utils.severity import Severity
-
-
-@dataclass(frozen=True)
-class EngineResult:
-    is_valid: bool
-    violations: tuple[RhViolation, ...]
-
 
 class RHRulesEngine:
     """
@@ -38,9 +30,9 @@ class RHRulesEngine:
     # -------------------------------------------------
     # Core execution
     # -------------------------------------------------
-    def run(self, context: RhContext) -> EngineResult:
+    def run(self, context: RhContext) -> RuleResult:
         if not context.days:
-            return EngineResult(is_valid=True, violations=())
+            return RuleResult(violations=[])
 
         violations: list[RhViolation] = []
 
@@ -56,8 +48,8 @@ class RHRulesEngine:
                 if not rule.applies_to(context):
                     continue
 
-                ok, day_violations = rule.check_day(context, day)
-                violations.extend(day_violations)
+                result = rule.check_day(context, day)
+                violations.extend(result.violations)
 
         # -------------------------
         # PERIOD rules
@@ -68,12 +60,7 @@ class RHRulesEngine:
             if not rule.applies_to(context):
                 continue
 
-            ok, rule_violations = rule.check(context)
-            violations.extend(rule_violations)
+            result = rule.check(context)
+            violations.extend(result.violations)
 
-        is_valid = all(v.severity != Severity.ERROR for v in violations)
-
-        return EngineResult(
-            is_valid=is_valid,
-            violations=tuple(violations),
-        )
+        return RuleResult(violations=violations)

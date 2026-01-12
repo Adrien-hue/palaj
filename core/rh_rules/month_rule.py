@@ -4,14 +4,14 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from calendar import monthrange
 from datetime import date
-from typing import Iterable, List, Tuple
+from typing import Iterable, List
 
 from core.rh_rules.base_rule import BaseRule
 from core.rh_rules.contexts import RhContext
 from core.rh_rules.models.rh_day import RhDay
+from core.rh_rules.models.rh_violation import RhViolation
+from core.rh_rules.models.rule_result import RuleResult
 from core.rh_rules.models.rule_scope import RuleScope
-from core.rh_rules.mappers.violation_to_domain_alert import to_domain_alert
-from core.utils.domain_alert import DomainAlert
 
 
 class MonthRule(BaseRule, ABC):
@@ -37,7 +37,7 @@ class MonthRule(BaseRule, ABC):
         month_end: date,
         is_full: bool,
         days: List[RhDay],
-    ) -> Tuple[bool, List[DomainAlert]]:
+    ) -> RuleResult:
         raise NotImplementedError
 
     def _iter_months_in_window(self, start: date, end: date) -> Iterable[tuple[int, int]]:
@@ -50,7 +50,7 @@ class MonthRule(BaseRule, ABC):
             else:
                 month += 1
 
-    def check(self, context: RhContext) -> Tuple[bool, List[DomainAlert]]:
+    def check(self, context: RhContext) -> RuleResult:
         start = context.effective_start
         end = context.effective_end
 
@@ -65,13 +65,12 @@ class MonthRule(BaseRule, ABC):
                     "window_end": str(context.window_end) if context.window_end else None,
                 },
             )
-            return False, [to_domain_alert(v)]
+            return RuleResult(violations=[v])
 
         if not context.days:
-            return True, []
+            return RuleResult(violations=[])
 
-        alerts: List[DomainAlert] = []
-        is_valid_global = True
+        violations: list[RhViolation] = []
 
         for year, month in self._iter_months_in_window(start, end):
             month_start = date(year, month, 1)
@@ -85,7 +84,7 @@ class MonthRule(BaseRule, ABC):
             days_month = [d for d in context.days if overlap_start <= d.day_date <= overlap_end]
             is_full = (start <= month_start) and (end >= month_end)
 
-            ok, month_alerts = self.check_month(
+            result = self.check_month(
                 context=context,
                 year=year,
                 month=month,
@@ -95,7 +94,6 @@ class MonthRule(BaseRule, ABC):
                 days=days_month,
             )
 
-            is_valid_global = is_valid_global and ok
-            alerts.extend(month_alerts)
+            violations.extend(result.violations)
 
-        return is_valid_global, alerts
+        return RuleResult(violations=violations)
