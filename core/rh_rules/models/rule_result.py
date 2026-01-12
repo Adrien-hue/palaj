@@ -13,3 +13,7 @@ class RuleResult:
     @property
     def is_valid(self) -> bool:
         return all(v.severity != Severity.ERROR for v in self.violations)
+
+    @staticmethod
+    def ok() -> "RuleResult":
+        return RuleResult(violations=[])
