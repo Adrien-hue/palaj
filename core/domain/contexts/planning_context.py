@@ -24,8 +24,6 @@ class PlanningContext:
 
     👉 Ce n'est pas un service applicatif.
     👉 C'est une *structure d'analyse métier* utilisée par les services :
-       - GrandePeriodeTravailAnalyzer
-       - PeriodeReposAnalyzer
        - règles RH futures
        - validations de plannings
 
