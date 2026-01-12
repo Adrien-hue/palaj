@@ -1,11 +1,13 @@
 # core/rh_rules/base_rule.py
 from abc import ABC, abstractmethod
-from typing import List, Tuple, Optional
+from typing import List, Tuple
 from datetime import date
 
+from core.rh_rules.contexts import RhContext
 from core.rh_rules.models.rh_violation import RhViolation
 from core.rh_rules.models.rule_scope import RuleScope
-from core.utils.domain_alert import DomainAlert, Severity
+from core.utils.domain_alert import DomainAlert
+from core.utils.severity import Severity
 
 class BaseRule(ABC):
     """Classe de base pour toutes les règles RH."""
@@ -17,7 +19,7 @@ class BaseRule(ABC):
     def __init__(self):
         pass
 
-    def applies_to(self, context) -> bool:
+    def applies_to(self, context: RhContext) -> bool:
         """
         Par défaut : la règle s'applique à tous les contextes.
         Les règles spécifiques (par régime, par métier, etc.)
@@ -26,39 +28,14 @@ class BaseRule(ABC):
         return True
 
     @abstractmethod
-    def check(self, context) -> Tuple[bool, List[DomainAlert]]:
+    def check(self, context: RhContext) -> Tuple[bool, List[DomainAlert]]:
         """
         Vérifie la règle et retourne (is_valid, [DomainAlert])
         Le paramètre `context` contient le planning ou agent concerné.
         """
         pass
 
-    # --- Helpers ---
-    def _alert(
-        self,
-        message: str,
-        severity: Severity,
-        jour: Optional[date] = None,
-        code: Optional[str] = None,
-    ) -> DomainAlert:
-        """Crée une alerte standardisée pour cette règle."""
-        return DomainAlert(
-            message=message,
-            severity=severity,
-            jour=jour,
-            source=self.name,
-            code=code,
-        )
-    
-    def info(self, msg: str, jour: Optional[date] = None, code: Optional[str] = None) -> DomainAlert:
-        return self._alert(message=msg, severity=Severity.INFO, jour=jour, code=code)
-    
-    def warn(self, msg: str, jour: Optional[date] = None, code: Optional[str] = None) -> DomainAlert:
-        return self._alert(message=msg, severity=Severity.WARNING, jour=jour, code=code)
-    
-    def error(self, msg: str, jour: Optional[date] = None, code: Optional[str] = None) -> DomainAlert:
-        return self._alert(message=msg, severity=Severity.ERROR, jour=jour, code=code)
-    
+    # --- Helpers ---    
     def _violation(
         self,
         message: str,

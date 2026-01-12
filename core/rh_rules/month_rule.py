@@ -1,26 +1,28 @@
+# core/rh_rules/month_rule.py
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from calendar import monthrange
 from datetime import date
 from typing import Iterable, List, Tuple
 
-from core.domain.contexts.planning_context import PlanningContext
-from core.domain.models.work_day import WorkDay
-from core.rh_rules.base_rule import BaseRule, RuleScope
-from core.utils.domain_alert import DomainAlert, Severity
+from core.rh_rules.base_rule import BaseRule
+from core.rh_rules.contexts import RhContext
+from core.rh_rules.models.rh_day import RhDay
+from core.rh_rules.models.rule_scope import RuleScope
+from core.rh_rules.mappers.violation_to_domain_alert import to_domain_alert
+from core.utils.domain_alert import DomainAlert
 
 
 class MonthRule(BaseRule, ABC):
     """
-    Règle appliquée sur des mois civils.
+    PERIOD rule split by civil months (RH-first).
 
-    - Découpe la période du contexte en (année, mois)
-    - Pour chaque mois :
-        * calcule l'intersection avec le contexte
-        * construit la liste des WorkDay du mois (dans l'overlap)
-        * détermine si le mois est complètement couvert par le contexte
-        * appelle check_month(...) avec ces informations
-
-    Les sous-classes n'ont plus à gérer la boucle ni le filtrage par mois.
+    - splits RhContext effective window into (year, month)
+    - for each month: computes overlap
+    - slices RhDay within overlap
+    - determines if the civil month is fully covered by the effective window
+    - delegates to check_month(...)
     """
 
     scope = RuleScope.PERIOD
@@ -28,24 +30,17 @@ class MonthRule(BaseRule, ABC):
     @abstractmethod
     def check_month(
         self,
-        context: PlanningContext,
+        context: RhContext,
         year: int,
         month: int,
         month_start: date,
         month_end: date,
         is_full: bool,
-        work_days: List[WorkDay],
+        days: List[RhDay],
     ) -> Tuple[bool, List[DomainAlert]]:
-        """
-        Implémentation métier pour un mois donné.
-
-        is_full = True  →  le contexte couvre tout le mois civil (1er → dernier jour)
-        is_full = False →  mois partiellement couvert (on fait souvent du suivi/INFO).
-        """
         raise NotImplementedError
 
-    def _iter_months_in_context(self, start: date, end: date) -> Iterable[tuple[int, int]]:
-        """Génère tous les couples (year, month) entre start et end inclus."""
+    def _iter_months_in_window(self, start: date, end: date) -> Iterable[tuple[int, int]]:
         year, month = start.year, start.month
         while (year, month) <= (end.year, end.month):
             yield year, month
@@ -55,43 +50,39 @@ class MonthRule(BaseRule, ABC):
             else:
                 month += 1
 
-    def check(self, context: PlanningContext) -> Tuple[bool, List[DomainAlert]]:
-        start, end = context.start_date, context.end_date
-        if not start or not end:
-            return False, [
-                self.error(
-                    "Impossible de déterminer les bornes de la période pour une règle mensuelle.",
-                    code="MONTH_NO_DATES",
-                )
-            ]
+    def check(self, context: RhContext) -> Tuple[bool, List[DomainAlert]]:
+        start = context.effective_start
+        end = context.effective_end
 
-        if not context.work_days:
-            # rien à analyser
+        if not start or not end:
+            v = self.error_v(
+                code="MONTH_NO_DATES",
+                msg="Impossible de déterminer les bornes de la période pour une règle mensuelle.",
+                start_date=context.start_date,
+                end_date=context.end_date,
+                meta={
+                    "window_start": str(context.window_start) if context.window_start else None,
+                    "window_end": str(context.window_end) if context.window_end else None,
+                },
+            )
+            return False, [to_domain_alert(v)]
+
+        if not context.days:
             return True, []
 
         alerts: List[DomainAlert] = []
         is_valid_global = True
 
-        for year, month in self._iter_months_in_context(start, end):
+        for year, month in self._iter_months_in_window(start, end):
             month_start = date(year, month, 1)
             month_end = date(year, month, monthrange(year, month)[1])
 
-            # Intersection contexte ↔ mois
             overlap_start = max(start, month_start)
             overlap_end = min(end, month_end)
-
-            # Aucun recouvrement → on ignore ce mois
             if overlap_start > overlap_end:
                 continue
 
-            # Sous-ensemble de WorkDay pour ce mois (dans l’overlap)
-            wd_month = [
-                wd
-                for wd in context.work_days
-                if overlap_start <= wd.jour <= overlap_end
-            ]
-
-            # Mois "complet" si le contexte couvre tout le mois civil
+            days_month = [d for d in context.days if overlap_start <= d.day_date <= overlap_end]
             is_full = (start <= month_start) and (end >= month_end)
 
             ok, month_alerts = self.check_month(
@@ -101,11 +92,10 @@ class MonthRule(BaseRule, ABC):
                 month_start=month_start,
                 month_end=month_end,
                 is_full=is_full,
-                work_days=wd_month,
+                days=days_month,
             )
 
             is_valid_global = is_valid_global and ok
             alerts.extend(month_alerts)
 
-        is_valid_global = is_valid_global and all(a.severity != Severity.ERROR for a in alerts)
         return is_valid_global, alerts
