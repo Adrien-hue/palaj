@@ -1,5 +1,3 @@
-import type { Affectation } from "./affectation"; 
-import type { EtatJourAgent } from "./etatJourAgent"; 
 import type { Qualification } from "./qualification";
 import type { Regime } from "./regimes";
 
@@ -15,8 +13,6 @@ export type AgentDetails = Agent & {
   regime_id?: number | null;
   regime?: Regime | null;
   qualifications?: Qualification[];
-  affectations?: Affectation[];
-  etat_jours?: EtatJourAgent[];
 };
 
 export type CreateAgentBody = {

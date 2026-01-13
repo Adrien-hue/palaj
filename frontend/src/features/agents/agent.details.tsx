@@ -35,8 +35,6 @@ function formatMinutes(min?: number | null) {
 
 export default function AgentDetails({ agent }: { agent: AgentDetails }) {
   const qualifications = agent.qualifications ?? [];
-  const affectationsCount = agent.affectations?.length ?? 0;
-  const etatJoursCount = agent.etat_jours?.length ?? 0;
 
   const posteIds = useMemo(() => {
     const set = new Set<number>();
@@ -144,29 +142,6 @@ export default function AgentDetails({ agent }: { agent: AgentDetails }) {
             ))}
           </div>
         )}
-      </div>
-
-      {/* Compteurs */}
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="rounded-2xl bg-white p-4 ring-1 ring-zinc-200">
-          <div className="text-sm font-semibold text-zinc-900">Affectations</div>
-          <div className="mt-1 text-sm text-zinc-700">
-            {affectationsCount} {affectationsCount > 1 ? "affectations" : "affectation"}
-          </div>
-          <div className="mt-1 text-xs text-zinc-500">
-            Total des jours affectés à une tranche.
-          </div>
-        </div>
-
-        <div className="rounded-2xl bg-white p-4 ring-1 ring-zinc-200">
-          <div className="text-sm font-semibold text-zinc-900">Jours particuliers</div>
-          <div className="mt-1 text-sm text-zinc-700">
-            {etatJoursCount} {etatJoursCount > 1 ? "entrées" : "entrée"}
-          </div>
-          <div className="mt-1 text-xs text-zinc-500">
-            Congés, indisponibilités, etc.
-          </div>
-        </div>
       </div>
     </div>
   );
