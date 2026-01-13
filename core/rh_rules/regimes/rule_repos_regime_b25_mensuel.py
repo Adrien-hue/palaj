@@ -1,27 +1,27 @@
-# core/rh_rules/rule_repos_regime_b25_mensuel.py
+# core/rh_rules/regimes/rule_repos_regime_b25_mensuel.py
 from __future__ import annotations
 
 from datetime import date
-from typing import List, Tuple
+from typing import List
 
-from core.domain.contexts.planning_context import PlanningContext
-from core.domain.models.work_day import WorkDay
+from core.rh_rules.analyzers.rest_stats_analyzer import RestStatsAnalyzer
+from core.rh_rules.contexts.rh_context import RhContext
+from core.rh_rules.models.rh_day import RhDay
+from core.rh_rules.models.rh_violation import RhViolation
+from core.rh_rules.models.rule_result import RuleResult
 from core.rh_rules.month_rule import MonthRule
-from core.utils.domain_alert import DomainAlert, Severity
-from core.application.services.planning.repos_stats_analyzer import ReposStatsAnalyzer
 
 
 class RegimeB25ReposMensuelRule(MonthRule):
     """
-    Règle mensuelle spécifique au régime B25 (regime_id = 1).
+    Regime B25 (regime_id = 1)
 
-    Pour chaque mois civil COMPLET :
-      - Au moins 1 RPSD (repos samedi-dimanche)
-      - Au moins 1 autre repos de 2 jours ou plus
-        → au total : au moins 2 périodes de RP de ≥ 2 jours, dont ≥1 RPSD.
+    For each FULL civil month:
+      - At least 1 RPSD (Saturday->Sunday rest period)
+      - At least 2 rest periods of >= 2 days total (including >=1 RPSD)
 
-    Pour les mois partiels :
-      - suivi informatif uniquement (si au moins un RP dans le mois)
+    Partial month:
+      - no blocking controls (silent)
     """
 
     name = "RegimeB25ReposMensuelRule"
@@ -30,105 +30,87 @@ class RegimeB25ReposMensuelRule(MonthRule):
         "au moins 2 périodes de repos de 2+ jours (dont ≥1 RPSD)."
     )
 
-    def __init__(self, analyzer: ReposStatsAnalyzer | None = None) -> None:
-        self.analyzer = analyzer or ReposStatsAnalyzer()
+    MIN_RPSD = 1
+    MIN_RP_2PLUS = 2
 
-    # ---------------------------------------------------------
-    # Applicabilité de la règle
-    # ---------------------------------------------------------
-    def applies_to(self, context: PlanningContext) -> bool:
-        """
-        La règle ne s'applique qu'aux agents de régime B25 (regime_id = 1).
-        """
-        regime_id = getattr(context.agent, "regime_id", None)
-        return regime_id == 1
+    def __init__(self, analyzer: RestStatsAnalyzer | None = None) -> None:
+        self.analyzer = analyzer or RestStatsAnalyzer()
 
-    # On court-circuite ici pour éviter de lancer MonthRule sur les autres régimes
-    def check(self, context: PlanningContext) -> Tuple[bool, List[DomainAlert]]:
+    def applies_to(self, context: RhContext) -> bool:
+        return getattr(context.agent, "regime_id", None) == 1
+
+    def check(self, context: RhContext) -> RuleResult:
         if not self.applies_to(context):
-            return True, []
-        if not context.work_days:
-            return True, []
+            return RuleResult.ok()
         return super().check(context)
 
-    # ---------------------------------------------------------
-    # Implémentation métier pour un mois
-    # ---------------------------------------------------------
     def check_month(
         self,
-        context: PlanningContext,
+        context: RhContext,
         year: int,
         month: int,
         month_start: date,
         month_end: date,
         is_full: bool,
-        work_days: List[WorkDay],
-    ) -> Tuple[bool, List[DomainAlert]]:
-        alerts: List[DomainAlert] = []
+        days: List[RhDay],
+    ) -> RuleResult:
+        # No data for this month slice -> neutral
+        if not days:
+            return RuleResult.ok()
 
-        # Aucun jour pour ce mois → rien à signaler
-        if not work_days:
-            return True, alerts
-
-        label = f"{year}-{month:02d}"
-
-        # Statistiques de repos à partir des work_days de ce mois
-        repos_summary = self.analyzer.summarize_workdays(work_days)
-        nb_rp_month = repos_summary.total_rp_days
-
-        # Mois partiel → suivi INFO uniquement
+        # Partial month -> silent (no enforcement)
         if not is_full:
-            if nb_rp_month > 0:
-                alerts.append(
-                    self.info(
-                        msg=(
-                            f"[{label}] Régime B25 - Suivi mensuel (mois partiel) : "
-                            f"{nb_rp_month} jour(s) de repos."
-                        ),
-                        code="B25_MOIS_PARTIEL",
-                    )
-                )
-            return True, alerts
+            return RuleResult.ok()
 
-        # Mois complet → contrôle strict B25 :
-        #   - au moins 1 RPSD
-        #   - au moins 2 périodes de repos de 2+ jours (dont ≥ 1 RPSD)
+        # Compute rest stats on the slice days
+        summary = self.analyzer.summarize_rh_days(days)
+
         rpsd_count = 0
         rp_2plus_count = 0
 
-        for pr in repos_summary.periodes:
-            # On range la période dans un mois via sa date de début
-            if not (month_start <= pr.start <= month_end):
+        # IMPORTANT:
+        # - MonthRule already slices "days" within [month_start..month_end].
+        # - A RestPeriod may theoretically start before month_start if the month is full
+        #   but context is larger; however the slice prevents that, so "start in window"
+        #   should always hold. We keep a safe guard anyway.
+        for p in summary.periods:
+            if not (month_start <= p.start <= month_end):
                 continue
-
-            if pr.nb_jours >= 2:
+            if p.nb_jours >= 2:
                 rp_2plus_count += 1
-            if pr.is_rpsd():
+            if p.is_rpsd():
                 rpsd_count += 1
 
-        # Résumé systématique
-        alerts.append(
-            self.info(
+        if rpsd_count >= self.MIN_RPSD and rp_2plus_count >= self.MIN_RP_2PLUS:
+            return RuleResult.ok()
+
+        label = f"{year}-{month:02d}"
+        violations: List[RhViolation] = []
+
+        violations.append(
+            self.error_v(
+                code="B25_MOIS_NON_CONFORME",
                 msg=(
-                    f"[{label}] Régime B25 - Repos mensuels : "
-                    f"RPSD={rpsd_count}, périodes de 2+ jours={rp_2plus_count}."
+                    f"[{label}] Régime B25 - Repos mensuels insuffisants : "
+                    f"RPSD={rpsd_count} (min {self.MIN_RPSD}), "
+                    f"RP doubles/2+={rp_2plus_count} (min {self.MIN_RP_2PLUS})."
                 ),
-                code="B25_MOIS_SYNTHESIS",
+                start_date=month_start,
+                end_date=month_end,
+                meta={
+                    "year": year,
+                    "month": month,
+                    "label": label,
+                    "regime_id": 1,
+                    "is_full": is_full,
+                    "rpsd": rpsd_count,
+                    "rp_2plus": rp_2plus_count,
+                    "min_rpsd": self.MIN_RPSD,
+                    "min_rp_2plus": self.MIN_RP_2PLUS,
+                    "total_rest_days": summary.total_rest_days,
+                    "total_rest_sundays": summary.total_rest_sundays,
+                },
             )
         )
 
-        # Contrôle des seuils
-        if rpsd_count < 1 or rp_2plus_count < 2:
-            alerts.append(
-                self.error(
-                    msg=(
-                        f"[{label}] Régime B25 - Repos mensuels insuffisants : "
-                        f"RPSD={rpsd_count} (min 1), "
-                        f"RP doubles/2+={rp_2plus_count} (min 2)."
-                    ),
-                    code="B25_MOIS_NON_CONFORME",
-                )
-            )
-
-        is_valid = all(a.severity != Severity.ERROR for a in alerts)
-        return is_valid, alerts
+        return RuleResult(violations=violations)

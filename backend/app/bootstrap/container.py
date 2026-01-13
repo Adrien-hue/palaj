@@ -6,6 +6,7 @@ from core.application.services import (
     AgentPlanningValidatorService,
     AgentService,
     EtatJourAgentService,
+    AgentPlanningFactory,
     PlanningBuilderService,
     PlanningDayAssembler,
     PosteService,
@@ -86,6 +87,11 @@ agent_planning_validator_service = AgentPlanningValidatorService(
 planning_day_assembler = PlanningDayAssembler(
     agent_day_repo=agent_day_repo,
     tranche_repo=tranche_repo,
+)
+
+agent_planning_factory = AgentPlanningFactory(
+    agent_service=agent_service,
+    planning_day_assembler=planning_day_assembler,
 )
 
 planning_builder_service = PlanningBuilderService(

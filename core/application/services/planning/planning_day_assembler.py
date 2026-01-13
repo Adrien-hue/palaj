@@ -43,4 +43,6 @@ class PlanningDayAssembler:
                 )
             )
 
-        return planning_days
+        sorted_planning_days = sorted(planning_days, key=lambda day: day.day_date)
+
+        return sorted_planning_days

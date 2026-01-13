@@ -10,12 +10,14 @@ from db.models import User
 from backend.app.bootstrap.container import (
     agent_service,
     agent_planning_validator_service,
+    agent_planning_factory,
     planning_builder_service,
     poste_service,
     regime_service,
 )
 from core.application.services import (
     AgentService,
+    AgentPlanningFactory,
     AgentPlanningValidatorService,
     PlanningBuilderService,
     PosteService,
@@ -33,6 +35,9 @@ def get_db() -> Generator[Session, None, None]:
 
 def get_agent_service() -> AgentService:
     return agent_service
+
+def get_agent_planning_factory() -> AgentPlanningFactory:
+    return agent_planning_factory
 
 def get_agent_planning_validator_service() -> AgentPlanningValidatorService:
     return agent_planning_validator_service

@@ -1,79 +1,87 @@
-# core/rh_rules/rule_duree_travail.py
+# core/rh_rules/general/rule_duree_travail.py
+from __future__ import annotations
 
-from typing import List, Tuple
+from typing import List
 
+from core.rh_rules.contexts.rh_context import RhContext
 from core.rh_rules.day_rule import DayRule
-from core.utils.domain_alert import DomainAlert
+from core.rh_rules.models.rh_day import RhDay
+from core.rh_rules.models.rh_violation import RhViolation
+from core.rh_rules.models.rule_result import RuleResult
+from core.rh_rules.utils.rh_night import rh_day_is_nocturne
+from core.rh_rules.utils.time_calculations import worked_minutes
 from core.utils.time_helpers import minutes_to_duree_str
-from core.domain.contexts.planning_context import PlanningContext
-from core.domain.models.work_day import WorkDay
 
 
 class DureeTravailRule(DayRule):
     """
-    Règle RH : durée minimale et maximale de travail par jour.
-    - Minimum : 5h30 (330 min)
-    - Maximum : 10h (600 min)
-    - Maximum de nuit : 8h30 (510 min)
+    Daily working duration (min/max, with a specific max for night work).
+    - Minimum: 5h30 (330 min)
+    - Maximum: 10h (600 min)
+    - Night maximum: 8h30 (510 min)
     """
 
     name = "DureeTravailRule"
     description = "Durée journalière de travail (min/max selon travail de nuit)."
 
-    DUREE_MIN_MIN = 5.5 * 60        # 5h30 → 330 min
-    DUREE_MAX_MIN = 10 * 60         # 10h   → 600 min
-    DUREE_MAX_NUIT_MIN = 8.5 * 60   # 8h30 → 510 min
+    DUREE_MIN_MIN = int(5.5 * 60)       # 330
+    DUREE_MAX_MIN = int(10 * 60)        # 600
+    DUREE_MAX_NUIT_MIN = int(8.5 * 60)  # 510
 
     def check_day(
         self,
-        context: PlanningContext,
-        work_day: WorkDay,
-    ) -> Tuple[bool, List[DomainAlert]]:
-        alerts: List[DomainAlert] = []
+        context: RhContext,
+        day: RhDay,
+    ) -> RuleResult:
 
-        # Pas de travail → pas de vérification
-        if not work_day.is_working():
-            return True, []
+        # No work -> nothing to check
+        if not day.is_working():
+            return RuleResult.ok()
 
-        # Durée réelle travaillée sur la journée
-        total_minutes = work_day.duree_minutes()
+        total_minutes = int(worked_minutes(day))
+        is_night = bool(rh_day_is_nocturne(day))
+        max_allowed = self.DUREE_MAX_NUIT_MIN if is_night else self.DUREE_MAX_MIN
 
-        # Détection du travail de nuit déléguée au WorkDay
-        travail_nuit = work_day.is_nocturne()
-        max_allowed = (
-            self.DUREE_MAX_NUIT_MIN if travail_nuit else self.DUREE_MAX_MIN
-        )
+        violations: List[RhViolation] = []
 
-        # Vérif durée minimale
         if total_minutes < self.DUREE_MIN_MIN:
-            alerts.append(
-                self.error(
-                    msg=(
-                        "Durée de travail insuffisante : "
-                        f"{minutes_to_duree_str(int(total_minutes))} < "
-                        f"{minutes_to_duree_str(int(self.DUREE_MIN_MIN))}"
-                    ),
-                    jour=work_day.jour,
-                    code="DUREE_TRAVAIL_MIN_INSUFFISANTE",
-                )
+            v = self.error_v(
+                code="DUREE_TRAVAIL_MIN_INSUFFISANTE",
+                msg=(
+                    "Durée de travail insuffisante : "
+                    f"{minutes_to_duree_str(total_minutes)} < "
+                    f"{minutes_to_duree_str(self.DUREE_MIN_MIN)}"
+                ),
+                start_date=day.day_date,
+                end_date=day.day_date,
+                meta={
+                    "total_minutes": total_minutes,
+                    "min_minutes": self.DUREE_MIN_MIN,
+                    "is_night": is_night,
+                    "start_dt": min(i.start for i in day.intervals),
+                    "end_dt": max(i.end for i in day.intervals),
+                },
             )
+            violations.append(v)
 
-        # Vérif durée maximale (ou max nuit)
         if total_minutes > max_allowed:
-            alerts.append(
-                self.error(
-                    msg=(
-                        "Durée de travail excessive : "
-                        f"{minutes_to_duree_str(int(total_minutes))} > "
-                        f"{minutes_to_duree_str(int(max_allowed))}"
-                    ),
-                    jour=work_day.jour,
-                    code=(
-                        "DUREE_TRAVAIL_MAX_NUIT_DEPASSEE"
-                        if travail_nuit
-                        else "DUREE_TRAVAIL_MAX_DEPASSEE"
-                    ),
-                )
+            v = self.error_v(
+                code=("DUREE_TRAVAIL_MAX_NUIT_DEPASSEE" if is_night else "DUREE_TRAVAIL_MAX_DEPASSEE"),
+                msg=(
+                    "Durée de travail excessive : "
+                    f"{minutes_to_duree_str(total_minutes)} > "
+                    f"{minutes_to_duree_str(int(max_allowed))}"
+                ),
+                start_date=day.day_date,
+                end_date=day.day_date,
+                meta={
+                    "total_minutes": total_minutes,
+                    "max_minutes": int(max_allowed),
+                    "is_night": is_night,
+                    "start_dt": min(i.start for i in day.intervals),
+                    "end_dt": max(i.end for i in day.intervals),
+                },
             )
+            violations.append(v)
 
-        return len(alerts) == 0, alerts
+        return RuleResult(violations=violations)

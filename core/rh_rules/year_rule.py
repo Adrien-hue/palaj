@@ -1,18 +1,23 @@
+# core/rh_rules/year_rule.py
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from datetime import date
-from typing import List, Tuple
+from typing import List
 
-from core.domain.contexts.planning_context import PlanningContext
-from core.domain.models.work_day import WorkDay
-from core.rh_rules.base_rule import BaseRule, RuleScope
-from core.utils.domain_alert import DomainAlert, Severity
+from core.rh_rules.base_rule import BaseRule
+from core.rh_rules.contexts import RhContext
+from core.rh_rules.models.rh_day import RhDay
+from core.rh_rules.models.rh_violation import RhViolation
+from core.rh_rules.models.rule_result import RuleResult
+from core.rh_rules.models.rule_scope import RuleScope
+
 
 class YearRule(BaseRule, ABC):
     """
-    Règle appliquée à l'échelle de l'année civile (01/01 → 31/12).
-
-    Pour chaque année couverte par le contexte, on appelle :
-      check_year(context, year, year_start, year_end, is_full)
+    PERIOD rule (year slicing), RH-first:
+      - Uses RhContext.effective_start / effective_end
+      - Passes RhDay slices to check_year(...)
     """
 
     scope = RuleScope.PERIOD
@@ -20,74 +25,58 @@ class YearRule(BaseRule, ABC):
     @abstractmethod
     def check_year(
         self,
-        context: PlanningContext,
+        context: RhContext,
         year: int,
         year_start: date,
         year_end: date,
         is_full: bool,
-        work_days: List[WorkDay],
-    ) -> Tuple[bool, List[DomainAlert]]:
-        """
-        Implémentation métier pour une année.
-
-        is_full = True  → l'année est complètement couverte (du 1/1 au 31/12)
-        is_full = False → l'année est partiellement couverte.
-        """
+        days: List[RhDay],
+    ) -> RuleResult:
         raise NotImplementedError
 
-    def check(self, context: PlanningContext) -> Tuple[bool, List[DomainAlert]]:
-        alerts: List[DomainAlert] = []
+    def check(self, context: RhContext) -> RuleResult:
+        ctx_start = context.effective_start
+        ctx_end = context.effective_end
 
-        if not context.start_date or not context.end_date:
-            return False, [
-                self.error(
-                    "Impossible de déterminer les dates de début/fin pour l'analyse annuelle.",
-                    code="YEAR_DATES_MISSING",
-                )
-            ]
+        if not ctx_start or not ctx_end:
+            v = self.error_v(
+                code="YEAR_DATES_MISSING",
+                msg="Impossible de déterminer les dates de début/fin pour l'analyse annuelle.",
+                start_date=context.start_date,
+                end_date=context.end_date,
+                meta={
+                    "window_start": str(context.window_start) if context.window_start else None,
+                    "window_end": str(context.window_end) if context.window_end else None,
+                },
+            )
+            return RuleResult(violations=[v])
 
-        ctx_start = context.start_date
-        ctx_end = context.end_date
+        if not context.days:
+            return RuleResult.ok()
 
-        if not context.work_days:
-            # Pas de jours → rien à analyser
-            return True, []
+        violations: list[RhViolation] = []
 
-        is_valid_global = True
+        for y in range(ctx_start.year, ctx_end.year + 1):
+            year_start = date(y, 1, 1)
+            year_end = date(y, 12, 31)
 
-        # On gère potentiellement plusieurs années
-        for year in range(ctx_start.year, ctx_end.year + 1):
-            year_start = date(year, 1, 1)
-            year_end = date(year, 12, 31)
-
-            # Intersection contexte ↔ année
             overlap_start = max(ctx_start, year_start)
             overlap_end = min(ctx_end, year_end)
-
-            # Aucun recouvrement avec cette année → on ignore
             if overlap_start > overlap_end:
                 continue
 
-            # Sous-ensemble des WorkDay pour cette année-là (dans l’overlap)
-            wd_year = [
-                wd
-                for wd in context.work_days
-                if overlap_start <= wd.jour <= overlap_end
-            ]
-
-            # Année "complète" si le contexte couvre toute l'année civile
+            days_year = [d for d in context.days if overlap_start <= d.day_date <= overlap_end]
             is_full = (ctx_start <= year_start) and (ctx_end >= year_end)
 
-            ok, year_alerts = self.check_year(
+            result = self.check_year(
                 context=context,
-                year=year,
+                year=y,
                 year_start=year_start,
                 year_end=year_end,
                 is_full=is_full,
-                work_days=wd_year,
+                days=days_year,
             )
 
-            is_valid_global = is_valid_global and ok
-            alerts.extend(year_alerts)
+            violations.extend(result.violations)
 
-        return is_valid_global, alerts
+        return RuleResult(violations=violations)

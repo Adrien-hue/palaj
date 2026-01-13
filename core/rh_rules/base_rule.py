@@ -1,14 +1,12 @@
 # core/rh_rules/base_rule.py
 from abc import ABC, abstractmethod
-from enum import Enum
-from typing import List, Tuple, Optional
 from datetime import date
 
-from core.utils.domain_alert import DomainAlert, Severity
-
-class RuleScope(Enum):
-    DAY = "day"
-    PERIOD = "period"
+from core.rh_rules.contexts import RhContext
+from core.rh_rules.models.rh_violation import RhViolation
+from core.rh_rules.models.rule_result import RuleResult
+from core.rh_rules.models.rule_scope import RuleScope
+from core.utils.severity import Severity
 
 class BaseRule(ABC):
     """Classe de base pour toutes les règles RH."""
@@ -20,7 +18,7 @@ class BaseRule(ABC):
     def __init__(self):
         pass
 
-    def applies_to(self, context) -> bool:
+    def applies_to(self, context: RhContext) -> bool:
         """
         Par défaut : la règle s'applique à tous les contextes.
         Les règles spécifiques (par régime, par métier, etc.)
@@ -29,35 +27,44 @@ class BaseRule(ABC):
         return True
 
     @abstractmethod
-    def check(self, context) -> Tuple[bool, List[DomainAlert]]:
+    def check(self, context: RhContext) -> RuleResult:
         """
-        Vérifie la règle et retourne (is_valid, [DomainAlert])
+        Vérifie la règle et retourne un RuleResult.
         Le paramètre `context` contient le planning ou agent concerné.
         """
         pass
 
-    # --- Helpers ---
-    def _alert(
+    # --- Helpers ---    
+    def _violation(
         self,
         message: str,
         severity: Severity,
-        jour: Optional[date] = None,
-        code: Optional[str] = None,
-    ) -> DomainAlert:
-        """Crée une alerte standardisée pour cette règle."""
-        return DomainAlert(
-            message=message,
-            severity=severity,
-            jour=jour,
-            source=self.name,
+        code: str,
+        *,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        start_dt=None,
+        end_dt=None,
+        meta: dict | None = None,
+    ) -> RhViolation:
+        return RhViolation(
             code=code,
+            rule_name=self.name,
+            severity=severity,
+            message=message,
+            scope=self.scope,
+            start_date=start_date,
+            end_date=end_date,
+            start_dt=start_dt,
+            end_dt=end_dt,
+            meta=meta or {},
         )
-    
-    def info(self, msg: str, jour: Optional[date] = None, code: Optional[str] = None) -> DomainAlert:
-        return self._alert(message=msg, severity=Severity.INFO, jour=jour, code=code)
-    
-    def warn(self, msg: str, jour: Optional[date] = None, code: Optional[str] = None) -> DomainAlert:
-        return self._alert(message=msg, severity=Severity.WARNING, jour=jour, code=code)
-    
-    def error(self, msg: str, jour: Optional[date] = None, code: Optional[str] = None) -> DomainAlert:
-        return self._alert(message=msg, severity=Severity.ERROR, jour=jour, code=code)
+
+    def error_v(self, msg: str, code: str, **kwargs) -> RhViolation:
+        return self._violation(msg, Severity.ERROR, code, **kwargs)
+
+    def info_v(self, msg: str, code: str, **kwargs) -> RhViolation:
+        return self._violation(msg, Severity.INFO, code, **kwargs)
+
+    def warn_v(self, msg: str, code: str, **kwargs) -> RhViolation:
+        return self._violation(msg, Severity.WARNING, code, **kwargs)
