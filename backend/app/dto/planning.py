@@ -3,17 +3,14 @@ from pydantic import BaseModel
 from datetime import date
 from typing import List
 
-from backend.app.dto.agents import AgentDTO
+from backend.app.dto.agents import AgentDetailDTO
 from backend.app.dto.planning_day import PlanningDayDTO
-from backend.app.dto.work_days import WorkDayDTO
 
 
 
 class AgentPlanningResponseDTO(BaseModel):
-    agent: AgentDTO
+    agent: AgentDetailDTO
     start_date: date
     end_date: date
-
-    work_days: List[WorkDayDTO]
 
     days: List[PlanningDayDTO]

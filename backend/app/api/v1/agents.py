@@ -1,13 +1,13 @@
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from backend.app.api.deps import get_agent_service, get_planning_builder_service
+from backend.app.api.deps import get_agent_service, get_agent_planning_factory
 from backend.app.dto.agents import AgentCreateDTO, AgentDTO, AgentDetailDTO, AgentUpdateDTO
 from backend.app.dto.common.pagination import build_page, Page, PaginationParams, pagination_params
 from backend.app.dto.planning import AgentPlanningResponseDTO
 from backend.app.mappers.agents import to_agent_dto, to_agent_detail_dto
 from backend.app.mappers.planning import to_agent_planning_response
 from core.application.services.agent_service import AgentService
-from core.application.services.planning.planning_builder_service import PlanningBuilderService
+from core.application.services.planning.agent_planning_factory import AgentPlanningFactory
 
 router = APIRouter(prefix="/agents", tags=["Agents"])
 
@@ -42,10 +42,10 @@ def get_agent_planning(
     agent_id: int,
     start_date: date = Query(..., description="YYYY-MM-DD"),
     end_date: date = Query(..., description="YYYY-MM-DD"),
-    planning_builder_service: PlanningBuilderService = Depends(get_planning_builder_service),
+    agent_planning_factory: AgentPlanningFactory = Depends(get_agent_planning_factory),
 ):
     try:
-        planning = planning_builder_service.build_agent_planning(agent_id=agent_id, start_date=start_date, end_date=end_date)
+        planning = agent_planning_factory.build(agent_id=agent_id, start_date=start_date, end_date=end_date)
         return to_agent_planning_response(planning)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
