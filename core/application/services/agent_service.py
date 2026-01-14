@@ -4,10 +4,12 @@ from typing import Any, List, Optional
 from core.application.ports import (
     AffectationRepositoryPort,
     AgentRepositoryPort,
+    AgentDayRepositoryPort,
     EtatJourAgentRepositoryPort,
     QualificationRepositoryPort,
     RegimeRepositoryPort,
 )
+
 from core.domain.entities import Agent
 
 class AgentService:
@@ -22,12 +24,14 @@ class AgentService:
         self,
         affectation_repo: AffectationRepositoryPort,
         agent_repo: AgentRepositoryPort,
+        agent_day_repo: AgentDayRepositoryPort,
         etat_jour_agent_repo: EtatJourAgentRepositoryPort,
         qualification_repo: QualificationRepositoryPort,
         regime_repo: RegimeRepositoryPort,
     ):
         self.affectation_repo = affectation_repo
         self.agent_repo = agent_repo
+        self.agent_day_repo = agent_day_repo
         self.etat_jour_agent_repo = etat_jour_agent_repo
         self.regime_repo = regime_repo
         self.qualification_repo = qualification_repo
@@ -59,6 +63,17 @@ class AgentService:
     
     def deactivate(self, agent_id: int) -> bool:
         return self.agent_repo.set_active(agent_id, False)
+    
+    def delete(self, agent_id: int) -> bool:
+        agent = self.agent_repo.get_by_id(agent_id)
+        if agent is None:
+            return False
+
+        # On refuse si l'agent est référencé
+        if self.agent_day_repo.exists_for_agent(agent_id):
+            raise ValueError("Cannot delete agent: agent has agent days")
+
+        return self.agent_repo.delete(agent_id)
     
     def get_by_id(self, agent_id: int) -> Agent | None:
         return self.agent_repo.get_by_id(agent_id)

@@ -30,6 +30,17 @@ def deactivate_agent(agent_id: int, agent_service: AgentService = Depends(get_ag
         raise HTTPException(status_code=404, detail="Agent not found")
     return None
 
+@router.delete("/{agent_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_agent(agent_id: int, agent_service: AgentService = Depends(get_agent_service)):
+    try:
+        ok = agent_service.delete(agent_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        return None
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
 @router.get("/{agent_id}", response_model=AgentDetailDTO)
 def get_agent(agent_id: int, agent_service: AgentService = Depends(get_agent_service)) -> AgentDetailDTO:
     agent = agent_service.get_agent_complet(agent_id)
