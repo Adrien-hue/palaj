@@ -1,7 +1,7 @@
 # db/repositories/agent_day_repo.py
 from datetime import date
 from typing import List, Optional
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.orm import selectinload
 
 from db import db
@@ -18,6 +18,17 @@ class AgentDayRepository(SQLRepository[AgentDayModel, AgentDayEntity]):
 
     def __init__(self):
         super().__init__(db, AgentDayModel, AgentDayEntity)
+
+    def exists_for_agent(self, agent_id: int) -> bool:
+        """
+        Returns True if at least one AgentDay exists for the given agent_id.
+        Used to block hard delete (strategy 1).
+        """
+        with self.db.session_scope() as session:
+            q = session.query(
+                exists().where(AgentDayModel.agent_id == agent_id)
+            )
+            return bool(q.scalar())
 
     def get_by_agent_and_date(self, agent_id: int, day_date: date) -> Optional[AgentDayEntity]:
         """
