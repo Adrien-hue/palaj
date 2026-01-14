@@ -1,5 +1,5 @@
 # core/application/services/poste_service.py
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from core.application.ports import (
     PosteRepositoryPort,
@@ -26,6 +26,30 @@ class PosteService:
 
     def count(self) -> int:
         return self.poste_repo.count()
+    
+    def create(
+        self,
+        *,
+        nom: str,
+    ) -> Poste :
+        poste = Poste(
+            id=0,
+            nom=nom
+        )
+
+        return self.poste_repo.create(poste)
+    
+    def delete(self, poste_id: int) -> bool:
+        poste = self.poste_repo.get_by_id(poste_id)
+        if poste is None:
+            return False
+
+        # stratégie 1 : refuser si référencé (ex: tranches)
+        if self.tranche_repo.exists_for_poste(poste_id):
+            raise ValueError("Cannot delete poste: poste is used by tranches")
+
+        return self.poste_repo.delete(poste_id)
+
 
     def get_by_id(self, poste_id: int) -> Poste | None:
         return self.poste_repo.get_by_id(poste_id)
@@ -35,6 +59,16 @@ class PosteService:
 
     def list_all(self) -> List[Poste]:
         return self.poste_repo.list_all()
+    
+    def update(self, poste_id: int, **changes: Any) -> Optional[Poste]:
+        poste = self.poste_repo.get_by_id(poste_id)
+        if not poste:
+            return None
+
+        if "nom" in changes:
+            poste.nom = changes["nom"]
+
+        return self.poste_repo.update(poste)
 
     # =========================================================
     # 🔹 Chargement complet
