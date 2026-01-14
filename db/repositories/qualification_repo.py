@@ -19,6 +19,22 @@ class QualificationRepository(SQLRepository[QualificationModel, QualificationEnt
     def __init__(self):
         super().__init__(db, QualificationModel, QualificationEntity)
 
+    def delete_for_agent_and_poste(self, agent_id: int, poste_id: int) -> bool:
+        with self.db.session_scope() as session:
+            model = (
+                session.query(QualificationModel)
+                .filter(
+                    QualificationModel.agent_id == agent_id,
+                    QualificationModel.poste_id == poste_id,
+                )
+                .first()
+            )
+            if model is None:
+                return False
+
+            session.delete(model)
+            return True
+
     def get_for_agent_and_poste(
         self, agent_id: int, poste_id: int
     ) -> Optional[QualificationEntity]:
@@ -79,6 +95,57 @@ class QualificationRepository(SQLRepository[QualificationModel, QualificationEnt
                 e for m in models
                 if (e := EntityMapper.model_to_entity(m, QualificationEntity)) is not None
             ]
+
+    def search(self, agent_id: Optional[int] = None, poste_id: Optional[int] = None) -> List["QualificationEntity"]:
+        """
+        Search qualifications by optional filters.
+        - If agent_id is provided, filters by agent_id
+        - If poste_id is provided, filters by poste_id
+        - If both are provided, returns at most 1 row in practice (unique constraint)
+        """
+        with self.db.session_scope() as session:
+            q = session.query(QualificationModel)
+
+            if agent_id is not None:
+                q = q.filter(QualificationModel.agent_id == agent_id)
+
+            if poste_id is not None:
+                q = q.filter(QualificationModel.poste_id == poste_id)
+
+            # Optionnel: order pour stabilité côté UI
+            q = q.order_by(QualificationModel.date_qualification.desc())
+
+            models = q.all()
+
+            return [
+                e for m in models
+                if (e := EntityMapper.model_to_entity(m, QualificationEntity)) is not None
+            ]
+        
+    from typing import Optional
+
+    def update(self, entity: "QualificationEntity") -> Optional["QualificationEntity"]:
+        """
+        Update a qualification from an entity using (agent_id, poste_id) as key.
+        """
+        with self.db.session_scope() as session:
+            model = (
+                session.query(self.model_class)
+                .filter(
+                    self.model_class.agent_id == entity.agent_id,
+                    self.model_class.poste_id == entity.poste_id,
+                )
+                .first()
+            )
+            if not model:
+                return None
+
+            EntityMapper.update_model_from_entity(model, entity)
+            session.add(model)
+            session.flush()
+            session.refresh(model)
+            return EntityMapper.model_to_entity(model, self.entity_class)
+
 
     def upsert(self, entity: QualificationEntity, unique_field: str = "") -> QualificationEntity:
         """Crée ou met à jour une qualification selon (agent_id, poste_id)."""

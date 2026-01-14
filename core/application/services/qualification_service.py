@@ -1,5 +1,6 @@
 # core/application/services/qualification_service.py
-from typing import List
+from datetime import date
+from typing import List, Optional
 
 from core.application.ports import (
     AgentRepositoryPort,
@@ -29,6 +30,41 @@ class QualificationService:
     # =========================================================
     # 🔹 Chargement
     # =========================================================
+    def create(self, agent_id: int, poste_id: int, date_qualification: date):
+        """
+        Create a qualification (agent_id, poste_id) with a qualification date.
+        Enforces uniqueness on (agent_id, poste_id).
+        Raises ValueError on conflict or missing agent/poste.
+        """
+        agent = self.agent_repo.get_by_id(agent_id)
+        if agent is None:
+            raise ValueError("Agent not found")
+
+        poste = self.poste_repo.get_by_id(poste_id)
+        if poste is None:
+            raise ValueError("Poste not found")
+
+        existing = self.qualification_repo.is_qualified(agent_id=agent_id, poste_id=poste_id)
+        if existing:
+            raise ValueError("Qualification already exists for this agent and poste")
+        
+        qualification = Qualification(
+            agent_id=agent_id,
+            poste_id=poste_id,
+            date_qualification=date_qualification,
+        )
+
+        qualification = self.qualification_repo.create(qualification)
+
+        return qualification
+
+    def delete(self, agent_id: int, poste_id: int) -> bool:
+        """
+        Hard delete by primary key id.
+        Returns False if not found.
+        """
+        return self.qualification_repo.delete_for_agent_and_poste(agent_id=agent_id, poste_id=poste_id)
+    
     def list_qualifications(self) -> List[Qualification]:
         """Retourne toutes les qualifications (niveau entité)."""
         return self.qualification_repo.list_all()
@@ -40,6 +76,32 @@ class QualificationService:
     def list_for_poste(self, poste_id: int) -> List[Qualification]:
         """Retourne toutes les qualifications d'un poste."""
         return self.qualification_repo.list_for_poste(poste_id)
+
+    def search(self, agent_id: Optional[int] = None, poste_id: Optional[int] = None) -> List[Qualification]:
+        """
+        Search qualifications.
+        Business rules could be added here later (permissions, scopes, etc.).
+        """
+        if agent_id is None and poste_id is None:
+            raise ValueError("At least one filter is required: agent_id or poste_id")
+        
+        return self.qualification_repo.search(agent_id=agent_id, poste_id=poste_id)
+    
+    def update(self, agent_id: int, poste_id: int, date_qualification: Optional[date] = None):
+        """
+        Update a qualification by its primary key id.
+        Returns updated entity, or None if not found.
+        """
+        q = self.qualification_repo.get_for_agent_and_poste(agent_id=agent_id, poste_id=poste_id)
+        print(q)
+        if q is None:
+            return None
+
+        if date_qualification is not None:
+            q.date_qualification = date_qualification
+
+        saved = self.qualification_repo.update(q)
+        return saved
     
     # =========================================================
     # 🔹 Chargement complet
