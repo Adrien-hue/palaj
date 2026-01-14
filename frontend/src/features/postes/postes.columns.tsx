@@ -10,17 +10,17 @@ export function getPosteColumns(opts: {
   onDelete: (p: Poste) => void;
 }): ColumnDef<Poste>[] {
   return [
-    { key: "nom", header: "Nom", cell: (a) => <span className="font-medium">{a.nom}</span> },
+    { key: "nom", header: "Nom", cell: (p) => <span className="font-medium">{p.nom}</span> },
     {
       key: "actions",
       header: "",
       headerClassName: "w-[96px]",
       className: "text-right",
-      cell: (a) => (
+      cell: (p) => (
         <RowActions
-          onView={() => opts.onView(a)}
-          onEdit={() => opts.onEdit(a)}
-          onDelete={() => opts.onDelete(a)}
+          onView={() => opts.onView(p)}
+          onEdit={() => opts.onEdit(p)}
+          onDelete={() => opts.onDelete(p)}
         />
       ),
     },

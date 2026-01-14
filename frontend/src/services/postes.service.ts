@@ -1,9 +1,13 @@
 import { apiFetch } from "@/lib/api";
 import type { ListParams, ListResponse } from "@/types/api";
-import type { Poste } from "@/types";
+import type { CreatePosteBody, PatchPosteBody, Poste, PosteDetail } from "@/types";
+
+export async function createPoste(body: CreatePosteBody) {
+  return apiFetch<Poste>("/postes", { method: "POST", body });
+}
 
 export async function getPoste(id: number) {
-  return apiFetch<Poste>(`/postes/${id}`);
+  return apiFetch<PosteDetail>(`/postes/${id}`);
 }
 
 export async function listPostes(params: ListParams = {page: 1, page_size: 20}) {
@@ -14,6 +18,10 @@ export async function listPostes(params: ListParams = {page: 1, page_size: 20}) 
 
   const qs = search.toString();
   return apiFetch<ListResponse<Poste>>(`/postes${qs ? `?${qs}` : ""}`);
+}
+
+export async function patchPoste(id: number, body: PatchPosteBody) {
+  return apiFetch<Poste>(`/postes/${id}`, { method: "PATCH", body });
 }
 
 export async function removePoste(id: number) {
