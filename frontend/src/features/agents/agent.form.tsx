@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button, SecondaryButton, FormError, RequiredFieldsNote, SelectField, TextField } from "@/components/ui";
 import { useRegimeOptions } from "@/features/regimes/useRegimeOptions";
@@ -46,6 +46,8 @@ export default function AgentForm({
   const [values, setValues] = useState<AgentFormValues>(initial);
   const [error, setError] = useState<string | null>(null);
 
+  const nomRef = useRef<HTMLInputElement | null>(null);
+
   useEffect(() => {
     setValues({
       nom: initialAgent?.nom ?? "",
@@ -55,6 +57,12 @@ export default function AgentForm({
     });
     setError(null);
   }, [initialAgent, mode]);
+
+  useEffect(() => {
+    // Auto focus on nom input
+    const t = setTimeout(() => nomRef.current?.focus(), 0);
+    return () => clearTimeout(t);
+  }, [mode, initialAgent?.id]);
 
   function set<K extends keyof AgentFormValues>(key: K, v: AgentFormValues[K]) {
     setValues((prev) => ({ ...prev, [key]: v }));
@@ -103,6 +111,7 @@ export default function AgentForm({
 
       <div className="grid gap-3 sm:grid-cols-2">
         <TextField
+          ref={nomRef}
           label="Nom"
           mandatory
           value={values.nom}

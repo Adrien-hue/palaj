@@ -38,6 +38,7 @@ export default function Dialog({
   return (
     <div className="fixed inset-0 z-[70]" role="dialog" aria-modal="true">
       <button
+        type="button"
         className="absolute inset-0 bg-black/35"
         aria-label="Fermer"
         onClick={onClose}

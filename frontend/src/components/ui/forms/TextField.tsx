@@ -1,25 +1,32 @@
 "use client";
 
+import React, { forwardRef } from "react";
 import type { InputHTMLAttributes, ReactNode } from "react";
 
-export default function TextField({
-  label,
-  hint,
-  error,
-  rightSlot,
-  mandatory = false,
-  className = "",
-  inputClassName = "",
-  ...props
-}: InputHTMLAttributes<HTMLInputElement> & {
-  label: string;
-  hint?: string;
-  error?: string | null;
-  rightSlot?: ReactNode;
-  mandatory?: boolean;
-  className?: string;
-  inputClassName?: string;
-}) {
+const TextField = forwardRef<
+  HTMLInputElement,
+  InputHTMLAttributes<HTMLInputElement> & {
+    label: string;
+    hint?: string;
+    error?: string | null;
+    rightSlot?: ReactNode;
+    mandatory?: boolean;
+    className?: string;
+    inputClassName?: string;
+  }
+>(function TextField(
+  {
+    label,
+    hint,
+    error,
+    rightSlot,
+    mandatory = false,
+    className = "",
+    inputClassName = "",
+    ...props
+  },
+  ref
+) {
   return (
     <label className={`block space-y-1 ${className}`}>
       <div className="flex items-center justify-between gap-3">
@@ -36,6 +43,7 @@ export default function TextField({
 
       <input
         {...props}
+        ref={ref}
         required={mandatory || props.required}
         className={[
           "w-full rounded-xl border px-3 py-2 text-sm outline-none transition",
@@ -54,4 +62,6 @@ export default function TextField({
       ) : null}
     </label>
   );
-}
+});
+
+export default TextField;
