@@ -1,6 +1,6 @@
 # db/repositories/tranche_repo.py
 from typing import List
-from sqlalchemy import func
+from sqlalchemy import exists, func
 from db import db
 from db.models import Tranche as TrancheModel
 from core.domain.entities import Tranche as TrancheEntity
@@ -15,6 +15,17 @@ class TrancheRepository(SQLRepository[TrancheModel, TrancheEntity]):
 
     def __init__(self):
         super().__init__(db, TrancheModel, TrancheEntity)
+
+    def exists_for_poste(self, poste_id: int) -> bool:
+        """
+        Returns True if at least one Tranche exists for the given poste_id.
+        Used to block hard delete (strategy 1).
+        """
+        with self.db.session_scope() as session:
+            q = session.query(
+                exists().where(TrancheModel.poste_id == poste_id)
+            )
+            return bool(q.scalar())
 
     def get_by_id(self, tranche_id: int) -> TrancheEntity | None:
         """
