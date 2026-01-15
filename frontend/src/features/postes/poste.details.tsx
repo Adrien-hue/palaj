@@ -1,21 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import type { PosteDetail, Qualification } from "@/types";
+import type { PosteDetail, Qualification, Tranche } from "@/types";
 
 import { QualificationCard } from "@/components/admin/QualificationCard";
+import { TranchesCard } from "@/components/admin/TranchesCard";
 
 import { listAgents } from "@/services/agents.service";
-import {
-  createQualification,
-  updateQualification,
-  deleteQualification,
-} from "@/services/qualifications.service";
-import ConfirmDialog from "@/components/admin/dialogs/ConfirmDialog";
+import { createQualification, updateQualification, deleteQualification } from "@/services/qualifications.service";
+import { createTranche, patchTranche, removeTranche } from "@/services/tranches.service";
 
-function formatTime(t: string) {
-  return t?.slice(0, 5) ?? "—";
-}
+import ConfirmDialog from "@/components/admin/dialogs/ConfirmDialog";
 
 type ConfirmState = {
   open: boolean;
@@ -68,54 +63,66 @@ function useConfirm() {
 }
 
 export default function PosteDetails({ poste }: { poste: PosteDetail }) {
-  const tranches = poste.tranches ?? [];
+  // ✅ Local state for tranches (source of truth for UI updates)
+  const [tranches, setTranches] = useState<Tranche[]>(poste.tranches ?? []);
+  useEffect(() => setTranches(poste.tranches ?? []), [poste.tranches]);
 
   const [qualifications, setQualifications] = useState<Qualification[]>(poste.qualifications ?? []);
   useEffect(() => setQualifications(poste.qualifications ?? []), [poste.qualifications]);
 
-  const [busy, setBusy] = useState(false);
+  // ✅ Separate busy states (avoid blocking unrelated sections)
+  const [busyQualifications, setBusyQualifications] = useState(false);
+  const [busyTranches, setBusyTranches] = useState(false);
+
   const { confirm, dialog: confirmDialogNode } = useConfirm();
 
+  // ------------------------
+  // Qualifications handlers
+  // ------------------------
   async function onAdd(payload: { related_id: number; date_qualification: string }) {
-    setBusy(true);
+    setBusyQualifications(true);
 
     const agent_id = payload.related_id;
     const date_qualification = payload.date_qualification;
 
     try {
-      const created = await createQualification({ agent_id: agent_id, poste_id: poste.id, date_qualification: date_qualification });
-      
+      const created = await createQualification({
+        agent_id,
+        poste_id: poste.id,
+        date_qualification,
+      });
+
       setQualifications((prev) => {
         const next = prev.filter((q) => q.agent_id !== created.agent_id);
         next.push(created);
         return next;
       });
     } finally {
-      setBusy(false);
+      setBusyQualifications(false);
     }
   }
 
   async function onUpdateDate(payload: { related_id: number; date_qualification: string }) {
-    setBusy(true);
+    setBusyQualifications(true);
 
     const agent_id = payload.related_id;
     const date_qualification = payload.date_qualification;
-    
+
     try {
-      const updated = await updateQualification(agent_id, poste.id, {
-        date_qualification: date_qualification,
-      });
+      const updated = await updateQualification(agent_id, poste.id, { date_qualification });
 
       setQualifications((prev) =>
-        prev.map((q) => (q.agent_id === agent_id ? { ...q, date_qualification: updated.date_qualification } : q))
+        prev.map((q) =>
+          q.agent_id === agent_id ? { ...q, date_qualification: updated.date_qualification } : q
+        )
       );
     } finally {
-      setBusy(false);
+      setBusyQualifications(false);
     }
   }
 
   async function onDelete(payload: { related_id: number }) {
-    setBusy(true);
+    setBusyQualifications(true);
 
     const agent_id = payload.related_id;
 
@@ -123,7 +130,7 @@ export default function PosteDetails({ poste }: { poste: PosteDetail }) {
       await deleteQualification(agent_id, poste.id);
       setQualifications((prev) => prev.filter((q) => q.agent_id !== agent_id));
     } finally {
-      setBusy(false);
+      setBusyQualifications(false);
     }
   }
 
@@ -131,6 +138,60 @@ export default function PosteDetails({ poste }: { poste: PosteDetail }) {
     const res = await listAgents({ page: 1, page_size: 200 });
     return res.items.map((a) => ({ id: a.id, label: `${a.nom} ${a.prenom}` }));
   }, []);
+
+  // ------------------------
+  // Tranches handlers
+  // ------------------------
+  async function onAddTranche(payload: { nom: string; heure_debut: string; heure_fin: string }) {
+    setBusyTranches(true);
+
+    try {
+      const created = await createTranche({
+        poste_id: poste.id,
+        nom: payload.nom,
+        heure_debut: payload.heure_debut,
+        heure_fin: payload.heure_fin,
+      });
+
+      setTranches((prev) => {
+        const next = prev.slice();
+        next.push(created);
+        return next;
+      });
+    } finally {
+      setBusyTranches(false);
+    }
+  }
+
+  async function onUpdateTranche(
+    trancheId: number,
+    payload: { nom: string; heure_debut: string; heure_fin: string }
+  ) {
+    setBusyTranches(true);
+
+    try {
+      const updated = await patchTranche(trancheId, {
+        nom: payload.nom,
+        heure_debut: payload.heure_debut,
+        heure_fin: payload.heure_fin,
+      });
+
+      setTranches((prev) => prev.map((t) => (t.id === trancheId ? updated : t)));
+    } finally {
+      setBusyTranches(false);
+    }
+  }
+
+  async function onDeleteTranche(trancheId: number) {
+    setBusyTranches(true);
+
+    try {
+      await removeTranche(trancheId);
+      setTranches((prev) => prev.filter((t) => t.id !== trancheId));
+    } finally {
+      setBusyTranches(false);
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -155,38 +216,30 @@ export default function PosteDetails({ poste }: { poste: PosteDetail }) {
         </div>
       </div>
 
-      {/* Tranches */}
-      <div className="rounded-2xl bg-white p-4 ring-1 ring-zinc-200">
-        <div className="flex items-center justify-between gap-4">
-          <div className="text-sm font-semibold text-zinc-900">Tranches</div>
-          <div className="text-xs text-zinc-600">{tranches.length}</div>
-        </div>
-
-        {tranches.length === 0 ? (
-          <div className="mt-2 text-sm text-zinc-600">Aucune tranche.</div>
-        ) : (
-          <div className="mt-3 space-y-2">
-            {tranches.map((t) => (
-              <div
-                key={t.id}
-                className="flex items-center justify-between gap-4 rounded-xl bg-zinc-50 px-3 py-2 ring-1 ring-zinc-100"
-              >
-                <div className="text-sm text-zinc-900">{t.nom}</div>
-                <div className="text-xs text-zinc-600">
-                  {formatTime(t.heure_debut)} → {formatTime(t.heure_fin)}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      <TranchesCard
+        title="Tranches"
+        tranches={tranches}
+        disabled={busyTranches}
+        onAdd={onAddTranche}
+        onUpdate={onUpdateTranche}
+        onDelete={onDeleteTranche}
+        confirmDelete={(label) =>
+          confirm({
+            title: "Supprimer une tranche",
+            description: `Supprimer "${label}" ?`,
+            confirmText: "Supprimer",
+            cancelText: "Annuler",
+            variant: "danger",
+          })
+        }
+      />
 
       <QualificationCard
         title="Qualifications"
         mode="poste"
         qualifications={qualifications}
         loadOptions={loadAgentOptions}
-        disabled={busy}
+        disabled={busyQualifications}
         onAdd={onAdd}
         onUpdateDate={onUpdateDate}
         onDelete={onDelete}
