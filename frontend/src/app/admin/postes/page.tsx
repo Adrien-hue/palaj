@@ -27,8 +27,9 @@ export default function PostesPage() {
   });
 
   const fetcher = useMemo(
-    () => ({ page, pageSize }: { page: number; pageSize: number }) =>
-      listPostes({ page, page_size: pageSize }),
+    () =>
+      ({ page, pageSize }: { page: number; pageSize: number }) =>
+        listPostes({ page, page_size: pageSize }),
     []
   );
 
@@ -64,36 +65,41 @@ export default function PostesPage() {
 
       <ConfirmDialog />
 
-      <Dialog open={crud.detailsOpen} title="Détail poste" onClose={crud.closeView} maxWidthClassName="max-w-2xl">
-        {crud.detailsPoste ? (
-          <div className="space-y-4">
-            <PosteDetails poste={crud.detailsPoste} />
+      <Dialog
+        open={crud.detailsOpen}
+        title="Détail poste"
+        onClose={crud.closeView}
+        maxWidthClassName="max-w-3xl"
+        footer={
+          <div className="flex justify-end gap-2">
+            <SecondaryButton type="button" onClick={crud.closeView}>
+              Fermer
+            </SecondaryButton>
 
-            <div className="flex justify-end gap-2">
-              <SecondaryButton type="button" onClick={crud.closeView}>
-                Fermer
-              </SecondaryButton>
-
-              <Button
-                type="button"
-                onClick={() => {
-                  crud.closeView();
-                  crud.openEdit(crud.detailsPoste!);
-                }}
-              >
-                Éditer
-              </Button>
-            </div>
+            <Button
+              type="button"
+              onClick={() => {
+                crud.closeView();
+                crud.openEdit(crud.detailsPoste!);
+              }}
+            >
+              Éditer
+            </Button>
           </div>
+        }
+      >
+        {crud.detailsPoste ? (
+          <PosteDetails poste={crud.detailsPoste} />
         ) : (
           <div className="text-sm text-zinc-600">Aucune donnée.</div>
         )}
       </Dialog>
 
-
       <Dialog
         open={crud.modalOpen}
-        title={crud.modalMode === "create" ? "Créer un poste" : "Modifier le poste"}
+        title={
+          crud.modalMode === "create" ? "Créer un poste" : "Modifier le poste"
+        }
         onClose={crud.closeModal}
       >
         <PosteForm

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useCallback } from "react";
 
 import { useConfirm } from "@/components/admin/dialogs/useConfirm";
 import { ListPage } from "@/components/admin/listing/ListPage";
@@ -40,7 +40,39 @@ export default function AgentsPage() {
         togglingIds: crud.togglingIds,
         onToggleActive: crud.toggleActive,
       }),
-    [crud.deleteAgent, crud.openEdit, crud.toggleActive, crud.togglingIds]
+    [crud.deleteAgent, crud.openEdit, crud.toggleActive, crud.togglingIds, crud.openView]
+  );
+
+  const handleEditFromDetails = useCallback(() => {
+    if (!crud.detailsAgent) return;
+    const agent = crud.detailsAgent as any;
+    crud.closeView();
+    crud.openEdit(agent);
+  }, [crud]);
+
+  const detailsFooter = useMemo(
+    () => (
+      <div className="flex justify-end gap-2">
+        <SecondaryButton type="button" onClick={crud.closeView}>
+          Fermer
+        </SecondaryButton>
+
+        <Button type="button" onClick={handleEditFromDetails} disabled={!crud.detailsAgent}>
+          Éditer
+        </Button>
+      </div>
+    ),
+    [crud.closeView, crud.detailsAgent, handleEditFromDetails]
+  );
+
+  const detailsBody = useMemo(
+    () =>
+      crud.detailsAgent ? (
+        <AgentDetails agent={crud.detailsAgent as any} />
+      ) : (
+        <div className="text-sm text-zinc-600">Aucune donnée.</div>
+      ),
+    [crud.detailsAgent]
   );
 
   return (
@@ -70,34 +102,14 @@ export default function AgentsPage() {
         title="Détail agent"
         onClose={crud.closeView}
         maxWidthClassName="max-w-2xl"
+        footer={detailsFooter}
       >
-        {crud.detailsAgent ? (
-          <div className="space-y-4">
-            <AgentDetails agent={crud.detailsAgent as any} />
-
-            <div className="flex justify-end gap-2">
-              <SecondaryButton onClick={crud.closeView}>Fermer</SecondaryButton>
-
-              <Button
-                onClick={() => {
-                  crud.closeView();
-                  crud.openEdit(crud.detailsAgent as any);
-                }}
-              >
-                Éditer
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <div className="text-sm text-zinc-600">Aucune donnée.</div>
-        )}
+        {detailsBody}
       </Dialog>
 
       <Dialog
         open={crud.modalOpen}
-        title={
-          crud.modalMode === "create" ? "Créer un agent" : "Modifier l'agent"
-        }
+        title={crud.modalMode === "create" ? "Créer un agent" : "Modifier l'agent"}
         onClose={crud.closeModal}
       >
         <AgentForm
