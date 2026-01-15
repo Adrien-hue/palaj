@@ -18,6 +18,7 @@ from core.application.services import (
 from db.repositories import (
     agent_repo,
     agent_day_repo,
+    agent_day_assignment_repo,
     affectation_repo,
     etat_jour_agent_repo,
     poste_repo,
@@ -72,6 +73,7 @@ regime_service = RegimeService(
 tranche_service = TrancheService(
     poste_repo=poste_repo,
     tranche_repo=tranche_repo,
+    agent_day_assignment_repo=agent_day_assignment_repo
 )
 
 # ---------------------------------------------------------

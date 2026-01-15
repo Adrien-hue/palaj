@@ -15,6 +15,7 @@ from backend.app.bootstrap.container import (
     poste_service,
     qualification_service,
     regime_service,
+    tranche_service,
 )
 from core.application.services import (
     AgentService,
@@ -24,6 +25,7 @@ from core.application.services import (
     PosteService,
     QualificationService,
     RegimeService,
+    TrancheService,
 )
 
 from backend.app.security.jwt import decode_token
@@ -55,6 +57,9 @@ def get_qualification_service() -> QualificationService:
 
 def get_regime_service() -> RegimeService:
     return regime_service
+
+def get_tranche_service() -> TrancheService:
+    return tranche_service
 
 def current_user(request: Request, session: Session = Depends(get_db)) -> User:
     token = request.cookies.get(settings.auth_cookie_name)

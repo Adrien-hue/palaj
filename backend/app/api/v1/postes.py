@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from backend.app.api.deps import get_poste_service
+from backend.app.api.deps import get_poste_service, get_tranche_service
 from backend.app.dto.common.pagination import build_page, Page, PaginationParams, pagination_params
 from backend.app.dto.postes import (
     PosteDTO, 
@@ -9,7 +9,11 @@ from backend.app.dto.postes import (
     PosteUpdateDTO
 )
 from backend.app.mappers.postes import to_poste_dto, to_poste_detail_dto
-from core.application.services import PosteService 
+from backend.app.dto.tranches import (
+    TrancheDTO
+)
+from backend.app.mappers.tranches import to_tranche_dto
+from core.application.services import PosteService, TrancheService
 
 router = APIRouter(prefix="/postes", tags=["Postes"])
 
@@ -46,6 +50,19 @@ def list_postes(
     items = poste_service.list(limit=p.limit, offset=p.offset)
     total = poste_service.count()
     return build_page(items=items, total=total, p=p)
+
+@router.get("/{poste_id}/tranches", response_model=list[TrancheDTO])
+def list_tranches_for_poste(
+    poste_id: int,
+    tranche_service: TrancheService = Depends(get_tranche_service),
+) -> list[TrancheDTO]:
+    try:
+        items = tranche_service.list_by_poste_id(poste_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    return [to_tranche_dto(t) for t in items]
+
 
 @router.patch("/{poste_id}", response_model=PosteDTO)
 def update_poste(
