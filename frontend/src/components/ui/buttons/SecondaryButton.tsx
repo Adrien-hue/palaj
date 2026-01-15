@@ -21,7 +21,7 @@ export default function SecondaryButton({
   // Tailles
   const sizes = {
     default: "h-10 rounded-xl px-4 text-sm",
-  compact: "h-8 rounded-lg px-2 text-xs",
+  compact: "h-7 rounded-lg px-2 text-xs",
   } as const;
 
   // Style visuel “secondary”

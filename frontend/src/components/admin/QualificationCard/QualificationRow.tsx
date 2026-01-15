@@ -94,7 +94,7 @@ export default function QualificationRow({
           </>
         )}
 
-        <Button type="button" variant="danger" size="compact" onClick={onDelete} disabled={actionsDisabled}>
+        <Button type="button" variant="dangerSoft" size="compact" onClick={onDelete} disabled={actionsDisabled}>
           Supprimer
         </Button>
       </div>
