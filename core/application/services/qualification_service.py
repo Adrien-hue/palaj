@@ -86,8 +86,8 @@ class QualificationService:
             raise ValueError("At least one filter is required: agent_id or poste_id")
         
         return self.qualification_repo.search(agent_id=agent_id, poste_id=poste_id)
-    
-    def update(self, agent_id: int, poste_id: int, date_qualification: Optional[date] = None):
+
+    def update(self, agent_id: int, poste_id: int, date_qualification: Optional[date] = None) -> Optional[Qualification]:
         """
         Update a qualification by its primary key id.
         Returns updated entity, or None if not found.
