@@ -1,4 +1,5 @@
 from core.application.ports.affectation_repo import AffectationRepositoryPort
+from core.application.ports.agent_day_assignment_repo import AgentDayAssignmentRepositoryPort
 from core.application.ports.agent_repo import AgentRepositoryPort
 from core.application.ports.agent_day_repo import AgentDayRepositoryPort
 from core.application.ports.etat_jour_agent_repo import EtatJourAgentRepositoryPort
