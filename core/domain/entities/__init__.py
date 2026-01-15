@@ -1,4 +1,5 @@
 from .affectation import Affectation
+from .agent_day_assignment import AgentDayAssignment
 from .agent import Agent
 from .etat_jour_agent import EtatJourAgent, TypeJour
 from .poste import Poste
