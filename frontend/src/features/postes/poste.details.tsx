@@ -1,24 +1,136 @@
 "use client";
 
-import type { PosteDetail } from "@/types";
+import { useEffect, useRef, useState, useCallback } from "react";
+import type { PosteDetail, Qualification } from "@/types";
 
-function Row({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="flex items-start justify-between gap-4 py-2">
-      <div className="text-xs font-medium text-zinc-600">{label}</div>
-      <div className="text-sm text-zinc-900 text-right">{value}</div>
-    </div>
-  );
-}
+import { QualificationCard } from "@/components/admin/QualificationCard";
+
+import { listAgents } from "@/services/agents.service";
+import {
+  createQualification,
+  updateQualification,
+  deleteQualification,
+} from "@/services/qualifications.service";
+import ConfirmDialog from "@/components/admin/dialogs/ConfirmDialog";
 
 function formatTime(t: string) {
-  // "06:00:00" -> "06:00"
   return t?.slice(0, 5) ?? "—";
+}
+
+type ConfirmState = {
+  open: boolean;
+  title: string;
+  description?: string;
+  confirmText?: string;
+  cancelText?: string;
+  variant?: "danger" | "default";
+  resolve?: (value: boolean) => void;
+};
+
+function useConfirm() {
+  const [state, setState] = useState<ConfirmState>({ open: false, title: "" });
+  const resolveRef = useRef<ConfirmState["resolve"]>(undefined);
+
+  function confirm(opts: Omit<ConfirmState, "open" | "resolve">) {
+    return new Promise<boolean>((resolve) => {
+      resolveRef.current = resolve;
+      setState({
+        open: true,
+        title: opts.title,
+        description: opts.description,
+        confirmText: opts.confirmText,
+        cancelText: opts.cancelText,
+        variant: opts.variant,
+      });
+    });
+  }
+
+  function close(value: boolean) {
+    resolveRef.current?.(value);
+    resolveRef.current = undefined;
+    setState({ open: false, title: "" });
+  }
+
+  const dialog = (
+    <ConfirmDialog
+      open={state.open}
+      title={state.title}
+      description={state.description}
+      confirmText={state.confirmText}
+      cancelText={state.cancelText}
+      variant={state.variant}
+      onConfirm={() => close(true)}
+      onCancel={() => close(false)}
+    />
+  );
+
+  return { confirm, dialog };
 }
 
 export default function PosteDetails({ poste }: { poste: PosteDetail }) {
   const tranches = poste.tranches ?? [];
-  const qualifications = poste.qualifications ?? [];
+
+  const [qualifications, setQualifications] = useState<Qualification[]>(poste.qualifications ?? []);
+  useEffect(() => setQualifications(poste.qualifications ?? []), [poste.qualifications]);
+
+  const [busy, setBusy] = useState(false);
+  const { confirm, dialog: confirmDialogNode } = useConfirm();
+
+  async function onAdd(payload: { related_id: number; date_qualification: string }) {
+    setBusy(true);
+
+    const agent_id = payload.related_id;
+    const date_qualification = payload.date_qualification;
+
+    try {
+      const created = await createQualification({ agent_id: agent_id, poste_id: poste.id, date_qualification: date_qualification });
+      
+      setQualifications((prev) => {
+        const next = prev.filter((q) => q.agent_id !== created.agent_id);
+        next.push(created);
+        return next;
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onUpdateDate(payload: { related_id: number; date_qualification: string }) {
+    setBusy(true);
+
+    const agent_id = payload.related_id;
+    const date_qualification = payload.date_qualification;
+    
+    try {
+      const updated = await updateQualification(agent_id, poste.id, {
+        date_qualification: date_qualification,
+      });
+
+      setQualifications((prev) =>
+        prev.map((q) => (q.agent_id === agent_id ? { ...q, date_qualification: updated.date_qualification } : q))
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onDelete(payload: { related_id: number }) {
+    setBusy(true);
+
+    const agent_id = payload.related_id;
+
+    try {
+      await deleteQualification(agent_id, poste.id);
+      setQualifications((prev) => prev.filter((q) => q.agent_id !== agent_id));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const loadAgentOptions = useCallback(async () => {
+    const res = await listAgents({ page: 1, page_size: 200 });
+    return res.items.map((a) => ({ id: a.id, label: `${a.nom} ${a.prenom}` }));
+  }, []);
 
   return (
     <div className="space-y-4">
@@ -43,7 +155,7 @@ export default function PosteDetails({ poste }: { poste: PosteDetail }) {
         </div>
       </div>
 
-      {/* Tranches (liste courte, utile) */}
+      {/* Tranches */}
       <div className="rounded-2xl bg-white p-4 ring-1 ring-zinc-200">
         <div className="flex items-center justify-between gap-4">
           <div className="text-sm font-semibold text-zinc-900">Tranches</div>
@@ -69,34 +181,27 @@ export default function PosteDetails({ poste }: { poste: PosteDetail }) {
         )}
       </div>
 
-      {/* Qualifications (afficher juste un aperçu, car pas de nom d’agent ici) */}
-      <div className="rounded-2xl bg-white p-4 ring-1 ring-zinc-200">
-        <div className="flex items-center justify-between gap-4">
-          <div className="text-sm font-semibold text-zinc-900">Qualifications</div>
-          <div className="text-xs text-zinc-600">{qualifications.length}</div>
-        </div>
+      <QualificationCard
+        title="Qualifications"
+        mode="poste"
+        qualifications={qualifications}
+        loadOptions={loadAgentOptions}
+        disabled={busy}
+        onAdd={onAdd}
+        onUpdateDate={onUpdateDate}
+        onDelete={onDelete}
+        confirmDelete={(label) =>
+          confirm({
+            title: "Supprimer une qualification",
+            description: `Supprimer "${label}" ?`,
+            confirmText: "Supprimer",
+            cancelText: "Annuler",
+            variant: "danger",
+          })
+        }
+      />
 
-        {qualifications.length === 0 ? (
-          <div className="mt-2 text-sm text-zinc-600">Aucune qualification.</div>
-        ) : (
-          <div className="mt-3 space-y-2">
-            {qualifications.slice(0, 10).map((q) => (
-              <div
-                key={`${q.agent_id}-${q.poste_id}`}
-                className="flex items-center justify-between gap-4 rounded-xl bg-zinc-50 px-3 py-2 ring-1 ring-zinc-100"
-              >
-                <div className="text-sm text-zinc-900">Agent #{q.agent_id}</div>
-                <div className="text-xs text-zinc-600">{q.date_qualification ?? "—"}</div>
-              </div>
-            ))}
-            {qualifications.length > 10 && (
-              <div className="text-xs text-zinc-500">
-                +{qualifications.length - 10} autres…
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+      {confirmDialogNode}
     </div>
   );
 }
