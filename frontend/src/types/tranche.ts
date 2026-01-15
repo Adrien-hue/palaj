@@ -6,13 +6,15 @@ export type Tranche = {
   poste_id: number;
 };
 
-export type TrancheSegmentUi = {
-  key: string;               // unique
-  source_tranche_id: number; // id d’origine
+export type CreateTrancheBody = {
   nom: string;
+  heure_debut: string; // "HH:MM:SS"
+  heure_fin: string;   // "HH:MM:SS"
   poste_id: number;
-  start: string; // "HH:MM:SS"
-  end: string;   // "HH:MM:SS"
-  continues_prev: boolean;
-  continues_next: boolean;
 };
+
+export type UpdateTrancheBody = Partial<{
+  nom: string;
+  heure_debut: string; // "HH:MM:SS"
+  heure_fin: string;   // "HH:MM:SS"
+}>;
