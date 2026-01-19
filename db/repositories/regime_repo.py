@@ -1,4 +1,5 @@
 # db/repositories/regime_repo.py
+from typing import Optional
 from db import db
 from db.models import Regime as RegimeModel
 from core.domain.entities import Regime as RegimeEntity
@@ -23,8 +24,14 @@ class RegimeRepository(SQLRepository[RegimeModel, RegimeEntity]):
         """
         return self.get(regime_id)
 
-    def find_by_nom(self, nom: str) -> RegimeEntity | None:
-        """Recherche un régime par nom (insensible à la casse)."""
+    def get_by_name(self, nom: str) -> Optional[RegimeEntity]:
+        """
+        Return a regime by its name, or None if not found.
+        """
         with self.db.session_scope() as session:
-            model = session.query(RegimeModel).filter(RegimeModel.nom.ilike(f"%{nom}%")).first()
-            return EntityMapper.model_to_entity(model, RegimeEntity)
+            model = (
+                session.query(RegimeModel)
+                .filter(RegimeModel.nom == nom)
+                .first()
+            )
+            return EntityMapper.model_to_entity(model, RegimeEntity) if model else None
