@@ -1,5 +1,5 @@
 # db/repositories/agent_repo.py
-from sqlalchemy import func
+from sqlalchemy import exists, func
 
 from db import db
 from db.models import Agent as AgentModel
@@ -17,6 +17,17 @@ class AgentRepository(SQLRepository[AgentModel, AgentEntity]):
 
     def _default_order_by(self):
         return (AgentModel.nom.asc(), AgentModel.prenom.asc(), AgentModel.id.asc())
+    
+    def exists_for_regime(self, regime_id: int) -> bool:
+        """
+        Return True if at least one agent references the given regime_id.
+        Used to block regime deletion (strategy 1).
+        """
+        with self.db.session_scope() as session:
+            q = session.query(
+                exists().where(AgentModel.regime_id == regime_id)
+            )
+            return bool(q.scalar())
 
     def get_by_full_name(self, nom: str, prenom: str) -> AgentEntity | None:
         """

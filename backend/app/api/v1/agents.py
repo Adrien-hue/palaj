@@ -4,7 +4,8 @@ from backend.app.api.deps import get_agent_service, get_agent_planning_factory
 from backend.app.dto.agents import AgentCreateDTO, AgentDTO, AgentDetailDTO, AgentUpdateDTO
 from backend.app.dto.common.pagination import build_page, Page, PaginationParams, pagination_params
 from backend.app.dto.planning import AgentPlanningResponseDTO
-from backend.app.mappers.agents import to_agent_dto, to_agent_detail_dto
+from backend.app.mappers.agents_light import to_agent_dto
+from backend.app.mappers.agents import to_agent_detail_dto
 from backend.app.mappers.planning import to_agent_planning_response
 from core.application.services.agent_service import AgentService
 from core.application.services.planning.agent_planning_factory import AgentPlanningFactory
