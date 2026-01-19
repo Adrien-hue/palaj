@@ -1,53 +1,95 @@
 from __future__ import annotations
+
 from typing import TYPE_CHECKING, List, Optional
 
 if TYPE_CHECKING:
     from core.domain.entities import Agent
 
-class Regime:
-    def __init__(self, id: int, nom: str, desc: str = "", duree_moyenne_journee_service_min: int = 0, repos_periodiques_annuels: int = 0):
-        """
-        Initialise un régime avec un nom et une description.
 
-        :param nom: Le nom du régime
-        :param desc: La description du régime
-        """
+class Regime:
+    DEFAULT_MIN_RP_ANNUELS = 114
+    DEFAULT_MIN_RP_DIMANCHES = 52
+
+    DEFAULT_MIN_RPSD = 1
+    DEFAULT_MIN_RP_2PLUS = 2
+
+    DEFAULT_MIN_RP_SEMESTRE = 56
+
+    DEFAULT_AVG_SERVICE_MINUTES = 465
+    DEFAULT_AVG_TOLERANCE_MINUTES = 5
+
+    def __init__(
+        self,
+        id: int,
+        nom: str,
+        desc: str = "",
+
+        min_rp_annuels: Optional[int] = None,
+        min_rp_dimanches: Optional[int] = None,
+
+        min_rpsd: Optional[int] = None,
+        min_rp_2plus: Optional[int] = None,
+
+        min_rp_semestre: Optional[int] = None,
+
+        avg_service_minutes: Optional[int] = None,
+        avg_tolerance_minutes: Optional[int] = None,
+    ):
         self.id = id
         self.nom = nom
         self.desc = desc
-        self.duree_moyenne_journee_service_min = duree_moyenne_journee_service_min
-        self.repos_periodiques_annuels = repos_periodiques_annuels
+
+        self.min_rp_annuels = min_rp_annuels
+        self.min_rp_dimanches = min_rp_dimanches
+
+        self.min_rpsd = min_rpsd
+        self.min_rp_2plus = min_rp_2plus
+
+        self.min_rp_semestre = min_rp_semestre
+
+        self.avg_service_minutes = avg_service_minutes
+        self.avg_tolerance_minutes = avg_tolerance_minutes
 
         self._agents: Optional[List[Agent]] = None
 
-    def __repr__(self):
-        heures = self.duree_moyenne_journee_service_min // 60
-        minutes = self.duree_moyenne_journee_service_min % 60
+    # -------------------------
+    # Valeurs effectives (fallback)
+    # -------------------------
+    @property
+    def effective_min_rp_annuels(self) -> int:
+        return self.min_rp_annuels if self.min_rp_annuels is not None else self.DEFAULT_MIN_RP_ANNUELS
+
+    @property
+    def effective_min_rp_dimanches(self) -> int:
+        return self.min_rp_dimanches if self.min_rp_dimanches is not None else self.DEFAULT_MIN_RP_DIMANCHES
+
+    @property
+    def effective_min_rpsd(self) -> int:
+        return self.min_rpsd if self.min_rpsd is not None else self.DEFAULT_MIN_RPSD
+
+    @property
+    def effective_min_rp_2plus(self) -> int:
+        return self.min_rp_2plus if self.min_rp_2plus is not None else self.DEFAULT_MIN_RP_2PLUS
+
+    @property
+    def effective_min_rp_semestre(self) -> int:
+        return self.min_rp_semestre if self.min_rp_semestre is not None else self.DEFAULT_MIN_RP_SEMESTRE
+
+    @property
+    def effective_avg_tolerance_minutes(self) -> int:
         return (
-            f"<Regime id={self.id}, nom='{self.nom}', "
-            f"duree_moy={heures}h{minutes:02d}min, repos_annuels={self.repos_periodiques_annuels}>"
+            self.avg_tolerance_minutes
+            if self.avg_tolerance_minutes is not None
+            else self.DEFAULT_AVG_TOLERANCE_MINUTES
         )
     
-    def __str__(self):
-        RESET = "\033[0m"
-        BOLD = "\033[1m"
-        BLUE = "\033[94m"
-        GRAY = "\033[90m"
-        YELLOW = "\033[93m"
+    @property
+    def effective_avg_service_minutes(self) -> int:
+        return self.avg_service_minutes if self.avg_service_minutes is not None else self.DEFAULT_AVG_SERVICE_MINUTES
 
-        heures = self.duree_moyenne_journee_service_min // 60
-        minutes = self.duree_moyenne_journee_service_min % 60
-        duree_str = f"{heures}h{minutes:02d}min" if self.duree_moyenne_journee_service_min else "Inconnue"
-
-        return (
-            f"{BOLD}{BLUE}Régime {self.nom}{RESET}\n"
-            f"  {GRAY}ID:{RESET} {self.id}\n"
-            f"  {GRAY}Description:{RESET} {self.desc or 'Aucune'}\n"
-            f"  {GRAY}Durée moyenne journée:{RESET} {YELLOW}{duree_str}{RESET}\n"
-            f"  {GRAY}Repos périodiques annuels:{RESET} {self.repos_periodiques_annuels}\n"
-        )
-    
-    # Getters / Setters
+    # -------------------------
+    # Relations (cache privé)
+    # -------------------------
     @property
     def agents(self) -> Optional[List[Agent]]:
         return self._agents
@@ -55,13 +97,61 @@ class Regime:
     def set_agents(self, agents: Optional[List[Agent]]):
         self._agents = agents
 
-    def to_dict(self):
+    # -------------------------
+    # Représentation
+    # -------------------------
+    def __repr__(self) -> str:
+        return (
+            f"<Regime id={self.id}, nom='{self.nom}', "
+            f"avg_service_minutes={self.avg_service_minutes}, "
+            f"min_rp_annuels={self.min_rp_annuels}>"
+        )
+
+    def __str__(self) -> str:
+        RESET = "\033[0m"
+        BOLD = "\033[1m"
+        BLUE = "\033[94m"
+        GRAY = "\033[90m"
+        YELLOW = "\033[93m"
+
+        avg_str = (
+            f"{self.avg_service_minutes} min"
+            if self.avg_service_minutes is not None
+            else "Inconnue"
+        )
+
+        tol_str = f"{self.effective_avg_tolerance_minutes} min"
+
+        return (
+            f"{BOLD}{BLUE}Régime {self.nom}{RESET}\n"
+            f"  {GRAY}ID:{RESET} {self.id}\n"
+            f"  {GRAY}Description:{RESET} {self.desc or 'Aucune'}\n"
+            f"  {GRAY}Moyenne service:{RESET} {YELLOW}{avg_str}{RESET}\n"
+            f"  {GRAY}Tolérance moyenne:{RESET} {YELLOW}{tol_str}{RESET}\n"
+            f"  {GRAY}RP annuels min:{RESET} {self.effective_min_rp_annuels}\n"
+            f"  {GRAY}RP dimanches min:{RESET} {self.effective_min_rp_dimanches}\n"
+            f"  {GRAY}RP SD min:{RESET} {self.effective_min_rpsd}\n"
+            f"  {GRAY}RP 2+ min:{RESET} {self.effective_min_rp_2plus}\n"
+            f"  {GRAY}RP semestre min:{RESET} {self.effective_min_rp_semestre}\n"
+        )
+
+    # -------------------------
+    # Serialization
+    # -------------------------
+    def to_dict(self) -> dict:
         return {
             "id": self.id,
             "nom": self.nom,
             "desc": self.desc,
-            "duree_moyenne_journee_service_min": self.duree_moyenne_journee_service_min,
-            "repos_periodiques_annuels": self.repos_periodiques_annuels,
+
+            "min_rp_annuels": self.min_rp_annuels,
+            "min_rp_dimanches": self.min_rp_dimanches,
+            "min_rpsd": self.min_rpsd,
+            "min_rp_2plus": self.min_rp_2plus,
+            "min_rp_semestre": self.min_rp_semestre,
+
+            "avg_service_minutes": self.avg_service_minutes,
+            "avg_tolerance_minutes": self.avg_tolerance_minutes,
         }
 
     @classmethod
@@ -70,6 +160,13 @@ class Regime:
             id=data["id"],
             nom=data["nom"],
             desc=data.get("desc") or "",
-            duree_moyenne_journee_service_min=data.get("duree_moyenne_journee_service_min") or 0,
-            repos_periodiques_annuels=data.get("repos_periodiques_annuels") or 0,
+
+            min_rp_annuels=data.get("min_rp_annuels"),
+            min_rp_dimanches=data.get("min_rp_dimanches"),
+            min_rpsd=data.get("min_rpsd"),
+            min_rp_2plus=data.get("min_rp_2plus"),
+            min_rp_semestre=data.get("min_rp_semestre"),
+
+            avg_service_minutes=data.get("avg_service_minutes"),
+            avg_tolerance_minutes=data.get("avg_tolerance_minutes"),
         )
