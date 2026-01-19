@@ -1,12 +1,8 @@
-from backend.app.dto.regimes import RegimeDetailDTO
-from backend.app.mappers.agents_light import to_agent_dto
-
+from backend.app.dto.regimes import RegimeDTO
 from core.domain.entities import Regime
 
-def to_regime_detail_dto(r: Regime) -> RegimeDetailDTO:
-    agents = getattr(r, "_agents", None) or []
-
-    return RegimeDetailDTO(
+def to_regime_dto(r: Regime) -> RegimeDTO:
+    return RegimeDTO(
         id=r.id,
         nom=r.nom,
         desc=r.desc,
@@ -21,6 +17,4 @@ def to_regime_detail_dto(r: Regime) -> RegimeDetailDTO:
 
         avg_service_minutes=r.avg_service_minutes,
         avg_tolerance_minutes=r.avg_tolerance_minutes,
-
-        agents=[to_agent_dto(a) for a in agents],
     )
