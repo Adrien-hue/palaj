@@ -19,7 +19,7 @@ from core.rh_rules.general.rule_repos_quotidien import ReposQuotidienRule
 from core.rh_rules.regimes.rule_duree_jour_moyenne_semestre import DureeJourMoyenneSemestreRule
 from core.rh_rules.regimes.rule_repos_annuels_regime import RegimeReposAnnuelsRule
 from core.rh_rules.regimes.rule_repos_mensuels_regime import RegimeReposMensuelsRule
-from core.rh_rules.regimes.rule_repos_regime_b25_semestriel import RegimeB25ReposSemestrielRule
+from core.rh_rules.regimes.rule_repos_semestriels_regime import RegimeReposSemestrielsRule
 
 # === Structural rules ===
 from core.rh_rules.structural.rule_qualification_integrity import QualificationIntegrityRule
@@ -47,7 +47,7 @@ __all__ = [
     # Regime rules
     "RegimeReposAnnuelsRule",
     "RegimeReposMensuelsRule",
-    "RegimeB25ReposSemestrielRule",
+    "RegimeReposSemestrielsRule",
 
     # Structural rules
     "QualificationIntegrityRule",
