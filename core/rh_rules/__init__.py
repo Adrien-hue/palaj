@@ -9,7 +9,6 @@ from core.rh_rules.rh_rules_engine import RHRulesEngine
 # === General rules
 from core.rh_rules.general.rule_amplitude_max import AmplitudeMaxRule
 from core.rh_rules.general.rule_conges_annuels import CongesAnnuelRule
-from core.rh_rules.general.rule_duree_jour_moyenne_semestre import DureeJourMoyenneSemestreRule
 from core.rh_rules.general.rule_duree_travail import DureeTravailRule
 from core.rh_rules.general.rule_grande_periode_travail import GrandePeriodeTravailRule
 from core.rh_rules.general.rule_repos_annuel import ReposAnnuelRule
@@ -17,6 +16,7 @@ from core.rh_rules.general.rule_repos_double import ReposDoubleRule
 from core.rh_rules.general.rule_repos_quotidien import ReposQuotidienRule
 
 # === Regimes rules ===
+from core.rh_rules.regimes.rule_duree_jour_moyenne_semestre import DureeJourMoyenneSemestreRule
 from core.rh_rules.regimes.rule_repos_regime_b import RegimeBReposRule
 from core.rh_rules.regimes.rule_repos_regime_b25_annuel import RegimeB25ReposAnnuelRule
 from core.rh_rules.regimes.rule_repos_regime_b25_mensuel import RegimeB25ReposMensuelRule

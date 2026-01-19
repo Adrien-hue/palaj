@@ -1,4 +1,3 @@
-# core/rh_rules/general/rule_duree_moyenne_regime_semestre.py
 from __future__ import annotations
 
 from datetime import date
@@ -9,11 +8,6 @@ from core.rh_rules.models.rh_day import RhDay
 from core.rh_rules.models.rule_result import RuleResult
 from core.rh_rules.semester_rule import SemesterRule
 from core.rh_rules.utils.time_calculations import worked_minutes
-
-from core.rh_rules.constants.regime_rules import (
-    REGIME_AVG_SERVICE_MINUTES,
-    REGIME_AVG_TOLERANCE_MINUTES,
-)
 
 
 class DureeJourMoyenneSemestreRule(SemesterRule):
@@ -28,17 +22,27 @@ class DureeJourMoyenneSemestreRule(SemesterRule):
     name = "DureeMoyenneJourneeRegimeRule"
     description = "Durée moyenne des journées de service par régime, calculée par semestre."
 
+    def _get_regime(self, context: RhContext):
+        # Prefer full regime object if present (new model)
+        regime = getattr(context.agent, "regime", None)
+        if regime is not None:
+            return regime
+
+        # Backward compatibility: if only regime_id exists, we can't compute targets here
+        return None
+
     def check(self, context: RhContext) -> RuleResult:
-        # Nothing to do
         if not context.days:
             return RuleResult.ok()
 
-        regime_id = getattr(context.agent, "regime_id", None)
+        regime = self._get_regime(context)
 
         # Not applicable -> silent OK (engine = errors only)
-        if regime_id is None or regime_id not in REGIME_AVG_SERVICE_MINUTES:
+        if regime is None:
             return RuleResult.ok()
 
+        # If avg is not configured anywhere (even via default), you could decide to skip.
+        # Here we assume effective_* always returns a usable value.
         return super().check(context)
 
     def check_semester(
@@ -51,23 +55,21 @@ class DureeJourMoyenneSemestreRule(SemesterRule):
         is_full: bool,
         days: List[RhDay],
     ) -> RuleResult:
-        # Partial semesters: no noise
         if not is_full:
             return RuleResult.ok()
 
-        regime_id = getattr(context.agent, "regime_id", None)
-        if regime_id is None or regime_id not in REGIME_AVG_SERVICE_MINUTES:
+        regime = self._get_regime(context)
+        if regime is None:
             return RuleResult.ok()
 
-        target = int(REGIME_AVG_SERVICE_MINUTES[regime_id])
-        tol = int(REGIME_AVG_TOLERANCE_MINUTES)
+        target = int(regime.effective_avg_service_minutes)
+        tol = int(regime.effective_avg_tolerance_minutes)
 
         # Keep only working days (WORKING + ZCOT)
         working_days = [d for d in days if d.is_working()]
         if not working_days:
             return RuleResult.ok()
 
-        # Compute average worked minutes
         total = 0
         for d in working_days:
             total += int(worked_minutes(d))
@@ -84,6 +86,9 @@ class DureeJourMoyenneSemestreRule(SemesterRule):
         h_target = int(target // 60)
         m_target = int(target % 60)
 
+        # regime_id still useful for meta/debug (if available)
+        regime_id = getattr(context.agent, "regime_id", None)
+
         msg = (
             f"[{year} {label}] Durée moyenne de journée non conforme : "
             f"{h_avg}h{m_avg:02d} (objectif {h_target}h{m_target:02d} ± {tol} min) "
@@ -99,6 +104,7 @@ class DureeJourMoyenneSemestreRule(SemesterRule):
                 "year": year,
                 "label": label,
                 "regime_id": regime_id,
+                "regime_name": getattr(regime, "nom", None),
                 "is_full": is_full,
                 "working_days": nb_days,
                 "total_minutes": int(total),
