@@ -33,23 +33,29 @@ export default function ActiveSwitch({
         title={tooltip}
         className={[
           "relative inline-flex h-6 w-11 items-center rounded-full transition",
-          checked ? "bg-green-600" : "bg-red-600",
-          disabled ? "opacity-60 cursor-not-allowed" : "hover:brightness-110",
-          "focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-2",
+          checked
+            ? "bg-[color:var(--app-switch-on)]"
+            : "bg-[color:var(--app-switch-off)]",
+          disabled
+            ? "cursor-not-allowed opacity-60"
+            : "cursor-pointer active:scale-[0.98] hover:ring-1 hover:ring-[color:var(--app-ring)] hover:ring-inset",
+          "focus:outline-none",
+          "focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus)]",
+          "focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--app-focus-offset)]",
         ].join(" ")}
       >
         <span
           className={[
-            "inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition",
+            "inline-block h-5 w-5 transform rounded-full transition",
+            "bg-[color:var(--app-switch-knob)]",
+            "shadow-[0_1px_2px_var(--app-switch-knob-shadow)]",
             checked ? "translate-x-5" : "translate-x-1",
           ].join(" ")}
         />
       </button>
 
       {showLabel && (
-        <span className="text-xs text-zinc-600">
-          {label}
-        </span>
+        <span className="text-xs text-[color:var(--app-label)]">{label}</span>
       )}
     </div>
   );
