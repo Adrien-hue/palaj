@@ -1,7 +1,10 @@
 "use client";
 
 import { useMemo, useState, useEffect } from "react";
-import type { AgentPlanningVm, AgentDayVm } from "@/features/planning/vm/planning.vm";
+import type {
+  AgentPlanningVm,
+  AgentDayVm,
+} from "@/features/planning/vm/planning.vm";
 import { MonthDayCell } from "./MonthDayCell";
 import { MonthDayDrawer } from "./MonthDayDrawer";
 import { buildDaysRange, isInSameMonth } from "../utils/month.utils";
@@ -28,8 +31,12 @@ export function MonthlyPlanningGrid({
     [planning.start_date, planning.end_date]
   );
 
-  const selectedDay: AgentDayVm | null = selected ? byDate.get(selected) ?? null : null;
-  const selectedWeek = selectedDay ? isoWeekRangeFrom(selectedDay.day_date) : null;
+  const selectedDay: AgentDayVm | null = selected
+    ? byDate.get(selected) ?? null
+    : null;
+  const selectedWeek = selectedDay
+    ? isoWeekRangeFrom(selectedDay.day_date)
+    : null;
 
   // UX: Esc to close drawer (safe, small win)
   useEffect(() => {
@@ -43,17 +50,37 @@ export function MonthlyPlanningGrid({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [selectedDay]);
 
+  const days = [
+    { short: "Lun", full: "Lundi" },
+    { short: "Mar", full: "Mardi" },
+    { short: "Mer", full: "Mercredi" },
+    { short: "Jeu", full: "Jeudi" },
+    { short: "Ven", full: "Vendredi" },
+    { short: "Sam", full: "Samedi" },
+    { short: "Dim", full: "Dimanche" },
+  ] as const;
+
   return (
     <section className="rounded-xl border border-[color:var(--app-border)] bg-[color:var(--app-surface)] p-5 shadow-sm">
       <div className="grid grid-cols-7 gap-3">
-        {["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"].map((d) => (
-          <div
-            key={d}
-            className="px-2 text-xs font-semibold text-[color:var(--app-muted)]"
-          >
-            {d}
-          </div>
-        ))}
+        {days.map((d) => {
+          const isWeekend = d.short === "Sam" || d.short === "Dim";
+
+          return (
+            <div
+              key={d.short}
+              className={[
+                "px-2 text-sm font-semibold tracking-tight",
+                isWeekend
+                  ? "text-[color:var(--app-text)]"
+                  : "text-[color:var(--app-text)]/80",
+              ].join(" ")}
+            >
+              <span className="hidden md:inline">{d.full}</span>
+              <span className="md:hidden">{d.short}</span>
+            </div>
+          );
+        })}
 
         {allDates.map((date) => {
           const day = byDate.get(date)!; // normalisé => existe
