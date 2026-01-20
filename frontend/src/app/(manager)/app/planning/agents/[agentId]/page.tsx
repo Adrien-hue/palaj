@@ -1,12 +1,18 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
+
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import { getAgentPlanning } from "@/services/planning.service";
 import { listPostes } from "@/services/postes.service";
 
 import { buildPlanningVm } from "@/features/planning/vm/planning.vm.builder";
-import { monthAnchorISO, monthGridRangeFrom } from "@/features/planning/utils/month.utils";
+import {
+  monthAnchorISO,
+  monthGridRangeFrom,
+} from "@/features/planning/utils/month.utils";
 
-import { MonthNavigator } from "@/features/planning/components/MonthNavigator";
+import { PlanningHeader } from "@/features/planning/components/PlanningHeader";
 import { MonthlyPlanningGrid } from "@/features/planning/components/MonthlyPlanningGrid";
 
 type PageProps = {
@@ -14,8 +20,14 @@ type PageProps = {
   searchParams: Promise<{ date?: string }>;
 };
 
-export default async function AgentPlanningPage({ params, searchParams }: PageProps) {
-  const [{ agentId: rawId }, { date }] = await Promise.all([params, searchParams]);
+export default async function AgentPlanningPage({
+  params,
+  searchParams,
+}: PageProps) {
+  const [{ agentId: rawId }, { date }] = await Promise.all([
+    params,
+    searchParams,
+  ]);
 
   const agentId = Number(rawId);
   if (!Number.isFinite(agentId)) notFound();
@@ -37,16 +49,7 @@ export default async function AgentPlanningPage({ params, searchParams }: PagePr
 
   return (
     <div className="space-y-4">
-      {/* Navigator (idéalement piloté par l'URL date=YYYY-MM-01) */}
-      <MonthNavigator />
-
-      {/* Header agent */}
-      <section className="rounded-xl border border-[color:var(--app-border)] bg-[color:var(--app-surface)] p-5 shadow-sm">
-        <div className="text-2xl font-semibold text-[color:var(--app-text)]">
-          {planning.agent.prenom} {planning.agent.nom}
-        </div>
-        <div className="text-sm text-[color:var(--app-muted)]">Planning mensuel</div>
-      </section>
+      <PlanningHeader agentName={`${planning.agent.prenom} ${planning.agent.nom}`} />
 
       <MonthlyPlanningGrid
         anchorMonth={anchor}
