@@ -2,6 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { addMonthsISO, monthAnchorISO, monthLabelFR } from "../utils/month.utils";
+import { ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
 
 const MONTHS_FR = [
   "Janvier","Février","Mars","Avril","Mai","Juin",
@@ -22,59 +23,85 @@ export function MonthNavigator() {
   function push(nextAnchor: string) {
     const next = new URLSearchParams(sp.toString());
     next.set("date", nextAnchor);
-    router.push(`?${next.toString()}`);
+
+    // Replace keeps history cleaner when navigating months
+    router.replace(`?${next.toString()}`);
   }
 
+  const controlClass =
+    "rounded-xl border border-[color:var(--app-border)] bg-[color:var(--app-surface)] px-3 py-2 text-sm text-[color:var(--app-text)] transition " +
+    "hover:bg-[color:var(--app-soft)] hover:ring-1 hover:ring-[color:var(--app-ring)] hover:ring-inset " +
+    "focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900/10";
+
   return (
-    <div className="mb-5 rounded-2xl border border-border bg-card p-4 shadow-sm">
+    <section className="rounded-xl border border-[color:var(--app-border)] bg-[color:var(--app-surface)] p-4 shadow-sm">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="text-sm text-muted-foreground">Mois</div>
-          <div className="text-base font-semibold text-foreground">{label}</div>
+        <div className="flex items-start gap-3">
+          <div className="grid h-10 w-10 place-items-center rounded-xl bg-[color:var(--app-soft)] text-[color:var(--app-soft-text)]">
+            <CalendarDays className="h-4 w-4" />
+          </div>
+
+          <div>
+            <div className="text-sm text-[color:var(--app-muted)]">Mois</div>
+            <div className="text-base font-semibold text-[color:var(--app-text)]">
+              {label}
+            </div>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
           <button
-            className="rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground shadow-sm hover:bg-muted"
+            type="button"
+            className={controlClass}
             onClick={() => push(addMonthsISO(anchor, -1))}
             title="Mois précédent"
+            aria-label="Mois précédent"
           >
-            ←
+            <ChevronLeft className="h-4 w-4" />
           </button>
 
           <select
-            className="rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground"
+            className={controlClass}
             value={monthIndex}
             onChange={(e) => {
               const mi = Number(e.target.value);
               push(`${year}-${String(mi + 1).padStart(2, "0")}-01`);
             }}
+            aria-label="Sélection du mois"
           >
             {MONTHS_FR.map((m, i) => (
-              <option key={m} value={i}>{m}</option>
+              <option key={m} value={i}>
+                {m}
+              </option>
             ))}
           </select>
 
           <input
             type="number"
-            className="w-24 rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground"
+            min={1900}
+            max={2100}
+            step={1}
+            className={controlClass + " w-24"}
             value={year}
             onChange={(e) => {
               const y = Number(e.target.value);
               if (!Number.isFinite(y)) return;
               push(`${y}-${String(monthIndex + 1).padStart(2, "0")}-01`);
             }}
+            aria-label="Année"
           />
 
           <button
-            className="rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground shadow-sm hover:bg-muted"
+            type="button"
+            className={controlClass}
             onClick={() => push(addMonthsISO(anchor, 1))}
             title="Mois suivant"
+            aria-label="Mois suivant"
           >
-            →
+            <ChevronRight className="h-4 w-4" />
           </button>
         </div>
       </div>
-    </div>
+    </section>
   );
 }

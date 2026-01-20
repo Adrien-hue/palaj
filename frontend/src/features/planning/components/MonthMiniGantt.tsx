@@ -13,7 +13,11 @@ type LaneSeg = ShiftSegmentVm & {
   endMin: number;
 };
 
-function packLanes(segments: ShiftSegmentVm[], startMin: number, endMin: number): LaneSeg[] {
+function packLanes(
+  segments: ShiftSegmentVm[],
+  startMin: number,
+  endMin: number
+): LaneSeg[] {
   const span = Math.max(1, endMin - startMin);
 
   const segs = segments
@@ -66,8 +70,12 @@ export function MonthMiniGantt({
   const rowTop = (lane: number) => 3 + lane * 8;
 
   return (
-    <div className="mt-1">
-      <div className="relative w-full rounded-full bg-muted ring-1 ring-border" style={{ height }}>
+    <div className="mt-2">
+      <div
+        className="relative w-full rounded-full bg-[color:var(--app-soft)] ring-1 ring-[color:var(--timeline-tick)]"
+        style={{ height }}
+        aria-label="Aperçu des tranches"
+      >
         {lanes
           .filter((s) => s.lane < maxLanes)
           .map((s) => (
@@ -80,14 +88,17 @@ export function MonthMiniGantt({
                 top: rowTop(s.lane),
                 height: 6,
                 backgroundColor: "var(--timeline-bar)",
-                color: "var(--timeline-bar-text)",
               }}
               title={`${s.nom} ${s.start.slice(0, 5)}-${s.end.slice(0, 5)}`}
+              aria-label={`${s.nom} ${s.start.slice(0, 5)}-${s.end.slice(
+                0,
+                5
+              )}`}
             />
           ))}
 
         {laneCount > maxLanes ? (
-          <div className="absolute right-2 top-0 flex h-full items-center text-[10px] text-muted-foreground">
+          <div className="absolute right-2 top-0 flex h-full items-center text-[10px] text-[color:var(--app-muted)]">
             +{laneCount - maxLanes}
           </div>
         ) : null}

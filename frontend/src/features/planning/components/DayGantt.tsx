@@ -12,11 +12,12 @@ function segmentsToLanes(
   startMin: number,
   endMin: number
 ): LaneSeg[] {
+  const span = Math.max(1, endMin - startMin);
+
   const segs = segments
     .map((s) => {
       const sMin = clamp(parseTimeToMinutes(s.start), startMin, endMin);
       const eMin = clamp(parseTimeToMinutes(s.end), startMin, endMin);
-      const span = Math.max(1, endMin - startMin);
       const left = ((sMin - startMin) / span) * 100;
       const width = ((eMin - sMin) / span) * 100;
       return { ...s, left, width };
@@ -78,19 +79,24 @@ export function DayGantt({
 
   return (
     <div className="mt-3">
-      <div className="mb-2 flex justify-between text-[11px] text-muted-foreground tabular-nums">
+      <div className="mb-2 flex justify-between text-[11px] tabular-nums text-[color:var(--app-muted)]">
         <span>{dayStart.slice(0, 5)}</span>
         <span>{dayEnd.slice(0, 5)}</span>
       </div>
 
       <div
-        className="relative w-full rounded-2xl bg-muted ring-1 ring-border"
+        className="relative w-full rounded-xl bg-[color:var(--app-soft)] ring-1 ring-[color:var(--timeline-tick)]"
         style={{ height }}
+        aria-label="Timeline du jour"
       >
         {/* ligne guide au milieu de la 1ère lane */}
         <div
-          className="absolute inset-x-0 h-px bg-border/60"
-          style={{ top: topForLane(0) + barHeight / 2 }}
+          className="absolute inset-x-0 h-px"
+          style={{
+            top: topForLane(0) + barHeight / 2,
+            backgroundColor: "var(--timeline-tick)",
+            opacity: 0.7,
+          }}
         />
 
         {/* Repères horaires */}
@@ -104,6 +110,7 @@ export function DayGantt({
                 left: `${left}%`,
                 backgroundColor: "var(--timeline-tick)",
               }}
+              aria-hidden="true"
             />
           );
         })}
@@ -111,6 +118,11 @@ export function DayGantt({
         {lanes.map((seg) => {
           const poste =
             posteNameById.get(seg.posteId) ?? `Poste #${seg.posteId}`;
+
+          const title = `${seg.nom} ${seg.start.slice(0, 5)}-${seg.end.slice(
+            0,
+            5
+          )}\n${poste}`;
 
           return (
             <div
@@ -125,10 +137,8 @@ export function DayGantt({
                 backgroundColor: "var(--timeline-bar)",
                 color: "var(--timeline-bar-text)",
               }}
-              title={`${seg.nom} ${seg.start.slice(0, 5)}-${seg.end.slice(
-                0,
-                5
-              )}\n${poste}`}
+              title={title}
+              aria-label={title.replace("\n", " — ")}
             >
               <div className="min-w-0 truncate leading-none">
                 {seg.nom}
