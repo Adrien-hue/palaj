@@ -23,6 +23,22 @@
   --palaj-a: rgb(255, 20, 0);    /* Ligne A */
   --palaj-j: rgb(210, 210, 0); /* Ligne J */
 
+  /* App shell (light) */
+  --app-bg: rgb(250 250 250);        /* zinc-50 */
+  --app-surface: rgb(255 255 255);   /* white */
+  --app-border: rgb(228 228 231);    /* zinc-200 */
+  --app-text: rgb(24 24 27);         /* zinc-900 */
+  --app-muted: rgb(82 82 91);        /* zinc-600 */
+  --app-surface-hover: rgb(244 244 245); /* zinc-100 */
+  --app-soft: rgb(244 244 245);          /* zinc-100 (petites pastilles) */
+  --app-soft-hover: rgb(24 24 27);       /* zinc-900 (pour icône en light) */
+  --app-soft-text: rgb(63 63 70);        /* zinc-700 */
+  --app-soft-text-hover: rgb(250 250 250); /* zinc-50 */
+
+  --app-faint: rgb(113 113 122);  /* zinc-400 */
+  --app-focus: rgb(24 24 27 / 0.25);
+  --app-ring: rgb(228 228 231);            /* zinc-200 */
+
   --palaj-danger: rgb(220, 38, 38);        /* red-600 */
   --palaj-danger-soft: rgb(254, 226, 226); /* red-100 */
   --palaj-danger-border: rgb(252, 165, 165); /* red-300 */
@@ -117,6 +133,22 @@
     --input: 217 33% 18%;
 
     --ring: 215 20% 65%;
+
+    /* App shell (dark) */
+    --app-bg: rgb(9 9 11);             /* zinc-950 */
+    --app-surface: rgb(24 24 27);      /* zinc-900 */
+    --app-border: rgb(63 63 70);       /* zinc-700 */
+    --app-text: rgb(250 250 250);      /* zinc-50 */
+    --app-muted: rgb(161 161 170);     /* zinc-400 */
+    --app-surface-hover: rgb(39 39 42);  /* zinc-800 */
+    --app-soft: rgb(39 39 42);           /* zinc-800 */
+    --app-soft-hover: rgb(250 250 250);  /* zinc-50 (icône devient claire) */
+    --app-soft-text: rgb(212 212 216);   /* zinc-300 */
+    --app-soft-text-hover: rgb(24 24 27);/* zinc-900 */
+
+    --app-faint: rgb(113 113 122);  /* zinc-500 */
+    --app-focus: rgb(250 250 250 / 0.25);
+    --app-ring: rgb(63 63 70);             /* zinc-700 */
 
     --timeline-tick: rgba(255, 255, 255, 0.15);
     --timeline-bar: rgba(237, 237, 237, 0.85);
