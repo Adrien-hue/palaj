@@ -9,6 +9,8 @@ from core.application.services import (
     AgentPlanningFactory,
     PlanningBuilderService,
     PlanningDayAssembler,
+    PostePlanningFactory,
+    PostePlanningDayAssembler,
     PosteService,
     QualificationService,
     RegimeService,
@@ -92,9 +94,19 @@ planning_day_assembler = PlanningDayAssembler(
     tranche_repo=tranche_repo,
 )
 
+poste_planning_day_assembler = PostePlanningDayAssembler()
+
 agent_planning_factory = AgentPlanningFactory(
     agent_service=agent_service,
     planning_day_assembler=planning_day_assembler,
+)
+
+poste_planning_factory = PostePlanningFactory(
+    poste_repo=poste_repo,
+    tranche_repo=tranche_repo,
+    agent_repo=agent_repo,
+    agent_day_repo=agent_day_repo,
+    day_assembler=poste_planning_day_assembler
 )
 
 planning_builder_service = PlanningBuilderService(
@@ -118,4 +130,6 @@ __all__ = [
     "rh_rules_engine",
     "agent_planning_validator_service",
     "planning_builder_service",
+    "agent_planning_factory",
+    "poste_planning_factory",
 ]
