@@ -1,19 +1,23 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from datetime import date
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from backend.app.api.deps import get_poste_service, get_tranche_service
+from backend.app.api.deps import get_poste_planning_factory, get_poste_service, get_tranche_service
 from backend.app.dto.common.pagination import build_page, Page, PaginationParams, pagination_params
+from backend.app.dto.poste_planning import PostePlanningResponseDTO
 from backend.app.dto.postes import (
     PosteDTO, 
     PosteDetailDTO,
     PosteCreateDTO,
     PosteUpdateDTO
 )
+from backend.app.mappers.poste_planning import to_poste_planning_response
 from backend.app.mappers.postes import to_poste_dto, to_poste_detail_dto
 from backend.app.dto.tranches import (
     TrancheDTO
 )
 from backend.app.mappers.tranches import to_tranche_dto
 from core.application.services import PosteService, TrancheService
+from core.application.services.planning.poste_planning_factory import PostePlanningFactory
 
 router = APIRouter(prefix="/postes", tags=["Postes"])
 
@@ -63,6 +67,26 @@ def list_tranches_for_poste(
 
     return [to_tranche_dto(t) for t in items]
 
+@router.get("/{poste_id}/planning", response_model=PostePlanningResponseDTO)
+def get_poste_planning(
+    poste_id: int,
+    start_date: date = Query(..., description="YYYY-MM-DD"),
+    end_date: date = Query(..., description="YYYY-MM-DD"),
+    poste_planning_factory: PostePlanningFactory = Depends(get_poste_planning_factory),
+):
+    try:
+        planning = poste_planning_factory.build(
+            poste_id=poste_id,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        return to_poste_planning_response(planning)
+    except ValueError as e:
+        msg = str(e)
+        # on distingue 404 vs 400 comme tu fais ailleurs
+        if msg.lower() == "poste not found":
+            raise HTTPException(status_code=404, detail=msg)
+        raise HTTPException(status_code=400, detail=msg)
 
 @router.patch("/{poste_id}", response_model=PosteDTO)
 def update_poste(

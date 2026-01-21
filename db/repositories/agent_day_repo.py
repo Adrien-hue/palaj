@@ -6,7 +6,7 @@ from sqlalchemy.orm import selectinload
 
 from db import db
 
-from db.models import AgentDay as AgentDayModel
+from db.models import AgentDay as AgentDayModel, AgentDayAssignment as AgentDayAssignmentModel, Tranche as TrancheModel
 from core.domain.entities.agent_day import AgentDay as AgentDayEntity
 from db.sql_repository import SQLRepository
 from core.adapters.entity_mapper import EntityMapper
@@ -79,6 +79,42 @@ class AgentDayRepository(SQLRepository[AgentDayModel, AgentDayEntity]):
                 self._model_to_entity(m)
                 for m in models
             ]
+        
+    def list_by_poste_and_range(
+        self,
+        poste_id: int,
+        start_date: date,
+        end_date: date,
+    ) -> List[AgentDayEntity]:
+        """
+        Read AgentDays (thin) for all agents that have at least one assignment
+        on a tranche of the given poste within the date range (inclusive).
+        - No writes
+        - No loading of Agent or Tranche entities
+        - tranche_ids are loaded through agent_day_assignments
+        """
+        with self.db.session_scope() as session:
+            agent_day_ids_sq = (
+                select(AgentDayAssignmentModel.agent_day_id)
+                .join(TrancheModel, TrancheModel.id == AgentDayAssignmentModel.tranche_id)
+                .where(TrancheModel.poste_id == poste_id)
+                .distinct()
+                .scalar_subquery()
+            )
+
+            models = (
+                session.query(AgentDayModel)
+                .filter(
+                    AgentDayModel.id.in_(agent_day_ids_sq),
+                    AgentDayModel.day_date >= start_date,
+                    AgentDayModel.day_date <= end_date,
+                )
+                .options(selectinload(AgentDayModel.assignments))
+                .order_by(AgentDayModel.day_date.asc(), AgentDayModel.agent_id.asc())
+                .all()
+            )
+
+            return [self._model_to_entity(m) for m in models]
 
     def _model_to_entity(self, model: AgentDayModel) -> AgentDayEntity:
         day = EntityMapper.model_to_entity(model, AgentDayEntity)

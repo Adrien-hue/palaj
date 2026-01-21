@@ -12,6 +12,7 @@ from backend.app.bootstrap.container import (
     agent_planning_validator_service,
     agent_planning_factory,
     planning_builder_service,
+    poste_planning_factory,
     poste_service,
     qualification_service,
     regime_service,
@@ -22,6 +23,7 @@ from core.application.services import (
     AgentPlanningFactory,
     AgentPlanningValidatorService,
     PlanningBuilderService,
+    PostePlanningFactory,
     PosteService,
     QualificationService,
     RegimeService,
@@ -48,6 +50,9 @@ def get_agent_planning_validator_service() -> AgentPlanningValidatorService:
 
 def get_planning_builder_service() -> PlanningBuilderService:
     return planning_builder_service
+
+def get_poste_planning_factory() -> PostePlanningFactory:
+    return poste_planning_factory
 
 def get_poste_service() -> PosteService:
     return poste_service

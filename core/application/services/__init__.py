@@ -7,6 +7,8 @@ from core.application.services.etat_jour_agent_service import EtatJourAgentServi
 from core.application.services.planning.agent_planning_factory import AgentPlanningFactory
 from core.application.services.planning.planning_builder_service import PlanningBuilderService
 from core.application.services.planning.planning_day_assembler import PlanningDayAssembler
+from core.application.services.planning.poste_planning_factory import PostePlanningFactory
+from core.application.services.planning.poste_planning_day_assembler import PostePlanningDayAssembler
 from core.application.services.poste_service import PosteService
 from core.application.services.qualification_service import QualificationService
 from core.application.services.regime_service import RegimeService
@@ -21,6 +23,8 @@ __all__ = [
     "AgentPlanningFactory",
     "PlanningBuilderService",
     "PlanningDayAssembler",
+    "PostePlanningFactory",
+    "PostePlanningDayAssembler",
     "PosteService",
     "QualificationService",
     "RegimeService",
