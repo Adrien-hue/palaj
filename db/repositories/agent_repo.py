@@ -1,4 +1,5 @@
 # db/repositories/agent_repo.py
+from typing import List
 from sqlalchemy import exists, func
 
 from db import db
@@ -50,6 +51,23 @@ class AgentRepository(SQLRepository[AgentModel, AgentEntity]):
         Retourne un agent par son identifiant.
         """
         return self.get(agent_id)
+    
+
+    def list_by_ids(self, ids: List[int]) -> List[AgentEntity]:
+        if not ids:
+            return []
+        with self.db.session_scope() as session:
+            models = (
+                session.query(AgentModel)
+                .filter(AgentModel.id.in_(ids))
+                .all()
+            )
+            
+            return [
+                e for m in models
+                if (e := EntityMapper.model_to_entity(m, AgentEntity)) is not None
+            ]
+
 
     def list_by_regime_id(self, regime_id: int) -> list[AgentEntity]:
         """
