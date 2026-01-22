@@ -1,19 +1,16 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
-
-import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import { getAgentPlanning } from "@/services/planning.service";
 import { listPostes } from "@/services/postes.service";
 
-import { buildPlanningVm } from "@/features/planning/vm/planning.vm.builder";
+import { buildPlanningVm } from "@/features/planning-agent/vm/agentPlanning.vm.builder";
 import {
   monthAnchorISO,
   monthGridRangeFrom,
-} from "@/features/planning/utils/month.utils";
+} from "@/features/planning-common/utils/month.utils";
 
-import { PlanningHeader } from "@/features/planning/components/PlanningHeader";
-import { MonthlyPlanningGrid } from "@/features/planning/components/MonthlyPlanningGrid";
+import { PlanningPageHeader, PlanningMonthControls } from "@/features/planning-common";
+import { AgentMonthlyPlanningGrid } from "@/features/planning-agent/components/AgentMonthlyPlanningGrid";
 
 type PageProps = {
   params: Promise<{ agentId: string }>;
@@ -42,6 +39,9 @@ export default async function AgentPlanningPage({
   ]);
 
   const planning = buildPlanningVm(planningDto);
+  const agent = planning.agent;
+
+  const agentName = `${agent.prenom} ${agent.nom}`;
 
   const posteNameById = new Map<number, string>(
     postesList.items.map((p) => [p.id, p.nom])
@@ -49,9 +49,19 @@ export default async function AgentPlanningPage({
 
   return (
     <div className="space-y-4">
-      <PlanningHeader agentName={`${planning.agent.prenom} ${planning.agent.nom}`} />
+      <PlanningPageHeader
+        crumbs={[
+          { label: "Planning", href: "/app" },
+          { label: "Par agent", href: "/app/planning/agents" },
+          { label: agentName },
+        ]}
+        backHref="/app/planning/agents"
+        title={agentName}
+        subtitle="Planning mensuel"
+        controls={<PlanningMonthControls navMode="replace" />}
+      />
 
-      <MonthlyPlanningGrid
+      <AgentMonthlyPlanningGrid
         anchorMonth={anchor}
         planning={planning}
         posteNameById={posteNameById}

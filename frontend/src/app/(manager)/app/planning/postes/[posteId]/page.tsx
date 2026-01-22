@@ -1,165 +1,3 @@
-  const planningDto = {
-  "poste": { "id": 2, "nom": "GTI" },
-  "startDate": "2026-01-01",
-  "endDate": "2026-01-14",
-  "days": [
-    {
-      "day_date": "2026-01-01",
-      "day_type": "working",
-      "description": null,
-      "is_off_shift": false,
-      "tranches": [
-        { "tranche": { "id": 3, "nom": "GTI M", "heure_debut": "06:15:00", "heure_fin": "14:00:00", "poste_id": 2 }, "agents": [{ "id": 101, "nom": "ALENGRIN", "prenom": "Julien", "code_personnel": "CP0101", "actif": true }] },
-        { "tranche": { "id": 4, "nom": "GTI S", "heure_debut": "13:55:00.133000", "heure_fin": "22:00:00.133000", "poste_id": 2 }, "agents": [{ "id": 102, "nom": "MARTIN", "prenom": "Sarah", "code_personnel": "CP0102", "actif": true }] },
-        { "tranche": { "id": 5, "nom": "GTI N", "heure_debut": "22:00:00.133000", "heure_fin": "06:15:00.133000", "poste_id": 2 }, "agents": [{ "id": 103, "nom": "DUPONT", "prenom": "Nicolas", "code_personnel": "CP0103", "actif": true }] }
-      ]
-    },
-    {
-      "day_date": "2026-01-02",
-      "day_type": "working",
-      "description": null,
-      "is_off_shift": false,
-      "tranches": [
-        { "tranche": { "id": 3, "nom": "GTI M", "heure_debut": "06:15:00", "heure_fin": "14:00:00", "poste_id": 2 }, "agents": [{ "id": 104, "nom": "BENALI", "prenom": "Leïla", "code_personnel": "CP0104", "actif": true }] },
-        { "tranche": { "id": 4, "nom": "GTI S", "heure_debut": "13:55:00.133000", "heure_fin": "22:00:00.133000", "poste_id": 2 }, "agents": [{ "id": 105, "nom": "ROUSSEAU", "prenom": "Thomas", "code_personnel": "CP0105", "actif": true }] },
-        { "tranche": { "id": 5, "nom": "GTI N", "heure_debut": "22:00:00.133000", "heure_fin": "06:15:00.133000", "poste_id": 2 }, "agents": [{ "id": 101, "nom": "ALENGRIN", "prenom": "Julien", "code_personnel": "CP0101", "actif": true }] }
-      ]
-    },
-    {
-      "day_date": "2026-01-03",
-      "day_type": "working",
-      "description": null,
-      "is_off_shift": false,
-      "tranches": [
-        { "tranche": { "id": 3, "nom": "GTI M", "heure_debut": "06:15:00", "heure_fin": "14:00:00", "poste_id": 2 }, "agents": [] },
-        { "tranche": { "id": 4, "nom": "GTI S", "heure_debut": "13:55:00.133000", "heure_fin": "22:00:00.133000", "poste_id": 2 }, "agents": [{ "id": 102, "nom": "MARTIN", "prenom": "Sarah", "code_personnel": "CP0102", "actif": true }] },
-        { "tranche": { "id": 5, "nom": "GTI N", "heure_debut": "22:00:00.133000", "heure_fin": "06:15:00.133000", "poste_id": 2 }, "agents": [{ "id": 103, "nom": "DUPONT", "prenom": "Nicolas", "code_personnel": "CP0103", "actif": true }] }
-      ]
-    },
-    {
-      "day_date": "2026-01-04",
-      "day_type": "working",
-      "description": "Dimanche : effectif réduit",
-      "is_off_shift": false,
-      "tranches": [
-        { "tranche": { "id": 3, "nom": "GTI M", "heure_debut": "06:15:00", "heure_fin": "14:00:00", "poste_id": 2 }, "agents": [{ "id": 104, "nom": "BENALI", "prenom": "Leïla", "code_personnel": "CP0104", "actif": true }] },
-        { "tranche": { "id": 4, "nom": "GTI S", "heure_debut": "13:55:00.133000", "heure_fin": "22:00:00.133000", "poste_id": 2 }, "agents": [] },
-        { "tranche": { "id": 5, "nom": "GTI N", "heure_debut": "22:00:00.133000", "heure_fin": "06:15:00.133000", "poste_id": 2 }, "agents": [] }
-      ]
-    },
-    {
-      "day_date": "2026-01-05",
-      "day_type": "working",
-      "description": null,
-      "is_off_shift": false,
-      "tranches": [
-        { "tranche": { "id": 3, "nom": "GTI M", "heure_debut": "06:15:00", "heure_fin": "14:00:00", "poste_id": 2 }, "agents": [{ "id": 101, "nom": "ALENGRIN", "prenom": "Julien", "code_personnel": "CP0101", "actif": true }, { "id": 104, "nom": "BENALI", "prenom": "Leïla", "code_personnel": "CP0104", "actif": true }] },
-        { "tranche": { "id": 4, "nom": "GTI S", "heure_debut": "13:55:00.133000", "heure_fin": "22:00:00.133000", "poste_id": 2 }, "agents": [{ "id": 102, "nom": "MARTIN", "prenom": "Sarah", "code_personnel": "CP0102", "actif": true }] },
-        { "tranche": { "id": 5, "nom": "GTI N", "heure_debut": "22:00:00.133000", "heure_fin": "06:15:00.133000", "poste_id": 2 }, "agents": [{ "id": 103, "nom": "DUPONT", "prenom": "Nicolas", "code_personnel": "CP0103", "actif": true }] }
-      ]
-    },
-    {
-      "day_date": "2026-01-06",
-      "day_type": "working",
-      "description": null,
-      "is_off_shift": false,
-      "tranches": [
-        { "tranche": { "id": 3, "nom": "GTI M", "heure_debut": "06:15:00", "heure_fin": "14:00:00", "poste_id": 2 }, "agents": [{ "id": 105, "nom": "ROUSSEAU", "prenom": "Thomas", "code_personnel": "CP0105", "actif": true }] },
-        { "tranche": { "id": 4, "nom": "GTI S", "heure_debut": "13:55:00.133000", "heure_fin": "22:00:00.133000", "poste_id": 2 }, "agents": [] },
-        { "tranche": { "id": 5, "nom": "GTI N", "heure_debut": "22:00:00.133000", "heure_fin": "06:15:00.133000", "poste_id": 2 }, "agents": [{ "id": 102, "nom": "MARTIN", "prenom": "Sarah", "code_personnel": "CP0102", "actif": true }] }
-      ]
-    },
-    {
-      "day_date": "2026-01-07",
-      "day_type": "working",
-      "description": null,
-      "is_off_shift": false,
-      "tranches": [
-        { "tranche": { "id": 3, "nom": "GTI M", "heure_debut": "06:15:00", "heure_fin": "14:00:00", "poste_id": 2 }, "agents": [{ "id": 104, "nom": "BENALI", "prenom": "Leïla", "code_personnel": "CP0104", "actif": true }] },
-        { "tranche": { "id": 4, "nom": "GTI S", "heure_debut": "13:55:00.133000", "heure_fin": "22:00:00.133000", "poste_id": 2 }, "agents": [{ "id": 101, "nom": "ALENGRIN", "prenom": "Julien", "code_personnel": "CP0101", "actif": true }] },
-        { "tranche": { "id": 5, "nom": "GTI N", "heure_debut": "22:00:00.133000", "heure_fin": "06:15:00.133000", "poste_id": 2 }, "agents": [] }
-      ]
-    },
-    {
-      "day_date": "2026-01-08",
-      "day_type": "working",
-      "description": null,
-      "is_off_shift": false,
-      "tranches": [
-        { "tranche": { "id": 3, "nom": "GTI M", "heure_debut": "06:15:00", "heure_fin": "14:00:00", "poste_id": 2 }, "agents": [{ "id": 103, "nom": "DUPONT", "prenom": "Nicolas", "code_personnel": "CP0103", "actif": true }] },
-        { "tranche": { "id": 4, "nom": "GTI S", "heure_debut": "13:55:00.133000", "heure_fin": "22:00:00.133000", "poste_id": 2 }, "agents": [{ "id": 105, "nom": "ROUSSEAU", "prenom": "Thomas", "code_personnel": "CP0105", "actif": true }] },
-        { "tranche": { "id": 5, "nom": "GTI N", "heure_debut": "22:00:00.133000", "heure_fin": "06:15:00.133000", "poste_id": 2 }, "agents": [{ "id": 104, "nom": "BENALI", "prenom": "Leïla", "code_personnel": "CP0104", "actif": true }] }
-      ]
-    },
-    {
-      "day_date": "2026-01-09",
-      "day_type": "working",
-      "description": null,
-      "is_off_shift": false,
-      "tranches": [
-        { "tranche": { "id": 3, "nom": "GTI M", "heure_debut": "06:15:00", "heure_fin": "14:00:00", "poste_id": 2 }, "agents": [] },
-        { "tranche": { "id": 4, "nom": "GTI S", "heure_debut": "13:55:00.133000", "heure_fin": "22:00:00.133000", "poste_id": 2 }, "agents": [{ "id": 102, "nom": "MARTIN", "prenom": "Sarah", "code_personnel": "CP0102", "actif": true }, { "id": 105, "nom": "ROUSSEAU", "prenom": "Thomas", "code_personnel": "CP0105", "actif": true }] },
-        { "tranche": { "id": 5, "nom": "GTI N", "heure_debut": "22:00:00.133000", "heure_fin": "06:15:00.133000", "poste_id": 2 }, "agents": [{ "id": 101, "nom": "ALENGRIN", "prenom": "Julien", "code_personnel": "CP0101", "actif": true }] }
-      ]
-    },
-    {
-      "day_date": "2026-01-10",
-      "day_type": "working",
-      "description": "Samedi : uniquement matin + soir",
-      "is_off_shift": false,
-      "tranches": [
-        { "tranche": { "id": 3, "nom": "GTI M", "heure_debut": "06:15:00", "heure_fin": "14:00:00", "poste_id": 2 }, "agents": [{ "id": 104, "nom": "BENALI", "prenom": "Leïla", "code_personnel": "CP0104", "actif": true }] },
-        { "tranche": { "id": 4, "nom": "GTI S", "heure_debut": "13:55:00.133000", "heure_fin": "22:00:00.133000", "poste_id": 2 }, "agents": [] },
-        { "tranche": { "id": 5, "nom": "GTI N", "heure_debut": "22:00:00.133000", "heure_fin": "06:15:00.133000", "poste_id": 2 }, "agents": [{ "id": 103, "nom": "DUPONT", "prenom": "Nicolas", "code_personnel": "CP0103", "actif": true }] }
-      ]
-    },
-    {
-      "day_date": "2026-01-11",
-      "day_type": "working",
-      "description": "Dimanche : poste OFF",
-      "is_off_shift": true,
-      "tranches": [
-        { "tranche": { "id": 3, "nom": "GTI M", "heure_debut": "06:15:00", "heure_fin": "14:00:00", "poste_id": 2 }, "agents": [] },
-        { "tranche": { "id": 4, "nom": "GTI S", "heure_debut": "13:55:00.133000", "heure_fin": "22:00:00.133000", "poste_id": 2 }, "agents": [] },
-        { "tranche": { "id": 5, "nom": "GTI N", "heure_debut": "22:00:00.133000", "heure_fin": "06:15:00.133000", "poste_id": 2 }, "agents": [] }
-      ]
-    },
-    {
-      "day_date": "2026-01-12",
-      "day_type": "working",
-      "description": null,
-      "is_off_shift": false,
-      "tranches": [
-        { "tranche": { "id": 3, "nom": "GTI M", "heure_debut": "06:15:00", "heure_fin": "14:00:00", "poste_id": 2 }, "agents": [{ "id": 101, "nom": "ALENGRIN", "prenom": "Julien", "code_personnel": "CP0101", "actif": true }] },
-        { "tranche": { "id": 4, "nom": "GTI S", "heure_debut": "13:55:00.133000", "heure_fin": "22:00:00.133000", "poste_id": 2 }, "agents": [{ "id": 104, "nom": "BENALI", "prenom": "Leïla", "code_personnel": "CP0104", "actif": true }] },
-        { "tranche": { "id": 5, "nom": "GTI N", "heure_debut": "22:00:00.133000", "heure_fin": "06:15:00.133000", "poste_id": 2 }, "agents": [{ "id": 105, "nom": "ROUSSEAU", "prenom": "Thomas", "code_personnel": "CP0105", "actif": true }] }
-      ]
-    },
-    {
-      "day_date": "2026-01-13",
-      "day_type": "working",
-      "description": "Absence non remplacée sur S",
-      "is_off_shift": false,
-      "tranches": [
-        { "tranche": { "id": 3, "nom": "GTI M", "heure_debut": "06:15:00", "heure_fin": "14:00:00", "poste_id": 2 }, "agents": [{ "id": 103, "nom": "DUPONT", "prenom": "Nicolas", "code_personnel": "CP0103", "actif": true }] },
-        { "tranche": { "id": 4, "nom": "GTI S", "heure_debut": "13:55:00.133000", "heure_fin": "22:00:00.133000", "poste_id": 2 }, "agents": [] },
-        { "tranche": { "id": 5, "nom": "GTI N", "heure_debut": "22:00:00.133000", "heure_fin": "06:15:00.133000", "poste_id": 2 }, "agents": [{ "id": 102, "nom": "MARTIN", "prenom": "Sarah", "code_personnel": "CP0102", "actif": true }] }
-      ]
-    },
-    {
-      "day_date": "2026-01-14",
-      "day_type": "working",
-      "description": null,
-      "is_off_shift": false,
-      "tranches": [
-        { "tranche": { "id": 3, "nom": "GTI M", "heure_debut": "06:15:00", "heure_fin": "14:00:00", "poste_id": 2 }, "agents": [{ "id": 105, "nom": "ROUSSEAU", "prenom": "Thomas", "code_personnel": "CP0105", "actif": true }] },
-        { "tranche": { "id": 4, "nom": "GTI S", "heure_debut": "13:55:00.133000", "heure_fin": "22:00:00.133000", "poste_id": 2 }, "agents": [{ "id": 104, "nom": "BENALI", "prenom": "Leïla", "code_personnel": "CP0104", "actif": true }] },
-        { "tranche": { "id": 5, "nom": "GTI N", "heure_debut": "22:00:00.133000", "heure_fin": "06:15:00.133000", "poste_id": 2 }, "agents": [{ "id": 101, "nom": "ALENGRIN", "prenom": "Julien", "code_personnel": "CP0101", "actif": true }] }
-      ]
-    }
-  ]
-}
-
 import { notFound } from "next/navigation";
 
 import { getPostePlanning } from "@/services/planning.service";
@@ -170,10 +8,10 @@ import { buildPostePlanningVm } from "@/features/planning-poste/vm/postePlanning
 import {
   monthAnchorISO,
   monthGridRangeFrom,
-} from "@/features/planning/utils/month.utils";
+} from "@/features/planning-common/utils/month.utils";
 
-import { PostePlanningHeader } from "@/features/planning-poste/components/PostePlanningHeader";
-import { MonthlyPlanningGrid } from "@/features/planning-poste/components/MonthlyPlanningGrid";
+import { PlanningPageHeader, PlanningMonthControls } from "@/features/planning-common"; 
+import { PosteMonthlyPlanningGrid } from "@/features/planning-poste/components/PosteMonthlyPlanningGrid";
 
 type PageProps = {
   params: Promise<{ posteId: string }>;
@@ -195,11 +33,22 @@ export default async function PostePlanningPage({ params, searchParams }: PagePr
   });
 
   const planning = buildPostePlanningVm(dto);
+  const poste = planning.poste;
 
   return (
     <div className="space-y-4">
-      <PostePlanningHeader poste={planning.poste} anchorMonth={anchor} />
-      <MonthlyPlanningGrid anchorMonth={anchor} planning={planning} />
+      <PlanningPageHeader
+        crumbs={[
+          { label: "Planning", href: "/app" },
+          { label: "Par poste", href: "/app/planning/postes" },
+          { label: poste.nom },
+        ]}
+        backHref="/app/planning/postes"
+        title={poste.nom}
+        subtitle="Couverture mensuelle"
+        controls={<PlanningMonthControls navMode="replace" />}
+      />
+      <PosteMonthlyPlanningGrid anchorMonth={anchor} planning={planning} />
     </div>
   );
 }

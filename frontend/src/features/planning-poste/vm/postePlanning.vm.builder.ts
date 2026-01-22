@@ -6,7 +6,8 @@ import type {
   PosteShiftSegmentVm,
 } from "./postePlanning.vm";
 
-import { addDaysISO, parseTimeToMinutes } from "@/features/planning/utils/planning.utils";
+import { addDaysISO } from "@/utils/date.format";
+import { timeToMinutes } from "@/utils/time.format";
 
 function emptyDay(day_date: string): PosteDayVm {
   return {
@@ -53,8 +54,8 @@ function splitOvernightPerAgent(
   agent: Agent,
   allAgents: Agent[]
 ): Array<{ day_date: string; seg: PosteShiftSegmentVm }> {
-  const startMin = parseTimeToMinutes(tranche.heure_debut);
-  const endMin = parseTimeToMinutes(tranche.heure_fin);
+  const startMin = timeToMinutes(tranche.heure_debut);
+  const endMin = timeToMinutes(tranche.heure_fin);
 
   // Normal (same day)
   if (endMin >= startMin) {
