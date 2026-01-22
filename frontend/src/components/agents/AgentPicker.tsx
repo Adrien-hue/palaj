@@ -1,12 +1,34 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { Search, Clock, User, X } from "lucide-react";
+import * as React from "react";
+import { useRouter } from "next/navigation";
+import { Check, ChevronsUpDown, Clock } from "lucide-react";
+
 import type { Agent } from "@/types";
-import { ActiveSwitch } from "@/components/ui";
+import { cn } from "@/lib/utils";
+
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandSeparator,
+} from "@/components/ui/command";
 
 const RECENTS_KEY = "palaj.recents.agents";
+
+/* ───────────────────────── helpers ───────────────────────── */
 
 function agentLabel(a: Agent) {
   return `${a.prenom} ${a.nom}`;
@@ -56,248 +78,257 @@ function saveRecent(agent: Agent) {
   }
 }
 
-function SectionCard({
-  title,
-  icon,
-  children,
-}: {
-  title: string;
-  icon: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="rounded-xl border border-[color:var(--app-border)] bg-[color:var(--app-surface)] p-5">
-      <div className="mb-3 flex items-center gap-2 text-sm font-medium text-[color:var(--app-text)]">
-        <span className="text-[color:var(--app-muted)]">{icon}</span>
-        {title}
-      </div>
-      {children}
-    </section>
+function searchValue(a: Agent) {
+  return normalize(
+    `${a.prenom ?? ""} ${a.nom ?? ""} ${a.code_personnel ?? ""} ${a.id ?? ""}`
   );
 }
+
+/* ───────────────────────── component ───────────────────────── */
 
 export function AgentPicker({
   agents,
   isLoading,
+  selectedId: controlledSelectedId,
+  onPick: onPickProp,
 }: {
   agents: Agent[];
   isLoading?: boolean;
+  selectedId?: number | null;
+  onPick?: (agent: Agent) => void;
 }) {
-  const [includeInactive, setIncludeInactive] = useState(false);
-  const [query, setQuery] = useState("");
-  const [recents, setRecents] = useState<Agent[]>([]);
+  const router = useRouter();
 
-  useEffect(() => {
+  const [open, setOpen] = React.useState(false);
+  const [includeInactive, setIncludeInactive] = React.useState(false);
+  const [recents, setRecents] = React.useState<Agent[]>([]);
+  const [selectedId, setSelectedId] = React.useState<number | null>(null);
+
+  const effectiveSelectedId = controlledSelectedId ?? selectedId;
+
+  React.useEffect(() => {
     setRecents(loadRecents());
   }, []);
 
-  const filtered = useMemo(() => {
-    const q = normalize(query.trim());
-
-    const pool = includeInactive
+  const pool = React.useMemo(() => {
+    return includeInactive
       ? agents
       : agents.filter((a) => a.actif !== false);
+  }, [agents, includeInactive]);
 
-    const base = q
-      ? pool.filter((a) => {
-          const hay = normalize(
-            `${a.prenom} ${a.nom} ${a.code_personnel ?? ""} ${a.id}`
-          );
-          return hay.includes(q);
-        })
-      : pool;
+  const selectedAgent = React.useMemo(
+    () =>
+      effectiveSelectedId
+        ? agents.find((a) => a.id === effectiveSelectedId) ?? null
+        : null,
+    [agents, effectiveSelectedId]
+  );
 
-    return [...base].sort((a, b) => {
-      const an = normalize(a.nom ?? "");
-      const bn = normalize(b.nom ?? "");
-      if (an !== bn) return an.localeCompare(bn, "fr");
+  function onPick(a: Agent) {
+    saveRecent(a);
+    setRecents(loadRecents());
 
-      const ap = normalize(a.prenom ?? "");
-      const bp = normalize(b.prenom ?? "");
-      return ap.localeCompare(bp, "fr");
-    });
-  }, [agents, query, includeInactive]);
+    if (controlledSelectedId == null) {
+      setSelectedId(a.id);
+    }
+
+    setOpen(false);
+
+    if (onPickProp) {
+      onPickProp(a);
+    } else {
+      router.push(`/app/planning/agents/${a.id}`);
+    }
+  }
 
   return (
-    <div className="space-y-4">
-      {/* Search */}
-      <div className="rounded-xl border border-[color:var(--app-border)] bg-[color:var(--app-surface)] p-4">
-        <div className="flex items-center gap-3">
-          <div className="grid h-10 w-10 place-items-center rounded-xl bg-[color:var(--app-soft)] text-[color:var(--app-soft-text)]">
-            <Search className="h-4 w-4" />
-          </div>
+    <div className="space-y-3">
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="text-sm text-[color:var(--app-muted)]">
+          {agents.length} agent{agents.length > 1 ? "s" : ""}
+        </div>
 
-          <div className="flex-1">
-            <div className="text-sm font-medium text-[color:var(--app-text)]">
-              Rechercher un agent
-            </div>
-            <div className="relative mt-2">
-              <input
-                value={query}
-                autoFocus
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Nom, prénom, matricule…"
-                className="w-full rounded-lg border border-[color:var(--app-input-border)] bg-[color:var(--app-input-bg)] px-3 py-2 text-sm text-[color:var(--app-text)] placeholder:text-[color:var(--app-muted)] outline-none focus:ring-2 focus:ring-zinc-900/10"
-              />
-
-              {query && (
-                <button
-                  type="button"
-                  onClick={() => setQuery("")}
-                  title="Effacer la recherche"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-[color:var(--app-muted)] transition hover:bg-[color:var(--app-soft)] hover:text-[color:var(--app-text)] focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900/10"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              )}
-            </div>
-          </div>
+        <div className="flex items-center gap-2">
+          <Switch
+            id="include-inactive"
+            checked={includeInactive}
+            onCheckedChange={setIncludeInactive}
+          />
+          <Label
+            htmlFor="include-inactive"
+            className="cursor-pointer text-xs text-[color:var(--app-muted)]"
+          >
+            Inclure les inactifs
+          </Label>
         </div>
       </div>
 
-      {/* Recents */}
-      {recents.length > 0 && (
-        <SectionCard
-          title="Récemment consultés"
-          icon={<Clock className="h-4 w-4" />}
+      {/* Combobox */}
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            variant="outline"
+            role="combobox"
+            aria-expanded={open}
+            className="w-full justify-between border-[color:var(--app-border)] bg-[color:var(--app-surface)] text-[color:var(--app-text)]"
+          >
+            <span className="truncate">
+              {selectedAgent
+                ? agentLabel(selectedAgent)
+                : "Sélectionner un agent…"}
+            </span>
+            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-60" />
+          </Button>
+        </PopoverTrigger>
+
+        <PopoverContent
+          align="start"
+          sideOffset={4}
+          className="w-[--radix-popover-trigger-width] p-0"
         >
-          <div className="flex flex-wrap gap-2">
-            {recents.map((a) => (
-              <Link
-                key={a.id}
-                href={`/app/planning/agents/${a.id}`}
-                onClick={() => saveRecent(a)}
-                className="inline-flex items-center gap-2 rounded-full border border-[color:var(--app-border)] bg-[color:var(--app-surface)] px-3 py-1.5 text-sm text-[color:var(--app-text)] hover:bg-[color:var(--app-soft)]"
-              >
-                <span
-                  className="inline-flex h-2 w-2 rounded-full"
-                  style={{ backgroundColor: "var(--palaj-l)" }}
-                />
-                {agentLabel(a)}
-              </Link>
-            ))}
-          </div>
-        </SectionCard>
-      )}
+          <Command>
+            <CommandInput placeholder="Rechercher… (nom, matricule)" />
 
-      {/* Results */}
-      <SectionCard title="Agents" icon={<User className="h-4 w-4" />}>
-        {isLoading ? (
-          <div className="text-sm text-[color:var(--app-muted)]">
-            Chargement…
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {/* Header results + switch */}
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="text-sm text-[color:var(--app-muted)]">
-                {filtered.length} résultat{filtered.length > 1 ? "s" : ""}
-                {query.trim() ? (
-                  <>
-                    {" "}
-                    pour{" "}
-                    <span className="font-medium text-[color:var(--app-text)]">
-                      “{query.trim()}”
-                    </span>
-                  </>
-                ) : null}
-              </div>
+            <CommandList className="max-h-80">
+              {isLoading ? (
+                <div className="p-3 text-sm text-[color:var(--app-muted)]">
+                  Chargement…
+                </div>
+              ) : null}
 
-              <div className="flex items-center gap-3">
-                <div className="text-xs text-[color:var(--app-muted)]">
-                  Affichage : {Math.min(50, filtered.length)}/{filtered.length}
-                </div>
+              <CommandEmpty>Aucun résultat.</CommandEmpty>
 
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-[color:var(--app-muted)]">
-                    Inactifs
-                  </span>
-                  <ActiveSwitch
-                    checked={includeInactive}
-                    onToggle={() => setIncludeInactive((v) => !v)}
-                    tooltipOn="Masquer les inactifs"
-                    tooltipOff="Inclure les inactifs"
-                    labelOn="Inactifs inclus"
-                    labelOff="Actifs uniquement"
-                    showLabel={false}
-                  />
-                </div>
-              </div>
-            </div>
+              {recents.length > 0 ? (
+                <>
+                  <CommandGroup heading="Récemment consultés">
+                    {recents
+                      .filter((a) =>
+                        includeInactive ? true : a.actif !== false
+                      )
+                      .map((a) => {
+                        const meta = formatMeta(a);
+                        const inactive = a.actif === false;
 
-            {filtered.length === 0 ? (
-              <div className="space-y-1">
-                <div className="text-sm font-medium text-[color:var(--app-text)]">
-                  Aucun résultat
-                </div>
-                <div className="text-sm text-[color:var(--app-muted)]">
-                  Essaie avec un autre nom/prénom ou un matricule.
-                </div>
-              </div>
-            ) : (
-              <div className="grid gap-2 md:grid-cols-2">
-                {filtered.slice(0, 50).map((a) => (
-                  <Link
-                    key={a.id}
-                    href={`/app/planning/agents/${a.id}`}
-                    onClick={() => {
-                      saveRecent(a);
-                      setRecents(loadRecents());
-                    }}
-                    className={[
-                      "group flex items-center justify-between gap-3 rounded-xl px-3 py-3",
-                      "border border-transparent",
-                      "transition hover:-translate-y-0.5 hover:bg-[color:var(--app-soft)] hover:shadow-sm",
-                      "hover:ring-1 hover:ring-[color:var(--app-ring)] hover:ring-inset",
-                      "focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus)]",
-                    ].join(" ")}
-                  >
-                    <div className="flex min-w-0 items-center gap-3">
-                      {/* Avatar initials */}
-                      <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[color:var(--app-soft)] text-[color:var(--app-soft-text)] ring-1 ring-[color:var(--app-border)]">
-                        <span className="text-xs font-semibold">
+                        return (
+                          <CommandItem
+                            key={`recent-${a.id}`}
+                            value={searchValue(a)}
+                            onSelect={() => onPick(a)}
+                            className="gap-3"
+                          >
+                            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[color:var(--app-soft)] ring-1 ring-[color:var(--app-border)]">
+                              <span className="text-[11px] font-semibold text-[color:var(--app-soft-text)]">
+                                {initials(a)}
+                              </span>
+                            </span>
+
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="truncate text-sm font-medium">
+                                  {agentLabel(a)}
+                                </span>
+                                {inactive ? (
+                                  <Badge
+                                    variant="secondary"
+                                    className="rounded-full text-[11px]"
+                                  >
+                                    Inactif
+                                  </Badge>
+                                ) : null}
+                                <Clock className="h-3.5 w-3.5 opacity-60" />
+                              </div>
+
+                              {meta ? (
+                                <div className="truncate text-xs text-[color:var(--app-muted)]">
+                                  {meta}
+                                </div>
+                              ) : null}
+                            </div>
+
+                            <Check
+                              className={cn(
+                                "ml-2 h-4 w-4",
+                                effectiveSelectedId === a.id
+                                  ? "opacity-100"
+                                  : "opacity-0"
+                              )}
+                            />
+                          </CommandItem>
+                        );
+                      })}
+                  </CommandGroup>
+                  <CommandSeparator />
+                </>
+              ) : null}
+
+              <CommandGroup heading="Agents">
+                {pool.map((a) => {
+                  const meta = formatMeta(a);
+                  const inactive = a.actif === false;
+
+                  return (
+                    <CommandItem
+                      key={a.id}
+                      value={searchValue(a)}
+                      onSelect={() => onPick(a)}
+                      className="gap-3"
+                    >
+                      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[color:var(--app-soft)] ring-1 ring-[color:var(--app-border)]">
+                        <span className="text-[11px] font-semibold text-[color:var(--app-soft-text)]">
                           {initials(a)}
                         </span>
-                      </div>
+                      </span>
 
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 truncate">
-                          <span className="truncate text-sm font-semibold text-[color:var(--app-text)]">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="truncate text-sm font-medium">
                             {agentLabel(a)}
                           </span>
-
-                          {a.actif === false && (
-                            <span className="inline-flex shrink-0 items-center rounded-full border border-[color:var(--app-border)] px-2 py-0.5 text-[11px] font-medium text-[color:var(--app-muted)]">
+                          {inactive ? (
+                            <Badge
+                              variant="secondary"
+                              className="rounded-full text-[11px]"
+                            >
                               Inactif
-                            </span>
-                          )}
+                            </Badge>
+                          ) : null}
                         </div>
 
-                        {formatMeta(a) && (
+                        {meta ? (
                           <div className="truncate text-xs text-[color:var(--app-muted)]">
-                            {formatMeta(a)}
+                            {meta}
                           </div>
-                        )}
+                        ) : null}
                       </div>
-                    </div>
 
-                    <span className="text-sm text-[color:var(--app-muted)] transition group-hover:translate-x-0.5">
-                      →
-                    </span>
-                  </Link>
-                ))}
-              </div>
-            )}
+                      <Check
+                        className={cn(
+                          "ml-2 h-4 w-4",
+                          effectiveSelectedId === a.id
+                            ? "opacity-100"
+                            : "opacity-0"
+                        )}
+                      />
+                    </CommandItem>
+                  );
+                })}
+              </CommandGroup>
 
-            {filtered.length > 50 && (
-              <div className="rounded-lg border border-[color:var(--app-border)] bg-[color:var(--app-surface)] p-3 text-xs text-[color:var(--app-muted)]">
-                Trop de résultats ({filtered.length}). Affine ta recherche pour
-                trouver plus vite.
-              </div>
-            )}
-          </div>
-        )}
-      </SectionCard>
+              {pool.length > 250 ? (
+                <div className="border-t p-3 text-xs text-[color:var(--app-muted)]">
+                  Beaucoup de résultats ({pool.length}). Une recherche serveur
+                  pourra améliorer les perfs.
+                </div>
+              ) : null}
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+
+      <div className="text-xs text-[color:var(--app-muted)]">
+        Astuce : tape un nom, un prénom ou un matricule pour filtrer rapidement.
+      </div>
     </div>
   );
 }
