@@ -2,6 +2,7 @@ export * from "./agent";
 export * from "./agentDay";
 export * from "./agentPlanning";
 export * from "./api";
+export * from "./postePlanning";
 export * from "./postes";
 export * from "./qualification";
 export * from "./regimes";
