@@ -2,11 +2,15 @@
 export type AppNavItem = {
   label: string;
   href: string;
+  isActive?: (pathname: string) => boolean;
 };
 
 export const APP_TOP_NAV: AppNavItem[] = [
-  { label: "Planning", href: "/app/planning/agents" },
-  // Tu pourras ajouter plus tard :
+  {
+    label: "Planning",
+    href: "/app/planning/agents",
+    isActive: (pathname) => pathname.startsWith("/app/planning"),
+  },
   // { label: "Référentiels", href: "/admin" },
   // { label: "Paramètres", href: "/app/settings" },
 ];
