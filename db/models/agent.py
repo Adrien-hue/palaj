@@ -11,6 +11,7 @@ from .base import Base
 if TYPE_CHECKING:
     from .regime import Regime
     from .qualification import Qualification
+    from .team import Team
 
 
 class Agent(Base):
@@ -30,6 +31,14 @@ class Agent(Base):
         back_populates="agent",
         cascade="all, delete-orphan",
     )
+
+    teams: Mapped[list["Team"]] = relationship(
+        "Team",
+        secondary="agent_teams",
+        back_populates="agents",
+        lazy="selectin",
+    )
+
 
     def __repr__(self) -> str:
         return f"<Agent {self.prenom} {self.nom}>"
