@@ -1,42 +1,21 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import type {
-  Regime,
-  RegimeDetail,
-  RegimeBase,
-} from "@/types";
+import { toast } from "sonner";
 
-import {
-  createRegime,
-  getRegime,
-  updateRegime,
-  removeRegime,
-} from "@/services/regimes.service";
-
+import type { Regime, RegimeDetail, RegimeBase } from "@/types";
+import { createRegime, getRegime, updateRegime, removeRegime } from "@/services/regimes.service";
 import { buildRegimePatch } from "@/features/regimes/buildRegimePatch";
 
-export type ConfirmFn = (opts: {
-  title: string;
-  description?: string;
-  confirmText?: string;
-  cancelText?: string;
-  variant?: "danger" | "default";
-}) => Promise<boolean>;
+import type { ConfirmOptions } from "@/hooks/useConfirm";
 
-export type ShowToastFn = (t: {
-  type: "success" | "error" | "info";
-  title: string;
-  message?: string;
-  durationMs?: number;
-}) => void;
+export type ConfirmFn = (opts: ConfirmOptions) => Promise<boolean>;
 
 export function useRegimeCrud(opts: {
   confirm: ConfirmFn;
-  showToast: ShowToastFn;
   refresh: () => void;
 }) {
-  const { confirm, showToast, refresh } = opts;
+  const { confirm, refresh } = opts;
 
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [detailsRegime, setDetailsRegime] = useState<RegimeDetail | null>(null);
@@ -44,9 +23,7 @@ export function useRegimeCrud(opts: {
 
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<"create" | "edit">("create");
-  const [selectedRegime, setSelectedRegime] = useState<RegimeDetail | null>(
-    null
-  );
+  const [selectedRegime, setSelectedRegime] = useState<RegimeDetail | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const [editLoadingId, setEditLoadingId] = useState<number | null>(null);
@@ -65,17 +42,14 @@ export function useRegimeCrud(opts: {
         setDetailsRegime(full);
         setDetailsOpen(true);
       } catch (e) {
-        showToast({
-          type: "error",
-          title: "Chargement impossible",
-          message: e instanceof Error ? e.message : "Erreur inconnue",
-          durationMs: 6000,
+        toast.error("Chargement impossible", {
+          description: e instanceof Error ? e.message : "Erreur inconnue",
         });
       } finally {
         setViewLoadingId(null);
       }
     },
-    [showToast, viewLoadingId]
+    [viewLoadingId]
   );
 
   const openCreate = useCallback(() => {
@@ -100,17 +74,14 @@ export function useRegimeCrud(opts: {
         setModalMode("edit");
         setModalOpen(true);
       } catch (e) {
-        showToast({
-          type: "error",
-          title: "Chargement impossible",
-          message: e instanceof Error ? e.message : "Erreur inconnue",
-          durationMs: 6000,
+        toast.error("Chargement impossible", {
+          description: e instanceof Error ? e.message : "Erreur inconnue",
         });
       } finally {
         setEditLoadingId(null);
       }
     },
-    [editLoadingId, showToast]
+    [editLoadingId]
   );
 
   const deleteRegime = useCallback(
@@ -126,22 +97,15 @@ export function useRegimeCrud(opts: {
 
       try {
         await removeRegime(r.id);
-        showToast({
-          type: "success",
-          title: "Régime supprimé",
-          message: `"${r.nom}" a été supprimé.`,
-        });
+        toast.success("Régime supprimé", { description: `"${r.nom}" a été supprimé.` });
         refresh();
       } catch (e) {
-        showToast({
-          type: "error",
-          title: "Suppression impossible",
-          message: e instanceof Error ? e.message : "Erreur inconnue",
-          durationMs: 6000,
+        toast.error("Suppression impossible", {
+          description: e instanceof Error ? e.message : "Erreur inconnue",
         });
       }
     },
-    [confirm, refresh, showToast]
+    [confirm, refresh]
   );
 
   const submitForm = useCallback(
@@ -149,48 +113,48 @@ export function useRegimeCrud(opts: {
       setSubmitting(true);
       try {
         if (modalMode === "create") {
-          await createRegime(values); // values == CreateRegimeBody
-          showToast({ type: "success", title: "Régime créé" });
+          await createRegime(values);
+          toast.success("Régime créé");
         } else {
           if (!selectedRegime) return;
+
           const patch = buildRegimePatch(selectedRegime, values);
           await updateRegime(selectedRegime.id, patch);
-          showToast({ type: "success", title: "Régime mis à jour" });
+          toast.success("Régime mis à jour");
         }
 
         setModalOpen(false);
         refresh();
       } catch (e) {
-        showToast({
-          type: "error",
-          title: "Enregistrement impossible",
-          message: e instanceof Error ? e.message : "Erreur inconnue",
-          durationMs: 6000,
+        toast.error("Enregistrement impossible", {
+          description: e instanceof Error ? e.message : "Erreur inconnue",
         });
       } finally {
         setSubmitting(false);
       }
     },
-    [modalMode, refresh, selectedRegime, showToast]
+    [modalMode, refresh, selectedRegime]
   );
 
   return {
-    // State
+    // state
+    detailsOpen,
+    detailsRegime,
+    viewLoadingId,
+
     modalOpen,
     modalMode,
     selectedRegime,
     submitting,
     editLoadingId,
-    detailsOpen,
-    detailsRegime,
-    viewLoadingId,
 
-    // Actions
+    // actions
     openCreate,
     openEdit,
     closeModal,
     deleteRegime,
     submitForm,
+
     openView,
     closeView,
   };
