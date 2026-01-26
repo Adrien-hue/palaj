@@ -1,10 +1,13 @@
-// frontend/src/components/admin/QualificationCard/QualificationCard.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import CardHeader from "./CardHeader";
+
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+
 import AddQualificationPanel from "./AddQualificationPanel";
 import QualificationRow from "./QualificationRow";
+import QualificationCardHeader from "./QualificationCardHeader";
 import { getRelatedId, sortByLabelFR, todayYYYYMMDD } from "./helpers";
 import type { QualificationCardProps, RowVM } from "./types";
 
@@ -47,7 +50,7 @@ export function QualificationCard({
         const opts = await loadOptions();
         if (!cancelled) setOptions(opts);
       } catch (e: any) {
-        if (!cancelled) setError(e?.message ?? "Failed to load options.");
+        if (!cancelled) setError(e?.message ?? "Impossible de charger les options.");
       } finally {
         if (!cancelled) setOptLoading(false);
       }
@@ -83,7 +86,9 @@ export function QualificationCard({
       return { relatedId, label, date: q.date_qualification ?? "" };
     });
 
-    computed.sort((a, b) => a.label.localeCompare(b.label, "fr") || a.relatedId - b.relatedId);
+    computed.sort(
+      (a, b) => a.label.localeCompare(b.label, "fr") || a.relatedId - b.relatedId
+    );
     return computed;
   }, [qualifications, mode, optionsById, entityLabel]);
 
@@ -106,7 +111,9 @@ export function QualificationCard({
       setAddRelatedId("");
       setAddDate(todayYYYYMMDD());
     } catch (e: any) {
-      setError(e?.message ?? `Failed to add ${entityLabel.toLowerCase()}.`);
+      setError(
+        e?.message ?? `Impossible d’ajouter un(e) ${entityLabel.toLowerCase()}.`
+      );
     }
   }
 
@@ -120,7 +127,7 @@ export function QualificationCard({
     try {
       await onDelete({ related_id: relatedId });
     } catch (e: any) {
-      setError(e?.message ?? "Failed to delete.");
+      setError(e?.message ?? "Suppression impossible.");
     }
   }
 
@@ -131,78 +138,87 @@ export function QualificationCard({
     try {
       await onUpdateDate({ related_id: relatedId, date_qualification });
     } catch (e: any) {
-      setError(e?.message ?? "Failed to update date.");
+      setError(e?.message ?? "Mise à jour impossible.");
       throw e; // Let the caller decide whether to keep the row in edit mode
     }
   }
 
   return (
-    <div className="rounded-2xl bg-white p-4 ring-1 ring-zinc-200">
-      <CardHeader
-        title={title}
-        mode={mode}
-        count={rows.length}
-        disabled={disabled}
-        addDisabled={lockAdd}
-        onToggleAdd={() => {
-          // Opening add panel cancels any active edit to avoid conflicting states
-          setEditingId(null);
-          setAddOpen((v) => !v);
-        }}
-      />
-
-      {error ? <div className="mt-2 text-sm text-red-600">{error}</div> : null}
-
-      {rows.length === 0 ? (
-        <div className="mt-3 text-sm text-zinc-600">Aucune qualification.</div>
-      ) : (
-        <div className="mt-3 space-y-2">
-          {rows.map((r) => (
-            <QualificationRow
-              key={r.relatedId}
-              label={r.label}
-              dateYYYYMMDD={r.date}
-              disabled={disabled}
-              locked={lockRows || (editingId !== null && editingId !== r.relatedId)}
-              isEditing={editingId === r.relatedId}
-              onStartEdit={() => {
-                // Starting an edit closes the add panel to avoid conflicting states
-                setAddOpen(false);
-                setEditingId(r.relatedId);
-              }}
-              onCancelEdit={() => setEditingId(null)}
-              onDelete={() => handleDelete(r.relatedId, r.label)}
-              onSaveDate={async (d) => {
-                try {
-                  await handleUpdateDate(r.relatedId, d);
-                  setEditingId(null);
-                } catch {
-                  // Keep edit mode open if update failed
-                }
-              }}
-            />
-          ))}
-        </div>
-      )}
-
-      {addOpen ? (
-        <AddQualificationPanel
-          entityLabel={entityLabel}
+    <Card>
+      <CardHeader className="pb-3">
+        <QualificationCardHeader
+          title={title}
+          mode={mode}
+          count={rows.length}
           disabled={disabled}
-          optLoading={optLoading}
-          availableOptions={availableOptions}
-          addRelatedId={addRelatedId}
-          addDate={addDate}
-          onChangeRelatedId={setAddRelatedId}
-          onChangeDate={setAddDate}
-          onCancel={() => {
-            setAddOpen(false);
-            setAddRelatedId("");
-            setAddDate(todayYYYYMMDD());
+          addDisabled={lockAdd}
+          onToggleAdd={() => {
+            // Opening add panel cancels any active edit to avoid conflicting states
+            setEditingId(null);
+            setAddOpen((v) => !v);
           }}
-          onSubmit={handleAdd}
         />
-      ) : null}
-    </div>
+      </CardHeader>
+
+      <CardContent className="space-y-4">
+        {error ? (
+          <Alert variant="destructive">
+            <AlertTitle>Erreur</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        ) : null}
+
+        {rows.length === 0 ? (
+          <div className="text-sm text-muted-foreground">Aucune qualification.</div>
+        ) : (
+          <div className="space-y-2">
+            {rows.map((r) => (
+              <QualificationRow
+                key={r.relatedId}
+                label={r.label}
+                dateYYYYMMDD={r.date}
+                disabled={disabled}
+                locked={lockRows || (editingId !== null && editingId !== r.relatedId)}
+                isEditing={editingId === r.relatedId}
+                onStartEdit={() => {
+                  // Starting an edit closes the add panel to avoid conflicting states
+                  setAddOpen(false);
+                  setEditingId(r.relatedId);
+                }}
+                onCancelEdit={() => setEditingId(null)}
+                onDelete={() => handleDelete(r.relatedId, r.label)}
+                onSaveDate={async (d) => {
+                  try {
+                    await handleUpdateDate(r.relatedId, d);
+                    setEditingId(null);
+                  } catch {
+                    // Keep edit mode open if update failed
+                  }
+                }}
+              />
+            ))}
+          </div>
+        )}
+
+        {addOpen ? (
+          <AddQualificationPanel
+            entityLabel={entityLabel}
+            disabled={disabled}
+            optLoading={optLoading}
+            availableOptions={availableOptions}
+            addRelatedId={addRelatedId}
+            addDate={addDate}
+            onChangeRelatedId={setAddRelatedId}
+            onChangeDate={setAddDate}
+            onCancel={() => {
+              setAddOpen(false);
+              setAddRelatedId("");
+              setAddDate(todayYYYYMMDD());
+            }}
+            onSubmit={handleAdd}
+          />
+        ) : null}
+      </CardContent>
+    </Card>
   );
 }

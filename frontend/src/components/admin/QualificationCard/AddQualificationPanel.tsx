@@ -1,7 +1,16 @@
-// frontend/src/components/admin/QualificationCard/AddQualificationPanel.tsx
 "use client";
 
-import { Button, SecondaryButton } from "@/components/ui";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
 import type { QualificationOption } from "./types";
 
 export default function AddQualificationPanel({
@@ -27,59 +36,95 @@ export default function AddQualificationPanel({
   onCancel: () => void;
   onSubmit: () => void;
 }) {
-  const canSubmit = !disabled && addRelatedId !== "" && !!addDate && availableOptions.length > 0;
+  const NONE = "__none__";
+
+  const canSubmit =
+    !disabled && addRelatedId !== "" && !!addDate && availableOptions.length > 0;
+
+  const selectValue =
+    addRelatedId === "" ? NONE : String(addRelatedId);
 
   return (
-    <div className="mt-4 rounded-xl bg-zinc-50 p-3 ring-1 ring-zinc-200">
-      <div className="text-sm font-semibold text-zinc-900">Ajouter une qualification</div>
+    <div className={cn("rounded-xl border bg-muted/30 p-4")}>
+      <div className="text-sm font-semibold text-foreground">
+        Ajouter une qualification
+      </div>
 
-      <div className="mt-1 text-xs text-zinc-600">
+      <div className="mt-1 text-xs text-muted-foreground">
         {availableOptions.length === 0
           ? `Aucun ${entityLabel.toLowerCase()} disponible à ajouter.`
           : `${availableOptions.length} disponible(s)`}
       </div>
 
-      <div className="mt-3 grid gap-2 sm:grid-cols-2">
-        <label className="text-xs text-zinc-700">
-          {entityLabel}
-          <select
-            className="mt-1 w-full rounded-lg border border-zinc-200 bg-white px-2 py-2 text-sm"
-            value={addRelatedId}
-            onChange={(e) => onChangeRelatedId(e.target.value ? Number(e.target.value) : "")}
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <div className="space-y-2">
+          <div className="text-xs font-medium text-muted-foreground">
+            {entityLabel}
+          </div>
+
+          <Select
+            value={selectValue}
+            onValueChange={(v) => {
+              if (v === NONE) onChangeRelatedId("");
+              else onChangeRelatedId(Number(v));
+            }}
             disabled={disabled || optLoading || availableOptions.length === 0}
           >
-            <option value="">— Choose —</option>
-            {availableOptions.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </label>
+            <SelectTrigger>
+              <SelectValue placeholder="Sélectionner…" />
+            </SelectTrigger>
 
-        <label className="text-xs text-zinc-700">
-          Date de qualification
-          <input
+            <SelectContent>
+              {/* Radix interdit value="" */}
+              <SelectItem value={NONE}>— Sélectionner —</SelectItem>
+
+              {availableOptions.map((o) => (
+                <SelectItem key={o.id} value={String(o.id)}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-2">
+          <div className="text-xs font-medium text-muted-foreground">
+            Date de qualification
+          </div>
+
+          <Input
             type="date"
-            className="mt-1 w-full rounded-lg border border-zinc-200 bg-white px-2 py-2 text-sm"
             value={addDate}
             onChange={(e) => onChangeDate(e.target.value)}
             disabled={disabled}
           />
-        </label>
+        </div>
       </div>
 
-      <div className="mt-3 flex justify-end gap-2">
-        <SecondaryButton type="button" size="compact" onClick={onCancel} disabled={disabled}>
+      <div className="mt-4 flex justify-end gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={onCancel}
+          disabled={disabled}
+        >
           Annuler
-        </SecondaryButton>
+        </Button>
 
-        <Button type="button" variant="successSoft" size="compact" onClick={onSubmit} disabled={!canSubmit}>
+        <Button
+          type="button"
+          size="sm"
+          onClick={onSubmit}
+          disabled={!canSubmit}
+        >
           Ajouter
         </Button>
       </div>
 
-      {optLoading ? <div className="mt-2 text-xs text-zinc-600">Chargement...</div> : null}
+      {optLoading ? (
+        <div className="mt-2 text-xs text-muted-foreground">Chargement…</div>
+      ) : null}
     </div>
   );
 }
