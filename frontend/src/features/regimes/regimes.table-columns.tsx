@@ -18,7 +18,7 @@ export function getRegimeColumns(opts: {
   onView: (r: Regime) => void;
   onEdit: (r: Regime) => void;
   onDelete: (r: Regime) => void;
-}): ColumnDef<Regime, any>[] {
+}): ColumnDef<Regime, unknown>[] {
   return [
     {
       accessorKey: "nom",

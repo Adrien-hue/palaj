@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import type { Poste, PosteDetail } from "@/types";
+import type { Poste, PosteDetail, PatchPosteBody } from "@/types";
 
 import {
   createPoste,
@@ -143,8 +143,8 @@ export function usePosteCrud(opts: {
         } else {
           if (!selectedPoste) return;
 
-          const patch = buildPostePatch(selectedPoste, { nom });
-          await patchPoste(selectedPoste.id, patch as any);
+          const patch: PatchPosteBody = buildPostePatch(selectedPoste, { nom });
+          await patchPoste(selectedPoste.id, patch);
 
           showToast?.({ type: "success", title: "Poste mis à jour" });
         }

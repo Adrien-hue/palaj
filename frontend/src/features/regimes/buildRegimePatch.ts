@@ -20,11 +20,19 @@ export function buildRegimePatch(initial: Regime, draft: RegimeBase): UpdateRegi
   if (normalizedDesc !== normalizedInitialDesc) patch.desc = normalizedDesc;
 
   // Nullable numbers helpers
-  const setIfChanged = <K extends keyof RegimeBase>(key: K) => {
-    const next = draft[key] ?? null;
-    const prev = (initial[key] ?? null) as RegimeBase[K] | null;
-    if (next !== prev) patch[key] = next as any;
+  const setIfChanged = <
+    K extends keyof RegimeBase & keyof UpdateRegimeBody
+  >(
+    key: K
+  ) => {
+    const next = (draft[key] ?? null) as UpdateRegimeBody[K];
+    const prev = (initial[key] ?? null) as UpdateRegimeBody[K];
+
+    if (next !== prev) {
+      patch[key] = next;
+    }
   };
+
 
   setIfChanged("min_rp_annuels");
   setIfChanged("min_rp_dimanches");

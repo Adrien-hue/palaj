@@ -17,7 +17,7 @@ export function getPosteTableColumns(opts: {
   onView: (p: Poste) => void;
   onEdit: (p: Poste) => void;
   onDelete: (p: Poste) => void;
-}): ColumnDef<Poste, any>[] {
+}): ColumnDef<Poste, unknown>[] {
   return [
     {
       accessorKey: "nom",
