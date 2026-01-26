@@ -1,61 +1,65 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import {
-  Button,
-  SecondaryButton,
-  LongTextField,
-  NumberField,
-  RequiredFieldsNote,
-  TextField,
-} from "@/components/ui";
+import * as React from "react";
+import { useMemo, useState, useImperativeHandle } from "react";
+
 import { buildRegimePatch } from "@/features/regimes/buildRegimePatch";
-import type {
-  CreateRegimeBody,
-  Regime,
-  RegimeBase,
-  UpdateRegimeBody,
-} from "@/types";
+import type { CreateRegimeBody, Regime, RegimeBase, UpdateRegimeBody } from "@/types";
 import { parseNullableInt, toInputValue } from "@/lib/forms/inputs";
 
-export default function RegimeForm({
-  mode,
-  initialRegime,
-  submitting,
-  onCancel,
-  onSubmit,
+// shadcn
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+
+export type RegimeFormHandle = {
+  submit: () => void;
+};
+
+function Field({
+  label,
+  children,
+  hint,
 }: {
+  label: string;
+  children: React.ReactNode;
+  hint?: string;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-sm">{label}</Label>
+      {children}
+      {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
+    </div>
+  );
+}
+
+export default React.forwardRef<RegimeFormHandle, {
   mode: "create" | "edit";
   initialRegime?: Regime | null;
   submitting?: boolean;
-  onCancel: () => void;
   onSubmit: (values: RegimeBase) => void | Promise<void>;
-}) {
+}>(function RegimeForm(
+  { mode, initialRegime, submitting, onSubmit },
+  ref
+) {
   const isEdit = mode === "edit";
+  const disabled = !!submitting;
+
+  const [error, setError] = useState<string | null>(null);
 
   const [nom, setNom] = useState(initialRegime?.nom ?? "");
   const [desc, setDesc] = useState(initialRegime?.desc ?? "");
 
   // numeric fields as strings (easy UX)
-  const [minRpAnnuels, setMinRpAnnuels] = useState(
-    toInputValue(initialRegime?.min_rp_annuels)
-  );
-  const [minRpDimanches, setMinRpDimanches] = useState(
-    toInputValue(initialRegime?.min_rp_dimanches)
-  );
+  const [minRpAnnuels, setMinRpAnnuels] = useState(toInputValue(initialRegime?.min_rp_annuels));
+  const [minRpDimanches, setMinRpDimanches] = useState(toInputValue(initialRegime?.min_rp_dimanches));
   const [minRpsd, setMinRpsd] = useState(toInputValue(initialRegime?.min_rpsd));
-  const [minRp2plus, setMinRp2plus] = useState(
-    toInputValue(initialRegime?.min_rp_2plus)
-  );
-  const [minRpSemestre, setMinRpSemestre] = useState(
-    toInputValue(initialRegime?.min_rp_semestre)
-  );
-  const [avgServiceMinutes, setAvgServiceMinutes] = useState(
-    toInputValue(initialRegime?.avg_service_minutes)
-  );
-  const [avgToleranceMinutes, setAvgToleranceMinutes] = useState(
-    toInputValue(initialRegime?.avg_tolerance_minutes)
-  );
+  const [minRp2plus, setMinRp2plus] = useState(toInputValue(initialRegime?.min_rp_2plus));
+  const [minRpSemestre, setMinRpSemestre] = useState(toInputValue(initialRegime?.min_rp_semestre));
+  const [avgServiceMinutes, setAvgServiceMinutes] = useState(toInputValue(initialRegime?.avg_service_minutes));
+  const [avgToleranceMinutes, setAvgToleranceMinutes] = useState(toInputValue(initialRegime?.avg_tolerance_minutes));
 
   // Single source of truth for payload
   const draft: CreateRegimeBody = useMemo(
@@ -98,8 +102,8 @@ export default function RegimeForm({
   const canSubmit = useMemo(() => {
     const n = draft.nom;
     const validNom = n.length >= 1 && n.length <= 100;
-    return validNom && !submitting && hasChanges;
-  }, [draft.nom, submitting, hasChanges]);
+    return validNom && !disabled && hasChanges;
+  }, [draft.nom, disabled, hasChanges]);
 
   function buildValues(): RegimeBase {
     return {
@@ -118,130 +122,145 @@ export default function RegimeForm({
   }
 
   async function handleSubmit() {
-    if (!canSubmit) return;
-    await onSubmit(buildValues());
+    setError(null);
+
+    if (!canSubmit) {
+      if (!draft.nom.trim()) setError("Le nom est obligatoire.");
+      return;
+    }
+
+    try {
+      await onSubmit(buildValues());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erreur inconnue");
+    }
   }
 
-  const submitLabel = isEdit ? "Enregistrer" : "Créer";
-  const submitTitle = isEdit && !hasChanges ? "Aucune modification" : undefined;
+  useImperativeHandle(ref, () => ({
+    submit: () => {
+      void handleSubmit();
+    },
+  }));
 
   return (
-    <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2">
-        <TextField
-          label="Nom"
-          value={nom}
-          onChange={(e) => setNom(e.currentTarget.value)}
-          disabled={!!submitting}
-          maxLength={100}
-          placeholder="Ex: Régime A"
-          mandatory
-        />
+    <div className="space-y-6">
+      {error ? (
+        <Alert variant="destructive">
+          <AlertTitle>Erreur</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Nom">
+          <Input
+            value={nom}
+            onChange={(e) => setNom(e.currentTarget.value)}
+            disabled={disabled}
+            maxLength={100}
+            placeholder="Ex: Régime A"
+          />
+        </Field>
 
         <div className="sm:col-span-2">
-          <LongTextField
-            label="Description"
-            value={desc ?? ""}
-            onChange={setDesc}
-            disabled={!!submitting}
-            maxLength={1000}
-            rows={3}
-            placeholder="Optionnel"
-          />
+          <Field label="Description" hint="Optionnel">
+            <Textarea
+              value={desc ?? ""}
+              onChange={(e) => setDesc(e.currentTarget.value)}
+              disabled={disabled}
+              maxLength={1000}
+              rows={3}
+              placeholder="Optionnel"
+            />
+          </Field>
         </div>
       </div>
 
-      <div className="rounded-2xl bg-zinc-50 p-3 ring-1 ring-zinc-200">
-        <div className="text-sm font-semibold text-zinc-900">Règles</div>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <NumberField
-            label="Min RP annuels"
-            value={minRpAnnuels}
-            onChange={setMinRpAnnuels}
-            disabled={!!submitting}
-            allowNegative={false}
-            allowFloat={false}
-          />
-          <NumberField
-            label="Min RP dimanches"
-            value={minRpDimanches}
-            onChange={setMinRpDimanches}
-            disabled={!!submitting}
-            allowNegative={false}
-            allowFloat={false}
-          />
-          <NumberField
-            label="Min RPSD"
-            value={minRpsd}
-            onChange={setMinRpsd}
-            disabled={!!submitting}
-            allowNegative={false}
-            allowFloat={false}
-          />
-          <NumberField
-            label="Min RP 2+"
-            value={minRp2plus}
-            onChange={setMinRp2plus}
-            disabled={!!submitting}
-            allowNegative={false}
-            allowFloat={false}
-          />
-          <NumberField
-            label="Min RP semestre"
-            value={minRpSemestre}
-            onChange={setMinRpSemestre}
-            disabled={!!submitting}
-            allowNegative={false}
-            allowFloat={false}
-          />
+      <div className="rounded-xl border bg-muted/30 p-4">
+        <div className="text-sm font-semibold">Règles</div>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <Field label="Min RP annuels">
+            <Input
+              inputMode="numeric"
+              value={minRpAnnuels}
+              onChange={(e) => setMinRpAnnuels(e.currentTarget.value)}
+              disabled={disabled}
+              placeholder="0"
+            />
+          </Field>
+
+          <Field label="Min RP dimanches">
+            <Input
+              inputMode="numeric"
+              value={minRpDimanches}
+              onChange={(e) => setMinRpDimanches(e.currentTarget.value)}
+              disabled={disabled}
+              placeholder="0"
+            />
+          </Field>
+
+          <Field label="Min RPSD">
+            <Input
+              inputMode="numeric"
+              value={minRpsd}
+              onChange={(e) => setMinRpsd(e.currentTarget.value)}
+              disabled={disabled}
+              placeholder="0"
+            />
+          </Field>
+
+          <Field label="Min RP 2+">
+            <Input
+              inputMode="numeric"
+              value={minRp2plus}
+              onChange={(e) => setMinRp2plus(e.currentTarget.value)}
+              disabled={disabled}
+              placeholder="0"
+            />
+          </Field>
+
+          <Field label="Min RP semestre">
+            <Input
+              inputMode="numeric"
+              value={minRpSemestre}
+              onChange={(e) => setMinRpSemestre(e.currentTarget.value)}
+              disabled={disabled}
+              placeholder="0"
+            />
+          </Field>
         </div>
       </div>
 
-      <div className="rounded-2xl bg-zinc-50 p-3 ring-1 ring-zinc-200">
-        <div className="text-sm font-semibold text-zinc-900">Moyennes</div>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <NumberField
-            label="Avg service (min)"
-            value={avgServiceMinutes}
-            onChange={setAvgServiceMinutes}
-            disabled={!!submitting}
-            allowNegative={false}
-            allowFloat={false}
-          />
-          <NumberField
-            label="Avg tolerance (min)"
-            value={avgToleranceMinutes}
-            onChange={setAvgToleranceMinutes}
-            disabled={!!submitting}
-            allowNegative={false}
-            allowFloat={false}
-          />
+      <div className="rounded-xl border bg-muted/30 p-4">
+        <div className="text-sm font-semibold">Moyennes</div>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <Field label="Avg service (min)">
+            <Input
+              inputMode="numeric"
+              value={avgServiceMinutes}
+              onChange={(e) => setAvgServiceMinutes(e.currentTarget.value)}
+              disabled={disabled}
+              placeholder="0"
+            />
+          </Field>
+
+          <Field label="Avg tolerance (min)">
+            <Input
+              inputMode="numeric"
+              value={avgToleranceMinutes}
+              onChange={(e) => setAvgToleranceMinutes(e.currentTarget.value)}
+              disabled={disabled}
+              placeholder="0"
+            />
+          </Field>
         </div>
       </div>
 
-      <div className="pt-1">
-        <RequiredFieldsNote />
-      </div>
-
-      <div className="flex justify-end gap-2">
-        <SecondaryButton
-          type="button"
-          onClick={onCancel}
-          disabled={!!submitting}
-        >
-          Annuler
-        </SecondaryButton>
-
-        <Button
-          type="button"
-          variant="success"
-          onClick={handleSubmit}
-          loading={!!submitting}
-          disabled={!canSubmit}
-        >
-          {isEdit ? "Enregistrer" : "Créer"}
-        </Button>
-      </div>
+      {isEdit && !hasChanges ? (
+        <p className="text-xs text-muted-foreground">
+          Aucune modification à enregistrer.
+        </p>
+      ) : null}
     </div>
   );
-}
+});
