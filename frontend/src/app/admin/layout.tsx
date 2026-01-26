@@ -1,31 +1,26 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useState } from "react";
-import Sidebar from "@/components/admin/Sidebar";
-import { ToastProvider } from "@/components/admin/toast/ToastProvider";
 import Topbar from "@/components/admin/Topbar";
+import { AdminSidebar } from "@/components/admin/AdminSidebar";
+
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
-  const [collapsed, setCollapsed] = useState(false);
-
   return (
-    <ToastProvider>
-      <div className="h-dvh overflow-hidden bg-zinc-50 text-zinc-900">
-        <div className="flex h-full min-h-0">
-          <Sidebar collapsed={collapsed} setCollapsed={setCollapsed} />
+    <SidebarProvider>
+      <div className="flex h-dvh w-full overflow-hidden bg-background text-foreground">
+        <AdminSidebar />
 
-          <div className="flex min-w-0 flex-1 min-h-0 flex-col">
-            <Topbar />
-
-            <main className="min-h-0 flex-1 overflow-hidden p-6">
-              <div className="mx-auto h-full min-h-0 w-full max-w-6xl">
-                {children}
-              </div>
-            </main>
-          </div>
-        </div>
+        <SidebarInset className="min-w-0">
+          <Topbar />
+          <main className="min-h-0 flex-1 overflow-hidden p-6">
+            <div className="mx-auto h-full min-h-0 w-full max-w-6xl">
+              {children}
+            </div>
+          </main>
+        </SidebarInset>
       </div>
-    </ToastProvider>
+    </SidebarProvider>
   );
 }

@@ -2,10 +2,17 @@
 
 import { useMemo, useRef, useCallback } from "react";
 
-import { useConfirm } from "@/components/admin/dialogs/useConfirm";
 import { ListPage } from "@/components/admin/listing/ListPage";
-import { useToast } from "@/components/admin/toast/ToastProvider";
-import { Button, Dialog, SecondaryButton } from "@/components/ui";
+import { Button } from "@/components/ui/button";
+
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+
+import { useConfirm } from "@/hooks/useConfirm";
 import { getAgentColumns } from "@/features/agents/agents.columns";
 import AgentDetails from "@/features/agents/agent.details";
 import AgentForm from "@/features/agents/agent.form";
@@ -16,11 +23,9 @@ import { useAgentsCrud } from "@/features/agents/useAgentCrud";
 export default function AgentsPage() {
   const refreshRef = useRef<null | (() => void)>(null);
   const { confirm, ConfirmDialog } = useConfirm();
-  const { showToast } = useToast();
 
   const crud = useAgentsCrud({
     confirm,
-    showToast,
     refresh: () => refreshRef.current?.(),
   });
 
@@ -40,7 +45,7 @@ export default function AgentsPage() {
         togglingIds: crud.togglingIds,
         onToggleActive: crud.toggleActive,
       }),
-    [crud.deleteAgent, crud.openEdit, crud.toggleActive, crud.togglingIds, crud.openView]
+    [crud]
   );
 
   const handleEditFromDetails = useCallback(() => {
@@ -50,27 +55,12 @@ export default function AgentsPage() {
     crud.openEdit(agent);
   }, [crud]);
 
-  const detailsFooter = useMemo(
-    () => (
-      <div className="flex justify-end gap-2">
-        <SecondaryButton type="button" onClick={crud.closeView}>
-          Fermer
-        </SecondaryButton>
-
-        <Button type="button" onClick={handleEditFromDetails} disabled={!crud.detailsAgent}>
-          Éditer
-        </Button>
-      </div>
-    ),
-    [crud.closeView, crud.detailsAgent, handleEditFromDetails]
-  );
-
   const detailsBody = useMemo(
     () =>
       crud.detailsAgent ? (
         <AgentDetails agent={crud.detailsAgent as any} />
       ) : (
-        <div className="text-sm text-zinc-600">Aucune donnée.</div>
+        <div className="text-sm text-muted-foreground">Aucune donnée.</div>
       ),
     [crud.detailsAgent]
   );
@@ -83,11 +73,7 @@ export default function AgentsPage() {
         fetcher={fetcher}
         columns={columns}
         getRowId={(a) => a.id}
-        headerRight={
-          <Button variant="success" onClick={crud.openCreate}>
-            Créer
-          </Button>
-        }
+        headerRight={<Button onClick={crud.openCreate}>Créer</Button>}
         emptyTitle="Aucun agent"
         emptyDescription="Commence par créer ton premier agent."
         onReady={(api) => {
@@ -97,29 +83,48 @@ export default function AgentsPage() {
 
       <ConfirmDialog />
 
-      <Dialog
-        open={crud.detailsOpen}
-        title="Détail agent"
-        onClose={crud.closeView}
-        maxWidthClassName="max-w-2xl"
-        footer={detailsFooter}
-      >
-        {detailsBody}
+      {/* Details */}
+      <Dialog open={crud.detailsOpen} onOpenChange={(v) => !v && crud.closeView()}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Détail agent</DialogTitle>
+          </DialogHeader>
+
+          {detailsBody}
+
+          <div className="mt-4 flex justify-end gap-2">
+            <Button variant="outline" type="button" onClick={crud.closeView}>
+              Fermer
+            </Button>
+            <Button
+              type="button"
+              onClick={handleEditFromDetails}
+              disabled={!crud.detailsAgent}
+            >
+              Éditer
+            </Button>
+          </div>
+        </DialogContent>
       </Dialog>
 
-      <Dialog
-        open={crud.modalOpen}
-        title={crud.modalMode === "create" ? "Créer un agent" : "Modifier l'agent"}
-        onClose={crud.closeModal}
-      >
-        <AgentForm
-          key={`${crud.modalMode}-${crud.selectedAgent?.id ?? "new"}`}
-          mode={crud.modalMode}
-          initialAgent={crud.selectedAgent}
-          submitting={crud.submitting}
-          onCancel={crud.closeModal}
-          onSubmit={crud.submitForm}
-        />
+      {/* Create / Edit */}
+      <Dialog open={crud.modalOpen} onOpenChange={(v) => !v && crud.closeModal()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {crud.modalMode === "create" ? "Créer un agent" : "Modifier l'agent"}
+            </DialogTitle>
+          </DialogHeader>
+
+          <AgentForm
+            key={`${crud.modalMode}-${crud.selectedAgent?.id ?? "new"}`}
+            mode={crud.modalMode}
+            initialAgent={crud.selectedAgent}
+            submitting={crud.submitting}
+            onCancel={crud.closeModal}
+            onSubmit={crud.submitForm}
+          />
+        </DialogContent>
       </Dialog>
     </>
   );

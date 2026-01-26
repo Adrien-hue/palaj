@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import { toast } from "sonner";
+
 import type { Agent, AgentDetails } from "@/types";
 import {
   activateAgent,
@@ -15,27 +17,12 @@ import {
   type AgentFormSubmitValues,
 } from "@/features/agents/buildAgentPatch";
 
-export type ConfirmFn = (opts: {
-  title: string;
-  description?: string;
-  confirmText?: string;
-  cancelText?: string;
-  variant?: "danger" | "default";
-}) => Promise<boolean>;
+import type { ConfirmOptions } from "@/hooks/useConfirm";
 
-export type ShowToastFn = (t: {
-  type: "success" | "error" | "info";
-  title: string;
-  message?: string;
-  durationMs?: number;
-}) => void;
+export type ConfirmFn = (opts: ConfirmOptions) => Promise<boolean>;
 
-export function useAgentsCrud(opts: {
-  confirm: ConfirmFn;
-  showToast: ShowToastFn;
-  refresh: () => void;
-}) {
-  const { confirm, showToast, refresh } = opts;
+export function useAgentsCrud(opts: { confirm: ConfirmFn; refresh: () => void }) {
+  const { confirm, refresh } = opts;
 
   const [editLoadingId, setEditLoadingId] = useState<number | null>(null);
 
@@ -64,17 +51,14 @@ export function useAgentsCrud(opts: {
         setDetailsAgent(full);
         setDetailsOpen(true);
       } catch (e) {
-        showToast({
-          type: "error",
-          title: "Chargement impossible",
-          message: e instanceof Error ? e.message : "Erreur inconnue",
-          durationMs: 6000,
+        toast.error("Chargement impossible", {
+          description: e instanceof Error ? e.message : "Erreur inconnue",
         });
       } finally {
         setViewLoadingId(null);
       }
     },
-    [showToast, viewLoadingId]
+    [viewLoadingId]
   );
 
   const openCreate = useCallback(() => {
@@ -99,17 +83,14 @@ export function useAgentsCrud(opts: {
         setModalMode("edit");
         setModalOpen(true);
       } catch (e) {
-        showToast({
-          type: "error",
-          title: "Chargement impossible",
-          message: e instanceof Error ? e.message : "Erreur inconnue",
-          durationMs: 6000,
+        toast.error("Chargement impossible", {
+          description: e instanceof Error ? e.message : "Erreur inconnue",
         });
       } finally {
         setEditLoadingId(null);
       }
     },
-    [editLoadingId, showToast]
+    [editLoadingId]
   );
 
   const deleteAgent = useCallback(
@@ -125,22 +106,17 @@ export function useAgentsCrud(opts: {
 
       try {
         await removeAgent(a.id);
-        showToast({
-          type: "success",
-          title: "Agent supprimé",
-          message: `${a.nom} ${a.prenom} a été supprimé.`,
+        toast.success("Agent supprimé", {
+          description: `${a.nom} ${a.prenom} a été supprimé.`,
         });
         refresh();
       } catch (e) {
-        showToast({
-          type: "error",
-          title: "Suppression impossible",
-          message: e instanceof Error ? e.message : "Erreur inconnue",
-          durationMs: 6000,
+        toast.error("Suppression impossible", {
+          description: e instanceof Error ? e.message : "Erreur inconnue",
         });
       }
     },
-    [confirm, refresh, showToast]
+    [confirm, refresh]
   );
 
   const toggleActive = useCallback(
@@ -158,27 +134,19 @@ export function useAgentsCrud(opts: {
 
       setTogglingIds((prev) => new Set(prev).add(a.id));
       try {
-        if (a.actif) {
-          await deactivateAgent(a.id);
-        } else {
-          await activateAgent(a.id);
-        }
+        if (a.actif) await deactivateAgent(a.id);
+        else await activateAgent(a.id);
 
-        showToast({
-          type: "success",
-          title: a.actif ? "Agent désactivé" : "Agent activé",
-          message: `${a.nom} ${a.prenom} est maintenant ${
+        toast.success(a.actif ? "Agent désactivé" : "Agent activé", {
+          description: `${a.nom} ${a.prenom} est maintenant ${
             a.actif ? "inactif" : "actif"
           }.`,
         });
 
         refresh();
       } catch (e) {
-        showToast({
-          type: "error",
-          title: "Action impossible",
-          message: e instanceof Error ? e.message : "Erreur inconnue",
-          durationMs: 6000,
+        toast.error("Action impossible", {
+          description: e instanceof Error ? e.message : "Erreur inconnue",
         });
       } finally {
         setTogglingIds((prev) => {
@@ -188,7 +156,7 @@ export function useAgentsCrud(opts: {
         });
       }
     },
-    [confirm, refresh, showToast]
+    [confirm, refresh]
   );
 
   const submitForm = useCallback(
@@ -203,31 +171,27 @@ export function useAgentsCrud(opts: {
             regime_id: values.regime_id,
             actif: true,
           });
-
-          showToast({ type: "success", title: "Agent créé" });
+          toast.success("Agent créé");
         } else {
           if (!selectedAgent) return;
 
           const patch = buildAgentPatch(selectedAgent, values);
           await patchAgent(selectedAgent.id, patch as any);
 
-          showToast({ type: "success", title: "Agent mis à jour" });
+          toast.success("Agent mis à jour");
         }
 
         setModalOpen(false);
         refresh();
       } catch (e) {
-        showToast({
-          type: "error",
-          title: "Enregistrement impossible",
-          message: e instanceof Error ? e.message : "Erreur inconnue",
-          durationMs: 6000,
+        toast.error("Enregistrement impossible", {
+          description: e instanceof Error ? e.message : "Erreur inconnue",
         });
       } finally {
         setSubmitting(false);
       }
     },
-    [modalMode, refresh, selectedAgent, showToast]
+    [modalMode, refresh, selectedAgent]
   );
 
   return {
