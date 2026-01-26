@@ -1,49 +1,82 @@
 "use client";
 
-import { useMemo, useRef, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 
-import { ListPage } from "@/components/admin/listing/ListPage";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import type { Agent } from "@/types";
+import { listAgents } from "@/services/agents.service";
 
 import { useConfirm } from "@/hooks/useConfirm";
-import { getAgentColumns } from "@/features/agents/agents.columns";
+import { useAgentsCrud } from "@/features/agents/useAgentCrud";
 import AgentDetails from "@/features/agents/agent.details";
 import AgentForm from "@/features/agents/agent.form";
-import { listAgents } from "@/services/agents.service";
-import type { Agent } from "@/types";
-import { useAgentsCrud } from "@/features/agents/useAgentCrud";
+
+import { ClientDataTable } from "@/components/tables/ClientDataTable";
+import { getAgentTableColumns } from "@/features/agents/agents.table-columns";
+
+async function fetchAllAgents() {
+  const pageSize = 200;
+  let page = 1;
+  const all: Agent[] = [];
+
+  while (true) {
+    const res = await listAgents({ page, page_size: pageSize });
+    all.push(...res.items);
+    if (res.items.length < pageSize) break;
+    page += 1;
+  }
+
+  return all;
+}
 
 export default function AgentsPage() {
-  const refreshRef = useRef<null | (() => void)>(null);
   const { confirm, ConfirmDialog } = useConfirm();
 
-  const crud = useAgentsCrud({
-    confirm,
-    refresh: () => refreshRef.current?.(),
-  });
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const fetcher = useMemo(
-    () =>
-      ({ page, pageSize }: { page: number; pageSize: number }) =>
-        listAgents({ page, page_size: pageSize }),
-    []
-  );
+  const refreshRef = useRef<null | (() => void)>(null);
+  const refresh = useCallback(() => refreshRef.current?.(), []);
+
+  const crud = useAgentsCrud({ confirm, refresh });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function run() {
+      setLoading(true);
+      setError(null);
+      try {
+        const all = await fetchAllAgents();
+        if (!cancelled) setAgents(all);
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : "Erreur inconnue");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    refreshRef.current = run;
+    run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const columns = useMemo(
     () =>
-      getAgentColumns({
+      getAgentTableColumns({
         onView: crud.openView,
         onEdit: crud.openEdit,
         onDelete: crud.deleteAgent,
-        togglingIds: crud.togglingIds,
         onToggleActive: crud.toggleActive,
+        togglingIds: crud.togglingIds,
       }),
     [crud]
   );
@@ -67,19 +100,82 @@ export default function AgentsPage() {
 
   return (
     <>
-      <ListPage<Agent>
-        title="Agents"
-        description="Gestion des agents"
-        fetcher={fetcher}
-        columns={columns}
-        getRowId={(a) => a.id}
-        headerRight={<Button onClick={crud.openCreate}>Créer</Button>}
-        emptyTitle="Aucun agent"
-        emptyDescription="Commence par créer ton premier agent."
-        onReady={(api) => {
-          refreshRef.current = api.refresh;
-        }}
-      />
+      {/* Page header */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="truncate text-2xl font-semibold tracking-tight">Agents</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Gestion des agents
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={refresh} disabled={loading}>
+            Actualiser
+          </Button>
+          <Button onClick={crud.openCreate}>Créer</Button>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="mt-4">
+        {loading ? (
+          <Card>
+            <CardHeader className="space-y-2">
+              <Skeleton className="h-5 w-40" />
+              <Skeleton className="h-4 w-72" />
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+            </CardContent>
+          </Card>
+        ) : error ? (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Erreur</CardTitle>
+              <CardDescription className="text-destructive">{error}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button onClick={refresh}>Réessayer</Button>
+            </CardContent>
+          </Card>
+        ) : agents.length === 0 ? (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Aucun agent</CardTitle>
+              <CardDescription>Commence par créer ton premier agent.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button onClick={crud.openCreate}>Créer un agent</Button>
+            </CardContent>
+          </Card>
+        ) : (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Liste des agents</CardTitle>
+              <CardDescription>
+                Recherche, tri, pagination et colonnes configurables.
+              </CardDescription>
+            </CardHeader>
+
+            <CardContent className="p-0">
+              <div className="p-4 pt-0">
+                <ClientDataTable<Agent>
+                  data={agents}
+                  columns={columns}
+                  searchPlaceholder="Rechercher un agent…"
+                  initialPageSize={20}
+                  maxHeightClassName="max-h-[calc(100dvh-360px)]"
+                  enableColumnVisibility={false}
+                />
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
 
       <ConfirmDialog />
 
@@ -96,11 +192,7 @@ export default function AgentsPage() {
             <Button variant="outline" type="button" onClick={crud.closeView}>
               Fermer
             </Button>
-            <Button
-              type="button"
-              onClick={handleEditFromDetails}
-              disabled={!crud.detailsAgent}
-            >
+            <Button type="button" onClick={handleEditFromDetails} disabled={!crud.detailsAgent}>
               Éditer
             </Button>
           </div>
