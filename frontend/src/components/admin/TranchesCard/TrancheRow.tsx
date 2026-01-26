@@ -1,7 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, SecondaryButton } from "@/components/ui";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
 import type { TrancheDraft } from "./types";
 import { formatRange, isValidTimeHHMM } from "./helpers";
 
@@ -45,12 +49,10 @@ export default function TrancheRow({
 
   const [draft, setDraft] = useState<TrancheDraft>(baseDraft);
 
-  // Keep draft in sync with props when data changes from outside (refresh, optimistic updates, etc.)
   useEffect(() => {
     setDraft(baseDraft);
   }, [baseDraft]);
 
-  // When leaving edit mode, always reset draft to source-of-truth props
   useEffect(() => {
     if (!isEditing) setDraft(baseDraft);
   }, [isEditing, baseDraft]);
@@ -99,90 +101,103 @@ export default function TrancheRow({
   }, [draft, onSave]);
 
   return (
-    <div className="flex items-center justify-between gap-3 rounded-xl bg-zinc-50 px-3 py-2 ring-1 ring-zinc-100">
-      <div className="min-w-0">
-        <div className="truncate text-sm text-zinc-900">{label}</div>
-        {!isEditing ? (
-          <div className="mt-0.5 text-xs text-zinc-600">
-            {formatRange(heure_debut, heure_fin)}
-          </div>
-        ) : null}
+    <div className="rounded-xl border bg-muted/30 p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-medium">{label}</div>
+          {!isEditing ? (
+            <div className="mt-0.5 text-xs text-muted-foreground">
+              {formatRange(heure_debut, heure_fin)}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="flex shrink-0 items-center gap-2">
+          {isEditing ? (
+            <>
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleSave}
+                disabled={!canSave}
+                title={!canSave ? "Aucun changement à enregistrer" : "Enregistrer"}
+              >
+                Enregistrer
+              </Button>
+
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleCancel}
+                disabled={actionsDisabled}
+              >
+                Annuler
+              </Button>
+            </>
+          ) : (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onStartEdit}
+              disabled={actionsDisabled}
+            >
+              Modifier
+            </Button>
+          )}
+
+          <Button
+            type="button"
+            variant="destructive"
+            size="sm"
+            onClick={onDelete}
+            disabled={actionsDisabled}
+          >
+            Supprimer
+          </Button>
+        </div>
       </div>
 
-      <div className="flex items-center gap-2">
-        {isEditing ? (
-          <>
-            <input
-              className="w-28 rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs"
+      {isEditing ? (
+        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-1.5">
+            <Label htmlFor={`tranche-${id}-nom`}>Nom</Label>
+            <Input
+              id={`tranche-${id}-nom`}
               value={draft.nom}
               onChange={(e) => updateName(e.target.value)}
               disabled={actionsDisabled}
               placeholder="GTI M"
               autoComplete="off"
-              aria-label="Tranche name"
             />
+          </div>
 
-            <input
+          <div className="grid gap-1.5">
+            <Label htmlFor={`tranche-${id}-start`}>Début</Label>
+            <Input
+              id={`tranche-${id}-start`}
               type="time"
               step={60}
-              className="w-24 rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs"
               value={draft.heure_debut}
               onChange={(e) => updateStart(e.target.value)}
               disabled={actionsDisabled}
-              aria-label="Start time"
             />
+          </div>
 
-            <input
+          <div className="grid gap-1.5">
+            <Label htmlFor={`tranche-${id}-end`}>Fin</Label>
+            <Input
+              id={`tranche-${id}-end`}
               type="time"
               step={60}
-              className="w-24 rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs"
               value={draft.heure_fin}
               onChange={(e) => updateEnd(e.target.value)}
               disabled={actionsDisabled}
-              aria-label="End time"
             />
-
-            <Button
-              type="button"
-              variant="successSoft"
-              size="compact"
-              onClick={handleSave}
-              disabled={!canSave}
-              title={!canSave ? "Aucun changement à enregistrer" : "Enregistrer"}
-            >
-              OK
-            </Button>
-
-            <SecondaryButton
-              type="button"
-              size="compact"
-              onClick={handleCancel}
-              disabled={actionsDisabled}
-            >
-              Annuler
-            </SecondaryButton>
-          </>
-        ) : (
-          <SecondaryButton
-            type="button"
-            size="compact"
-            onClick={onStartEdit}
-            disabled={actionsDisabled}
-          >
-            Modifier
-          </SecondaryButton>
-        )}
-
-        <Button
-          type="button"
-          variant="dangerSoft"
-          size="compact"
-          onClick={onDelete}
-          disabled={actionsDisabled}
-        >
-          Supprimer
-        </Button>
-      </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -1,11 +1,15 @@
-// frontend/src/components/admin/TranchesCard/TranchesCard.tsx
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import CardHeader from "./CardHeader";
+
+import { Card, CardContent } from "@/components/ui/card";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+
+import TranchesCardHeader from "./TranchesCardHeader";
 import AddTranchePanel from "./AddTranchePanel";
 import TrancheRow from "./TrancheRow";
 import TranchesTimeline from "./TranchesTimeline";
+
 import { toApiTime, toTimeInput } from "./helpers";
 import type { TrancheDraft, TranchesCardProps } from "./types";
 
@@ -20,27 +24,20 @@ export function TranchesCard({
   onDelete,
   confirmDelete,
 }: TranchesCardProps) {
-  // ---- UI state
   const [error, setError] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [listOpen, setListOpen] = useState(true);
+  const [listOpen, setListOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
 
-  // Keep "Add" form state local to the card
   const [addDraft, setAddDraft] = useState<TrancheDraft>(EMPTY_DRAFT);
 
-  // Refs used to scroll to a row after selecting from the timeline
   const listContainerRef = useRef<HTMLDivElement | null>(null);
   const rowRefs = useRef<Record<number, HTMLDivElement | null>>({});
 
-  // ---- Locks
-  // Don't allow opening "Add" while editing a row
   const lockAdd = disabled || editingId !== null;
-  // Don't allow editing / deleting rows while "Add" panel is open
   const lockRows = disabled || addOpen;
 
-  // ---- Derived rows for the editable list
   const rows = useMemo(() => {
     return tranches
       .slice()
@@ -48,14 +45,13 @@ export function TranchesCard({
       .map((t) => ({
         id: t.id,
         nom: t.nom,
-        heure_debut: toTimeInput(t.heure_debut), // "HH:MM"
-        heure_fin: toTimeInput(t.heure_fin), // "HH:MM"
+        heure_debut: toTimeInput(t.heure_debut),
+        heure_fin: toTimeInput(t.heure_fin),
       }));
   }, [tranches]);
 
   const hasRows = rows.length > 0;
 
-  // ---- Helpers
   function resetAddForm() {
     setAddDraft(EMPTY_DRAFT);
   }
@@ -65,7 +61,6 @@ export function TranchesCard({
     resetAddForm();
   }
 
-  // ---- Actions
   async function handleAdd() {
     if (disabled) return;
 
@@ -81,7 +76,7 @@ export function TranchesCard({
       });
       closeAdd();
     } catch (e: any) {
-      setError(e?.message ?? "Failed to add tranche.");
+      setError(e?.message ?? "Impossible d’ajouter la tranche.");
     }
   }
 
@@ -97,7 +92,7 @@ export function TranchesCard({
       setSelectedId((cur) => (cur === id ? null : cur));
       if (editingId === id) setEditingId(null);
     } catch (e: any) {
-      setError(e?.message ?? "Failed to delete tranche.");
+      setError(e?.message ?? "Impossible de supprimer la tranche.");
     }
   }
 
@@ -112,29 +107,29 @@ export function TranchesCard({
         heure_fin: toApiTime(draft.heure_fin),
       });
     } catch (e: any) {
-      setError(e?.message ?? "Failed to update tranche.");
+      setError(e?.message ?? "Impossible de mettre à jour la tranche.");
       throw e;
     }
   }
 
-  function openAdd() {
-    // Keep list open so we always have a safe scroll area (prevents page overflow)
+  function toggleAdd() {
     setListOpen(true);
-    // Add mode and edit mode are mutually exclusive
     setEditingId(null);
-    // Clear selection so the highlight doesn't feel "stuck"
     setSelectedId(null);
 
-    setAddOpen((v) => !v);
-    if (addOpen) resetAddForm();
+    setAddOpen((prev) => {
+      const next = !prev;
+      if (!next) resetAddForm(); // on ferme -> reset
+      return next;
+    });
   }
 
   function startEdit(id: number) {
     setListOpen(true);
     setSelectedId(id);
 
-    // Edit mode and add mode are mutually exclusive
     setAddOpen(false);
+    resetAddForm();
     setEditingId(id);
   }
 
@@ -145,14 +140,20 @@ export function TranchesCard({
   function selectFromTimeline(id: number) {
     setSelectedId(id);
 
-    // Don't disrupt an ongoing add/edit; only focus/scroll when the UI is idle
+    // Don’t disturb ongoing add/edit
     if (addOpen || editingId !== null) return;
 
     setListOpen(true);
 
     requestAnimationFrame(() => {
-      listContainerRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-      rowRefs.current[id]?.scrollIntoView({ behavior: "smooth", block: "center" });
+      listContainerRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+      });
+      rowRefs.current[id]?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
     });
   }
 
@@ -161,88 +162,99 @@ export function TranchesCard({
   const showAddStandalone = (!showListArea && addOpen) || (!hasRows && addOpen);
 
   return (
-    <div className="rounded-2xl bg-white p-4 ring-1 ring-zinc-200">
-      <CardHeader
+    <Card>
+      <TranchesCardHeader
         title={title}
         count={rows.length}
         disabled={disabled}
         addDisabled={lockAdd}
-        onToggleAdd={openAdd}
+        onToggleAdd={toggleAdd}
         listOpen={listOpen}
         onToggleList={() => setListOpen((v) => !v)}
       />
 
-      {error ? <div className="mt-2 text-sm text-red-600">{error}</div> : null}
+      <CardContent className="space-y-4">
+        {error ? (
+          <Alert variant="destructive">
+            <AlertTitle>Erreur</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        ) : null}
 
-      {/* Visual, read-only view (click -> focus row in list) */}
-      <TranchesTimeline tranches={tranches} markerEveryHours={2} onSelectTranche={selectFromTimeline} />
+        <TranchesTimeline
+          tranches={tranches}
+          markerEveryHours={2}
+          onSelectTranche={selectFromTimeline}
+        />
 
-      {/* Empty state (when list is open but there are no rows) */}
-      {!hasRows && !addOpen ? (
-        <div className="mt-3 text-sm text-zinc-600">Aucune tranche.</div>
-      ) : null}
+        {!hasRows && !addOpen ? (
+          <div className="text-sm text-muted-foreground">Aucune tranche.</div>
+        ) : null}
 
-      {/* Scrollable list area */}
-      {showListArea ? (
-        <div className="mt-3">
-          <div
-            ref={listContainerRef}
-            className="max-h-[360px] overflow-auto rounded-xl bg-white p-2 ring-1 ring-zinc-200"
-          >
-            <div className="space-y-2">
-              {rows.map((r) => (
-                <div
-                  key={r.id}
-                  ref={(el) => {
-                    rowRefs.current[r.id] = el;
-                  }}
-                  className={["rounded-xl", selectedId === r.id ? "ring-2 ring-zinc-400" : ""].join(" ")}
-                >
-                  <TrancheRow
-                    id={r.id}
-                    label={r.nom}
-                    heure_debut={r.heure_debut}
-                    heure_fin={r.heure_fin}
-                    disabled={disabled}
-                    locked={lockRows || (editingId !== null && editingId !== r.id)}
-                    isEditing={editingId === r.id}
-                    onStartEdit={() => startEdit(r.id)}
-                    onCancelEdit={cancelEdit}
-                    onDelete={() => handleDelete(r.id, r.nom)}
-                    onSave={async (draft) => {
-                      try {
-                        await handleUpdate(r.id, draft);
-                        setEditingId(null);
-                      } catch {
-                        // keep editing open on error
-                      }
+        {showListArea ? (
+          <div>
+            <div
+              ref={listContainerRef}
+              className="max-h-[360px] overflow-auto rounded-xl border bg-background p-2"
+            >
+              <div className="space-y-2">
+                {rows.map((r) => (
+                  <div
+                    key={r.id}
+                    ref={(el) => {
+                      rowRefs.current[r.id] = el;
                     }}
+                    className={[
+                      "rounded-xl",
+                      selectedId === r.id
+                        ? "ring-2 ring-ring ring-offset-2 ring-offset-background"
+                        : "",
+                    ].join(" ")}
+                  >
+                    <TrancheRow
+                      id={r.id}
+                      label={r.nom}
+                      heure_debut={r.heure_debut}
+                      heure_fin={r.heure_fin}
+                      disabled={disabled}
+                      locked={lockRows || (editingId !== null && editingId !== r.id)}
+                      isEditing={editingId === r.id}
+                      onStartEdit={() => startEdit(r.id)}
+                      onCancelEdit={cancelEdit}
+                      onDelete={() => handleDelete(r.id, r.nom)}
+                      onSave={async (draft) => {
+                        try {
+                          await handleUpdate(r.id, draft);
+                          setEditingId(null);
+                        } catch {
+                          // keep editing open on error
+                        }
+                      }}
+                    />
+                  </div>
+                ))}
+              </div>
+
+              {showAddInsideList ? (
+                <div className="mt-3">
+                  <AddTranchePanel
+                    disabled={disabled}
+                    draft={addDraft}
+                    onChange={setAddDraft}
+                    onCancel={closeAdd}
+                    onSubmit={handleAdd}
                   />
                 </div>
-              ))}
+              ) : null}
             </div>
 
-            {/* Keep Add panel inside scrollable container to avoid page overflow */}
-            {showAddInsideList ? (
-              <div className="mt-3">
-                <AddTranchePanel
-                  disabled={disabled}
-                  draft={addDraft}
-                  onChange={setAddDraft}
-                  onCancel={closeAdd}
-                  onSubmit={handleAdd}
-                />
-              </div>
-            ) : null}
+            <div className="mt-2 text-[11px] text-muted-foreground">
+              Faites défiler pour voir plus de tranches.
+            </div>
           </div>
+        ) : null}
 
-          <div className="mt-2 text-[11px] text-zinc-500">Faites défiler pour voir plus de tranches.</div>
-        </div>
-      ) : null}
-
-      {/* If the list is hidden or empty but Add is open, show Add panel below */}
-      {showAddStandalone ? (
-        <div className="mt-3">
+        {showAddStandalone ? (
           <AddTranchePanel
             disabled={disabled}
             draft={addDraft}
@@ -250,8 +262,8 @@ export function TranchesCard({
             onCancel={closeAdd}
             onSubmit={handleAdd}
           />
-        </div>
-      ) : null}
-    </div>
+        ) : null}
+      </CardContent>
+    </Card>
   );
 }

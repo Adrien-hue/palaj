@@ -1,7 +1,11 @@
 "use client";
 
 import { useCallback, useMemo } from "react";
-import { Button, SecondaryButton } from "@/components/ui";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
 import type { TrancheDraft } from "./types";
 import { isValidTimeHHMM } from "./helpers";
 
@@ -44,62 +48,67 @@ export default function AddTranchePanel({
   );
 
   return (
-    <div className="mt-4 rounded-xl bg-zinc-50 p-3 ring-1 ring-zinc-200">
-      <div className="text-sm font-semibold text-zinc-900">Add a tranche</div>
-      <div className="mt-1 text-xs text-zinc-600">Name + start/end times.</div>
+    <div className="rounded-xl border bg-muted/30 p-3">
+      <div className="text-sm font-semibold">Ajouter une tranche</div>
+      <div className="mt-1 text-xs text-muted-foreground">
+        Nom + horaires de début/fin.
+      </div>
 
-      <div className="mt-3 grid gap-2 sm:grid-cols-3">
-        <label className="text-xs text-zinc-700">
-          Name
-          <input
-            className="mt-1 w-full rounded-lg border border-zinc-200 bg-white px-2 py-2 text-sm"
+      <div className="mt-3 grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-1.5">
+          <Label htmlFor="tranche-nom">Nom</Label>
+          <Input
+            id="tranche-nom"
             value={draft.nom}
             onChange={(e) => updateName(e.target.value)}
             disabled={disabled}
             placeholder="T1"
             autoComplete="off"
           />
-        </label>
+        </div>
 
-        <label className="text-xs text-zinc-700">
-          Start
-          <input
+        <div className="grid gap-1.5">
+          <Label htmlFor="tranche-start">Début</Label>
+          <Input
+            id="tranche-start"
             type="time"
-            className="mt-1 w-full rounded-lg border border-zinc-200 bg-white px-2 py-2 text-sm"
             value={draft.heure_debut}
             onChange={(e) => updateStart(e.target.value)}
             disabled={disabled}
-            step={60} // minutes precision (keeps UI simple)
+            step={60}
           />
-        </label>
+        </div>
 
-        <label className="text-xs text-zinc-700">
-          End
-          <input
+        <div className="grid gap-1.5">
+          <Label htmlFor="tranche-end">Fin</Label>
+          <Input
+            id="tranche-end"
             type="time"
-            className="mt-1 w-full rounded-lg border border-zinc-200 bg-white px-2 py-2 text-sm"
             value={draft.heure_fin}
             onChange={(e) => updateEnd(e.target.value)}
             disabled={disabled}
             step={60}
           />
-        </label>
+        </div>
       </div>
 
       <div className="mt-3 flex justify-end gap-2">
-        <SecondaryButton type="button" size="compact" onClick={onCancel} disabled={disabled}>
-          Cancel
-        </SecondaryButton>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={onCancel}
+          disabled={disabled}
+        >
+          Annuler
+        </Button>
 
         <Button
           type="button"
-          variant="successSoft"
-          size="compact"
           onClick={onSubmit}
           disabled={!canSubmit}
-          title={!canSubmit ? "Fill name + valid start/end times" : "Add tranche"}
+          title={!canSubmit ? "Nom + horaires valides requis" : "Ajouter la tranche"}
         >
-          Add
+          Ajouter
         </Button>
       </div>
     </div>
