@@ -1,9 +1,22 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Button, SecondaryButton } from "@/components/ui";
-import { AdminDetailsCard } from "@/components/admin/AdminDetailsCard";
+
+import { cn } from "@/lib/utils";
+
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
 import { AdminDetailsRow } from "@/components/admin/AdminDetailsRow";
+
 import type { AgentRegimeCardProps, RegimeOption } from "./types";
 import { normalizeDesc } from "./helpers";
 
@@ -25,15 +38,16 @@ export function AgentRegimeCard({
 
   const initialId = regime?.id ?? null;
 
-  const [draftId, setDraftId] = useState<number | "">(initialId ?? "");
-  const [selectedHint, setSelectedHint] = useState<string | null>(
-    normalizeDesc(regime?.desc)
-  );
+  // Valeur Radix: jamais ""
+  const NONE = "__none__";
+
+  const [draftId, setDraftId] = useState<string>(initialId != null ? String(initialId) : NONE);
+  const [selectedHint, setSelectedHint] = useState<string | null>(normalizeDesc(regime?.desc));
 
   // When parent regime changes (after save), sync draft if not editing
   useEffect(() => {
     if (editing) return;
-    setDraftId(initialId ?? "");
+    setDraftId(initialId != null ? String(initialId) : NONE);
     setSelectedHint(normalizeDesc(regime?.desc));
   }, [editing, initialId, regime?.desc]);
 
@@ -48,8 +62,7 @@ export function AgentRegimeCard({
         const opts = await loadOptions();
         if (!cancelled) setOptions(opts);
       } catch (e: any) {
-        if (!cancelled)
-          setError(e?.message ?? "Impossible de charger les régimes.");
+        if (!cancelled) setError(e?.message ?? "Impossible de charger les régimes.");
       } finally {
         if (!cancelled) setOptLoading(false);
       }
@@ -71,11 +84,11 @@ export function AgentRegimeCard({
   const locked = disabled || busy;
 
   const isDirty = useMemo(() => {
-    const cur = initialId ?? "";
+    const cur = initialId != null ? String(initialId) : NONE;
     return draftId !== cur;
   }, [draftId, initialId]);
 
-  const canSave = editing && canEdit && draftId !== "" && isDirty;
+  const canSave = editing && canEdit && draftId !== NONE && isDirty;
 
   async function handleSave() {
     if (!canSave) return;
@@ -93,7 +106,7 @@ export function AgentRegimeCard({
 
   function handleCancel() {
     if (locked) return;
-    setDraftId(initialId ?? "");
+    setDraftId(initialId != null ? String(initialId) : NONE);
     setSelectedHint(normalizeDesc(regime?.desc));
     setEditing(false);
     setError(null);
@@ -111,7 +124,7 @@ export function AgentRegimeCard({
     try {
       await onClearRegime();
       setEditing(false);
-      setDraftId("");
+      setDraftId(NONE);
       setSelectedHint(null);
     } catch (e: any) {
       setError(e?.message ?? "Suppression impossible.");
@@ -121,118 +134,133 @@ export function AgentRegimeCard({
   }
 
   return (
-    <AdminDetailsCard title={title}>
-      {/* Summary */}
-      {regime ? (
-        <div>
-          <AdminDetailsRow label="Nom" value={regime.nom} />
-          <AdminDetailsRow label="Description" value={regime.desc || "—"} />
-        </div>
-      ) : (
-        <div className="text-sm text-zinc-600">Aucun régime.</div>
-      )}
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">{title}</CardTitle>
+      </CardHeader>
 
-      {error ? <div className="mt-3 text-sm text-red-600">{error}</div> : null}
-
-      {!editing ? (
-        <div className="mt-3 flex justify-end">
-          <SecondaryButton
-            type="button"
-            size="compact"
-            onClick={() => {
-              if (!canEdit) return;
-              setEditing(true);
-
-              // Preselect first option if none
-              if (draftId === "" && options.length > 0) {
-                setDraftId(options[0].id);
-                setSelectedHint(options[0].hint ?? null);
-              }
-            }}
-            disabled={!canEdit || optLoading}
-          >
-            Modifier
-          </SecondaryButton>
-        </div>
-      ) : (
-        <div className="mt-3 rounded-xl bg-zinc-50 p-3 ring-1 ring-zinc-200">
-          <div className="text-xs font-medium text-zinc-700">
-            Choisir un régime
+      <CardContent className="space-y-4">
+        {/* Summary */}
+        {regime ? (
+          <div className="grid gap-0">
+            <AdminDetailsRow label="Nom" value={regime.nom} />
+            <AdminDetailsRow label="Description" value={regime.desc || "—"} />
           </div>
+        ) : (
+          <div className="text-sm text-muted-foreground">Aucun régime.</div>
+        )}
 
-          <div className="mt-2">
-            <select
-              className="w-full rounded-lg border border-zinc-200 bg-white px-2 py-2 text-sm"
-              value={draftId}
-              onChange={(e) => {
-                const v = e.target.value ? Number(e.target.value) : "";
-                setDraftId(v);
+        {error ? (
+          <Alert variant="destructive">
+            <AlertTitle>Erreur</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        ) : null}
 
-                if (v !== "") {
-                  const opt = optionById.get(v);
-                  setSelectedHint(opt?.hint ?? null);
-                } else {
-                  setSelectedHint(null);
-                }
-              }}
-              disabled={locked || optLoading}
-              title={selectedHint ?? undefined}
-            >
-              {options.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-
-            {selectedHint ? (
-              <div className="mt-1 text-xs text-zinc-600">{selectedHint}</div>
-            ) : (
-              <div className="mt-1 text-xs text-zinc-500">—</div>
-            )}
-          </div>
-
-          {/* Footer actions (consistent with other cards/forms) */}
-          <div className="mt-3 flex items-center justify-between gap-2">
+        {!editing ? (
+          <div className="flex justify-end">
             <Button
               type="button"
-              variant="dangerSoft"
-              size="compact"
-              onClick={handleClear}
-              disabled={locked || !regime}
-              title={!regime ? "Aucun régime à retirer" : "Retirer le régime"}
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if (!canEdit) return;
+                setEditing(true);
+
+                // Preselect first option if none
+                if (draftId === NONE && options.length > 0) {
+                  const first = options[0];
+                  setDraftId(String(first.id));
+                  setSelectedHint(first.hint ?? null);
+                }
+              }}
+              disabled={!canEdit || optLoading}
             >
-              Retirer
+              Modifier
             </Button>
+          </div>
+        ) : (
+          <div className={cn("rounded-xl border bg-muted/30 p-4", locked && "opacity-80")}>
+            <div className="text-xs font-medium text-foreground">
+              Choisir un régime
+            </div>
 
-            <div className="flex items-center gap-2">
-              <SecondaryButton
-                type="button"
-                size="compact"
-                onClick={handleCancel}
-                disabled={locked}
+            <div className="mt-2 space-y-2">
+              <Select
+                value={draftId}
+                onValueChange={(v) => {
+                  setDraftId(v);
+
+                  if (v !== NONE) {
+                    const opt = optionById.get(Number(v));
+                    setSelectedHint(opt?.hint ?? null);
+                  } else {
+                    setSelectedHint(null);
+                  }
+                }}
+                disabled={locked || optLoading}
               >
-                Annuler
-              </SecondaryButton>
+                <SelectTrigger>
+                  <SelectValue placeholder={optLoading ? "Chargement…" : "Sélectionner…"} />
+                </SelectTrigger>
 
+                <SelectContent>
+                  {/* Option "aucun" (radix interdit "") */}
+                  <SelectItem value={NONE}>Aucun régime</SelectItem>
+
+                  {options.map((o) => (
+                    <SelectItem key={o.id} value={String(o.id)}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <div className="text-xs text-muted-foreground">
+                {selectedHint ? selectedHint : "—"}
+              </div>
+            </div>
+
+            <div className="mt-4 flex items-center justify-between gap-2">
               <Button
                 type="button"
-                variant="success"
-                size="compact"
-                onClick={handleSave}
-                disabled={!canSave}
-                loading={busy}
+                variant="destructive"
+                size="sm"
+                onClick={handleClear}
+                disabled={locked || !regime}
+                title={!regime ? "Aucun régime à retirer" : "Retirer le régime"}
               >
-                Enregistrer
+                Retirer
               </Button>
+
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCancel}
+                  disabled={locked}
+                >
+                  Annuler
+                </Button>
+
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleSave}
+                  disabled={!canSave}
+                >
+                  {busy ? "Enregistrement…" : "Enregistrer"}
+                </Button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {optLoading ? (
-        <div className="mt-2 text-xs text-zinc-600">Chargement…</div>
-      ) : null}
-    </AdminDetailsCard>
+        {optLoading ? (
+          <div className="text-xs text-muted-foreground">Chargement…</div>
+        ) : null}
+      </CardContent>
+    </Card>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useState, useCallback } from "react";
 import type { AgentDetails as AgentDetailsType, Qualification } from "@/types";
 
 import { listPostes, listRegimes, patchAgent } from "@/services";
@@ -8,64 +8,21 @@ import { AgentHeaderCard } from "./cards/AgentHeaderCard";
 import { AgentRegimeCard } from "@/components/admin/AgentRegimeCard";
 import { QualificationCard } from "@/components/admin/QualificationCard";
 
-import ConfirmDialog from "@/components/admin/dialogs/ConfirmDialog";
 import {
   createQualification,
   deleteQualification,
   updateQualification,
 } from "@/services/qualifications.service";
 
-type ConfirmState = {
-  open: boolean;
-  title: string;
-  description?: string;
-  confirmText?: string;
-  cancelText?: string;
-  variant?: "danger" | "default";
-  resolve?: (value: boolean) => void;
-};
+import type { ConfirmFn } from "@/hooks/useConfirm";
 
-function useConfirm() {
-  const [state, setState] = useState<ConfirmState>({ open: false, title: "" });
-  const resolveRef = useRef<ConfirmState["resolve"]>(undefined);
-
-  function confirm(opts: Omit<ConfirmState, "open" | "resolve">) {
-    return new Promise<boolean>((resolve) => {
-      resolveRef.current = resolve;
-      setState({
-        open: true,
-        title: opts.title,
-        description: opts.description,
-        confirmText: opts.confirmText,
-        cancelText: opts.cancelText,
-        variant: opts.variant,
-      });
-    });
-  }
-
-  function close(value: boolean) {
-    resolveRef.current?.(value);
-    resolveRef.current = undefined;
-    setState({ open: false, title: "" });
-  }
-
-  const dialog = (
-    <ConfirmDialog
-      open={state.open}
-      title={state.title}
-      description={state.description}
-      confirmText={state.confirmText}
-      cancelText={state.cancelText}
-      variant={state.variant}
-      onConfirm={() => close(true)}
-      onCancel={() => close(false)}
-    />
-  );
-
-  return { confirm, dialog };
-}
-
-export default function AgentDetails({ agent }: { agent: AgentDetailsType }) {
+export default function AgentDetails({
+  agent,
+  confirm,
+}: {
+  agent: AgentDetailsType;
+  confirm: ConfirmFn;
+}) {
   // -----------------------
   // local state (agent.regime can change)
   // -----------------------
@@ -78,13 +35,9 @@ export default function AgentDetails({ agent }: { agent: AgentDetailsType }) {
   const [qualifications, setQualifications] = useState<Qualification[]>(
     agent.qualifications ?? []
   );
-  useEffect(
-    () => setQualifications(agent.qualifications ?? []),
-    [agent.qualifications]
-  );
+  useEffect(() => setQualifications(agent.qualifications ?? []), [agent.qualifications]);
 
   const [busy, setBusy] = useState(false);
-  const { confirm, dialog: confirmDialogNode } = useConfirm();
 
   async function onAdd(payload: { related_id: number; date_qualification: string }) {
     setBusy(true);
@@ -143,12 +96,8 @@ export default function AgentDetails({ agent }: { agent: AgentDetailsType }) {
   }, []);
 
   async function onChangeRegime(regimeId: number) {
-    // PATCH agent
     await patchAgent(agent.id, { regime_id: regimeId });
 
-    // UX: update local regime immediately (no need to refetch agent)
-    // We only have id+label+hint from options, so we "best-effort" hydrate.
-    // If you prefer perfect data, call getAgent(agent.id) and setRegime(full.regime).
     const res = await listRegimes({ page: 1, page_size: 10 });
     const full = res.items.find((r) => r.id === regimeId) ?? null;
     setRegime(full);
@@ -201,8 +150,6 @@ export default function AgentDetails({ agent }: { agent: AgentDetailsType }) {
           })
         }
       />
-
-      {confirmDialogNode}
     </div>
   );
 }

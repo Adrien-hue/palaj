@@ -3,7 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { listRegimes } from "@/services/regimes.service";
 import type { Regime } from "@/types";
-import type { SelectOption } from "@/components/ui/forms/SelectField";
+
+export type RegimeOption = { value: string; label: string };
+
+export const NO_REGIME_VALUE = "__none__";
 
 export function useRegimeOptions(opts?: { includeNone?: boolean }) {
   const includeNone = opts?.includeNone ?? true;
@@ -22,7 +25,8 @@ export function useRegimeOptions(opts?: { includeNone?: boolean }) {
         const res = await listRegimes({ page: 1, page_size: 200 });
         if (!cancelled) setRegimes(res.items);
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Erreur chargement régimes");
+        if (!cancelled)
+          setError(e instanceof Error ? e.message : "Erreur chargement régimes");
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -34,9 +38,14 @@ export function useRegimeOptions(opts?: { includeNone?: boolean }) {
     };
   }, []);
 
-  const options: SelectOption[] = useMemo(() => {
-    const base = regimes.map((r) => ({ value: String(r.id), label: r.nom }));
-    return includeNone ? [{ value: "", label: "Aucun régime" }, ...base] : base;
+  const options: RegimeOption[] = useMemo(() => {
+    const base = regimes
+      .map((r) => ({ value: String(r.id), label: r.nom }))
+      .filter((o) => o.value.trim() !== ""); // sécurité
+
+    return includeNone
+      ? [{ value: NO_REGIME_VALUE, label: "Aucun régime" }, ...base]
+      : base;
   }, [includeNone, regimes]);
 
   return { options, loading, error };

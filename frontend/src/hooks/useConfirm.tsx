@@ -21,6 +21,8 @@ export type ConfirmOptions = {
   variant?: "danger" | "default";
 };
 
+export type ConfirmFn = (options: ConfirmOptions) => Promise<boolean>;
+
 export function useConfirm() {
   const resolverRef = React.useRef<null | ((v: boolean) => void)>(null);
 
