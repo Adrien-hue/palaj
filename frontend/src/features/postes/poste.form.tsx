@@ -1,28 +1,41 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Button, FormError, RequiredFieldsNote, SecondaryButton, TextField } from "@/components/ui";
+import * as React from "react";
+import { useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+
 import type { Poste } from "@/types";
 
-type Values = { nom: string };
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
-export default function PosteForm({
-  mode,
-  initialPoste,
-  onSubmit,
-  onCancel,
-  submitting,
-}: {
-  mode: "create" | "edit";
-  initialPoste?: Poste | null;
-  onSubmit: (values: { nom: string }) => Promise<void>;
-  onCancel: () => void;
-  submitting: boolean;
-}) {
-  const [values, setValues] = useState<Values>({ nom: "" });
+export type PosteFormHandle = {
+  submit: () => void;
+};
+
+type PosteFormValues = {
+  nom: string;
+};
+
+export default React.forwardRef<
+  PosteFormHandle,
+  {
+    mode: "create" | "edit";
+    initialPoste?: Poste | null;
+    submitting: boolean;
+    onSubmit: (values: { nom: string }) => Promise<void>;
+  }
+>(function PosteForm({ mode, initialPoste, submitting, onSubmit }, ref) {
+  const initial: PosteFormValues = useMemo(
+    () => ({ nom: initialPoste?.nom ?? "" }),
+    [initialPoste]
+  );
+
+  const [values, setValues] = useState<PosteFormValues>(initial);
   const [error, setError] = useState<string | null>(null);
 
   const nomRef = useRef<HTMLInputElement | null>(null);
+  const formRef = useRef<HTMLFormElement | null>(null);
 
   useEffect(() => {
     setValues({ nom: initialPoste?.nom ?? "" });
@@ -30,52 +43,80 @@ export default function PosteForm({
   }, [initialPoste, mode]);
 
   useEffect(() => {
-    // Auto focus on nom input
     const t = setTimeout(() => nomRef.current?.focus(), 0);
     return () => clearTimeout(t);
   }, [mode, initialPoste?.id]);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  function validate(v: PosteFormValues) {
+    const nom = v.nom.trim();
+    if (!nom) return "Le nom est obligatoire.";
+    if (nom.length > 100) return "Le nom doit faire au maximum 100 caractères.";
+    return null;
+  }
+
+  async function handleSubmit() {
+    if (submitting) return;
+
     setError(null);
 
-    const nom = values.nom.trim();
-    if (!nom) return setError("Le nom est obligatoire.");
-    if (nom.length > 100) return setError("Le nom doit faire au maximum 100 caractères.");
+    const err = validate(values);
+    if (err) {
+      setError(err);
+      return;
+    }
 
     try {
-      await onSubmit({ nom });
+      await onSubmit({ nom: values.nom.trim() });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erreur inconnue");
     }
   }
 
+  useImperativeHandle(
+    ref,
+    () => ({
+      submit: () => formRef.current?.requestSubmit(),
+    }),
+    []
+  );
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <FormError message={error} />
+    <form
+      ref={formRef}
+      onSubmit={(e) => {
+        e.preventDefault();
+        handleSubmit();
+      }}
+      className="space-y-4"
+    >
+      {error ? (
+        <Alert variant="destructive">
+          <AlertTitle>Erreur</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
 
-      <TextField
-        ref={nomRef}
-        label="Nom"
-        mandatory
-        value={values.nom}
-        onChange={(e) => setValues({ nom: e.target.value })}
-        placeholder="ex: Conducteur, Agent de manœuvre..."
-        disabled={submitting}
-      />
-
-      <div className="pt-1">
-        <RequiredFieldsNote />
+      <div className="space-y-2">
+        <Label htmlFor="poste-nom">
+          Nom <span className="text-destructive">*</span>
+        </Label>
+        <Input
+          id="poste-nom"
+          ref={nomRef}
+          value={values.nom}
+          onChange={(e) => setValues({ nom: e.target.value })}
+          placeholder="Ex : Conducteur, Agent de manœuvre…"
+          disabled={submitting}
+          maxLength={100}
+        />
+        <p className="text-xs text-muted-foreground">
+          Max 100 caractères.
+        </p>
       </div>
 
-      <div className="flex justify-end gap-2 pt-1">
-        <SecondaryButton type="button" onClick={onCancel} disabled={submitting}>
-          Annuler
-        </SecondaryButton>
-        <Button type="submit" variant="success" loading={submitting}>
-          {mode === "create" ? "Créer" : "Enregistrer"}
-        </Button>
-      </div>
+      <p className="text-xs text-muted-foreground">
+        <span className="text-destructive">*</span> Champ obligatoire
+      </p>
     </form>
   );
-}
+});
