@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 if TYPE_CHECKING:
-    from core.domain.entities import Affectation, Qualification, Regime
+    from core.domain.entities import Qualification, Regime
 
 class Agent:
     """
@@ -28,7 +28,6 @@ class Agent:
         self.regime_id = regime_id
         self._regime: Optional[Regime] = None
         self._qualifications: Optional[List[Qualification]] = None
-        self._affectations: Optional[List[Affectation]] = None
 
     def __repr__(self):
         return (
@@ -41,7 +40,6 @@ class Agent:
         regime_str = f"{YELLOW}{self._regime.nom}{RESET}" if self._regime else f"{GRAY}Aucun{RESET}"
 
         qual_count = len(self._qualifications or [])
-        affect_count = len(self._affectations or [])
 
         return (
             f"{BOLD}{CYAN}Agent{RESET} {self.prenom} {self.nom}\n"
@@ -49,17 +47,9 @@ class Agent:
             f"  {GRAY}Code personnel:{RESET} {self.code_personnel or 'Non défini'}\n"
             f"  {GRAY}Régime:{RESET} {regime_str}\n"
             f"  {GRAY}Qualifications:{RESET} {GREEN}{qual_count}{RESET}\n"
-            f"  {GRAY}Affectations:{RESET} {affect_count}\n"
         )
 
     # Getters / Setters
-
-    @property
-    def affectations(self) -> List["Affectation"]:
-        return self._affectations or []
-
-    def set_affectations(self, affectations: List["Affectation"]) -> None:
-        self._affectations = affectations
 
     @property
     def qualifications(self) -> List["Qualification"]:

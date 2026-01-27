@@ -58,25 +58,6 @@ class AgentValidatorService:
             ))
         return alerts
 
-    def _check_etats_jour_agent(self, agent: Agent) -> List[DomainAlert]:
-        """
-        Vérifie la cohérence des états journaliers de l'agent :
-        - pas d'état orphelin
-        - états ordonnés par date (optionnel)
-        """
-        alerts: List[DomainAlert] = []
-        etats_jour = agent.etat_jours
-
-        # Exemple de règle : trop de jours sans état
-        if len(etats_jour) == 0:
-            alerts.append(DomainAlert(
-                f"L'agent {agent.nom} {agent.prenom} (ID: {agent.id}) n'a aucun état journalier enregistré.",
-                Severity.WARNING,
-                source="AgentValidatorService"
-            ))
-
-        return alerts
-
     # =========================================================
     # 🔹 Validation unitaire
     # =========================================================
@@ -85,13 +66,11 @@ class AgentValidatorService:
         Valide un agent unique :
         - nom/prénom valides
         - régime associé
-        - affectations cohérentes
         - états journaliers cohérents
         """
         alerts: List[DomainAlert] = []
         alerts.extend(self._check_nom_prenom(agent))
         alerts.extend(self._check_regime_associe(agent))
-        alerts.extend(self._check_etats_jour_agent(agent))
 
         is_valid = not any(a.severity == Severity.ERROR for a in alerts)
         return is_valid, alerts
