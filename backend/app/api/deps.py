@@ -11,20 +11,24 @@ from backend.app.bootstrap.container import (
     agent_service,
     agent_planning_validator_service,
     agent_planning_factory,
+    agent_team_service,
     poste_planning_factory,
     poste_service,
     qualification_service,
     regime_service,
+    team_service,
     tranche_service,
 )
 from core.application.services import (
     AgentService,
+    AgentTeamService,
     AgentPlanningFactory,
     AgentPlanningValidatorService,
     PostePlanningFactory,
     PosteService,
     QualificationService,
     RegimeService,
+    TeamService,
     TrancheService,
 )
 
@@ -39,6 +43,9 @@ def get_db() -> Generator[Session, None, None]:
 
 def get_agent_service() -> AgentService:
     return agent_service
+
+def get_agent_team_service() -> AgentTeamService:
+    return agent_team_service
 
 def get_agent_planning_factory() -> AgentPlanningFactory:
     return agent_planning_factory
@@ -57,6 +64,9 @@ def get_qualification_service() -> QualificationService:
 
 def get_regime_service() -> RegimeService:
     return regime_service
+
+def get_team_service() -> TeamService:
+    return team_service
 
 def get_tranche_service() -> TrancheService:
     return tranche_service

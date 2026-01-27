@@ -11,6 +11,8 @@ from core.application.services import (
     PosteService,
     QualificationService,
     RegimeService,
+    AgentTeamService,
+    TeamService,
     TrancheService,
 )
 
@@ -22,6 +24,8 @@ from db.repositories import (
     qualification_repo,
     regime_repo,
     tranche_repo,
+    agent_team_repo,
+    team_repo,
 )
 
 from backend.app.settings import settings
@@ -58,6 +62,14 @@ tranche_service = TrancheService(
     poste_repo=poste_repo,
     tranche_repo=tranche_repo,
     agent_day_assignment_repo=agent_day_assignment_repo
+)
+
+team_service = TeamService(repo=team_repo)
+
+agent_team_service = AgentTeamService(
+    agent_repo=agent_repo,
+    team_repo=team_repo,
+    agent_team_repo=agent_team_repo
 )
 
 # ---------------------------------------------------------
@@ -101,4 +113,6 @@ __all__ = [
     "agent_planning_validator_service",
     "agent_planning_factory",
     "poste_planning_factory",
+    "agent_team_service",
+    "team_service",
 ]

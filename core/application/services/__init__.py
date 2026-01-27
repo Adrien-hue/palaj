@@ -9,6 +9,8 @@ from core.application.services.planning.poste_planning_day_assembler import Post
 from core.application.services.poste_service import PosteService
 from core.application.services.qualification_service import QualificationService
 from core.application.services.regime_service import RegimeService
+from core.application.services.teams.agent_team_service import AgentTeamService
+from core.application.services.teams.team_service import TeamService
 from core.application.services.tranche_service import TrancheService
 
 __all__ = [
@@ -22,5 +24,7 @@ __all__ = [
     "PosteService",
     "QualificationService",
     "RegimeService",
+    "AgentTeamService",
+    "TeamService",
     "TrancheService",
 ]
