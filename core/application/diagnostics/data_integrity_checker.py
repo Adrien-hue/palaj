@@ -6,7 +6,6 @@ from core.application.services.container import (
     poste_service,
     tranche_service,
     qualification_service,
-    etat_jour_agent_service,
     regime_service,
 )
 
@@ -38,7 +37,6 @@ class DataIntegrityChecker:
         self.poste_service = poste_service
         self.tranche_service = tranche_service
         self.qualification_service = qualification_service
-        self.etat_jour_service = etat_jour_agent_service
         self.regime_service = regime_service
 
         # Validators métier
@@ -84,11 +82,6 @@ class DataIntegrityChecker:
         ok, alerts = self.qualification_validator.validate_all(qualifications)
         self._register(alerts)
 
-    def check_etats_jour(self):
-        etats = self.etat_jour_service.list_etats_jour_agent_complets()
-        ok, alerts = self.etat_jour_validator.validate_all(etats)
-        self._register(alerts)
-
     # ============================================================
     # 🔧 Utils
     # ============================================================
@@ -122,7 +115,6 @@ class DataIntegrityChecker:
         self.check_tranches()
         self.check_postes()
         self.check_qualifications()
-        self.check_etats_jour()
 
         return {
             "errors": self.errors,
