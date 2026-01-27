@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 if TYPE_CHECKING:
-    from core.domain.entities import Affectation, EtatJourAgent, Qualification, Regime
+    from core.domain.entities import Affectation, Qualification, Regime
 
 class Agent:
     """
@@ -30,8 +30,6 @@ class Agent:
         self._qualifications: Optional[List[Qualification]] = None
         self._affectations: Optional[List[Affectation]] = None
 
-        self._etat_jours: Optional[List[EtatJourAgent]] = None
-
     def __repr__(self):
         return (
             f"<Agent id={self.id}, nom='{self.nom}', prenom='{self.prenom}', "
@@ -44,7 +42,6 @@ class Agent:
 
         qual_count = len(self._qualifications or [])
         affect_count = len(self._affectations or [])
-        etat_count = len(self._etat_jours or [])
 
         return (
             f"{BOLD}{CYAN}Agent{RESET} {self.prenom} {self.nom}\n"
@@ -53,7 +50,6 @@ class Agent:
             f"  {GRAY}Régime:{RESET} {regime_str}\n"
             f"  {GRAY}Qualifications:{RESET} {GREEN}{qual_count}{RESET}\n"
             f"  {GRAY}Affectations:{RESET} {affect_count}\n"
-            f"  {GRAY}États journaliers:{RESET} {etat_count}\n"
         )
 
     # Getters / Setters
@@ -64,13 +60,6 @@ class Agent:
 
     def set_affectations(self, affectations: List["Affectation"]) -> None:
         self._affectations = affectations
-
-    @property
-    def etat_jours(self) -> List["EtatJourAgent"]:
-        return self._etat_jours or []
-
-    def set_etat_jours(self, etats: List["EtatJourAgent"]) -> None:
-        self._etat_jours = etats
 
     @property
     def qualifications(self) -> List["Qualification"]:
