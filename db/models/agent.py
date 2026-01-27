@@ -9,6 +9,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .base import Base
 
 if TYPE_CHECKING:
+    from .affectation import Affectation
+    from .etat_jour_agent import EtatJourAgent
     from .regime import Regime
     from .qualification import Qualification
     from .team import Team
@@ -37,6 +39,16 @@ class Agent(Base):
         secondary="agent_teams",
         back_populates="agents",
         lazy="selectin",
+    )
+    affectations: Mapped[list[Affectation]] = relationship(
+        "Affectation",
+        back_populates="agent",
+        cascade="all, delete-orphan",
+    )
+    etats: Mapped[list[EtatJourAgent]] = relationship(
+        "EtatJourAgent",
+        back_populates="agent",
+        cascade="all, delete-orphan",
     )
 
 
