@@ -9,7 +9,6 @@ from db.repositories import (
     regime_repo,
     tranche_repo,
     affectation_repo,
-    etat_jour_agent_repo,
     qualification_repo,
 )
 
@@ -63,10 +62,6 @@ class DatabaseView:
         total = affectation_repo.count()
         console.print(f"📊 [bold cyan]Affectations[/bold cyan] → {total} enregistrements")
 
-    def show_etats_jour_agent(self):
-        total = etat_jour_agent_repo.count()
-        console.print(f"📊 [bold cyan]États journaliers agents[/bold cyan] → {total} enregistrements")
-
     def show_qualifications(self):
         total = qualification_repo.count()
         console.print(f"📊 [bold cyan]Qualifications[/bold cyan] → {total} enregistrements")
@@ -80,5 +75,4 @@ class DatabaseView:
         self.show_tranches()
         console.rule("[bold yellow]Comptages rapides")
         self.show_affectations()
-        self.show_etats_jour_agent()
         self.show_qualifications()
