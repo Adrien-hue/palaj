@@ -7,7 +7,6 @@ from core.application.services import (
     AgentService,
     EtatJourAgentService,
     AgentPlanningFactory,
-    PlanningBuilderService,
     PlanningDayAssembler,
     PostePlanningFactory,
     PostePlanningDayAssembler,
@@ -109,16 +108,6 @@ poste_planning_factory = PostePlanningFactory(
     day_assembler=poste_planning_day_assembler
 )
 
-planning_builder_service = PlanningBuilderService(
-    affectation_service=affectation_service,
-    agent_service=agent_service,
-    etat_service=etat_jour_agent_service,
-    poste_service=poste_service,
-    tranche_service=tranche_service,
-    planning_day_assembler=planning_day_assembler,
-    enable_agent_day_db_read=settings.FEATURE_AGENT_DAY_READ_DB,
-)
-
 __all__ = [
     "affectation_service",
     "agent_service",
@@ -129,7 +118,6 @@ __all__ = [
     "tranche_service",
     "rh_rules_engine",
     "agent_planning_validator_service",
-    "planning_builder_service",
     "agent_planning_factory",
     "poste_planning_factory",
 ]
