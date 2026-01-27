@@ -12,32 +12,12 @@ from datetime import date, time, timedelta
 
 import pytest
 
-from core.domain.entities import Affectation, Agent, Poste, Qualification, Regime, Tranche
+from core.domain.entities import Agent, Poste, Qualification, Regime, Tranche
 from core.domain.contexts.planning_context import PlanningContext
 
 # ====================
 # Factories génériques
 # ====================
-
-@pytest.fixture
-def make_affectation():
-    """
-    Factory pour créer une Affectation simpl.
-    Usage dans un test :
-        afffectation = make_affectation(agent_id=1, tranche_id=42)
-    """
-    def _make(
-        agent_id: int = 1000,
-        tranche_id: int = 1000,
-        jour = date(2025, 1, 1),
-    ) -> Affectation:
-        return Affectation(
-            agent_id=agent_id,
-            tranche_id=tranche_id,
-            jour=jour,
-        )
-
-    return _make
 
 @pytest.fixture
 def make_agent():

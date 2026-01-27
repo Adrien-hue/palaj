@@ -8,7 +8,6 @@ from db.repositories import (
     poste_repo,
     regime_repo,
     tranche_repo,
-    affectation_repo,
     qualification_repo,
 )
 
@@ -58,10 +57,6 @@ class DatabaseView:
         rows = [[t.id, t.nom, t.heure_debut, t.heure_fin, (t.poste.nom if getattr(t, "poste", None) else "—")] for t in tranches]
         self._display_table_preview("Tranches", ["ID", "Nom", "Début", "Fin", "Poste"], rows, total)
 
-    def show_affectations(self):
-        total = affectation_repo.count()
-        console.print(f"📊 [bold cyan]Affectations[/bold cyan] → {total} enregistrements")
-
     def show_qualifications(self):
         total = qualification_repo.count()
         console.print(f"📊 [bold cyan]Qualifications[/bold cyan] → {total} enregistrements")
@@ -74,5 +69,4 @@ class DatabaseView:
         self.show_regimes()
         self.show_tranches()
         console.rule("[bold yellow]Comptages rapides")
-        self.show_affectations()
         self.show_qualifications()

@@ -18,7 +18,6 @@ from db.repositories import (
     agent_repo,
     agent_day_repo,
     agent_day_assignment_repo,
-    affectation_repo,
     poste_repo,
     qualification_repo,
     regime_repo,
@@ -32,7 +31,6 @@ from backend.app.settings import settings
 # ---------------------------------------------------------
 
 agent_service = AgentService(
-    affectation_repo=affectation_repo,
     agent_repo=agent_repo,
     agent_day_repo=agent_day_repo,
     qualification_repo=qualification_repo,
