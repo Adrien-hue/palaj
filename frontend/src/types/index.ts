@@ -6,4 +6,5 @@ export * from "./postePlanning";
 export * from "./postes";
 export * from "./qualification";
 export * from "./regimes";
+export * from "./team";
 export * from "./tranche";
