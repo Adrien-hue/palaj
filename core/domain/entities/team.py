@@ -5,7 +5,7 @@ from typing import Optional
 
 @dataclass(frozen=True)
 class Team:
-    id: int
+    id: Optional[int]
     name: str
     description: Optional[str]
-    created_at: datetime
+    created_at: Optional[datetime]
