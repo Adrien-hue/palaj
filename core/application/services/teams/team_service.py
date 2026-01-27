@@ -11,6 +11,12 @@ class TeamService:
     def __init__(self, repo: TeamRepositoryPort):
         self.repo = repo
 
+    def count(self) -> int:
+        return self.repo.count()
+
+    def list(self, *, limit: Optional[int] = None, offset: int = 0) -> List[Team]:
+        return self.repo.list(limit=limit, offset=offset)
+
     def list_all(self) -> List[Team]:
         return self.repo.list_all()
 

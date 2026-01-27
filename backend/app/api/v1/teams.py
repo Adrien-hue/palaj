@@ -3,6 +3,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from backend.app.api.deps import get_team_service
+from backend.app.dto.common.pagination import build_page, Page, PaginationParams, pagination_params
 from backend.app.dto.team import TeamCreateDTO, TeamDTO, TeamUpdateDTO
 from core.application.services.teams.team_service import TeamService
 from core.application.services.teams.exceptions import NotFoundError, ConflictError
@@ -10,11 +11,14 @@ from core.application.services.teams.exceptions import NotFoundError, ConflictEr
 router = APIRouter(prefix="/teams", tags=["teams"])
 
 
-@router.get("", response_model=List[TeamDTO])
+@router.get("", response_model=Page[TeamDTO])
 def list_teams(
     service: TeamService = Depends(get_team_service),
+    p: PaginationParams = Depends(pagination_params)
 ):
-    return service.list_all()
+    items = service.list(limit=p.limit, offset=p.offset)
+    total = service.count()
+    return build_page(items, total, p)
 
 
 @router.post("", response_model=TeamDTO, status_code=status.HTTP_201_CREATED)
