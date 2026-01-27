@@ -15,7 +15,6 @@ from core.domain.services import (
     tranche_validator_service,
     qualification_validator_service,
     affectation_validator_service,
-    etat_jour_agent_validator_service,
     regime_validator_service,
 )
 
@@ -45,7 +44,6 @@ class DataIntegrityChecker:
         self.tranche_validator = tranche_validator_service
         self.qualification_validator = qualification_validator_service
         self.affectation_validator = affectation_validator_service
-        self.etat_jour_validator = etat_jour_agent_validator_service
         self.regime_validator = regime_validator_service
 
         # Stockage du rapport

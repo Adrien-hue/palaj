@@ -5,7 +5,6 @@ from core.application.ports import (
     AffectationRepositoryPort,
     AgentRepositoryPort,
     AgentDayRepositoryPort,
-    EtatJourAgentRepositoryPort,
     QualificationRepositoryPort,
     RegimeRepositoryPort,
 )
@@ -25,14 +24,12 @@ class AgentService:
         affectation_repo: AffectationRepositoryPort,
         agent_repo: AgentRepositoryPort,
         agent_day_repo: AgentDayRepositoryPort,
-        etat_jour_agent_repo: EtatJourAgentRepositoryPort,
         qualification_repo: QualificationRepositoryPort,
         regime_repo: RegimeRepositoryPort,
     ):
         self.affectation_repo = affectation_repo
         self.agent_repo = agent_repo
         self.agent_day_repo = agent_day_repo
-        self.etat_jour_agent_repo = etat_jour_agent_repo
         self.regime_repo = regime_repo
         self.qualification_repo = qualification_repo
 
@@ -131,6 +128,5 @@ class AgentService:
             agent.set_regime(self.regime_repo.get_by_id(agent.regime_id))
 
         agent.set_affectations(self.affectation_repo.list_for_agent(agent.id))
-        agent.set_etat_jours(self.etat_jour_agent_repo.list_for_agent(agent.id))
         agent.set_qualifications(self.qualification_repo.list_for_agent(agent.id))
         return agent
