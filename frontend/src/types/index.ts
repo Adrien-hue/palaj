@@ -1,6 +1,7 @@
 export * from "./agent";
 export * from "./agentDay";
 export * from "./agentPlanning";
+export * from "./agentTeam";
 export * from "./api";
 export * from "./postePlanning";
 export * from "./postes";
