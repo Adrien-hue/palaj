@@ -1,39 +1,44 @@
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from backend.app.api.deps import get_agent_team_service, require_role
-from backend.app.dto.agent_team import AgentTeamsUpdateDTO
-from backend.app.dto.team import TeamDTO
+from backend.app.mappers.agent_teams import to_agent_team_dto
 from core.application.services.teams.agent_team_service import AgentTeamService
 from core.application.services.teams.exceptions import NotFoundError
 
-router = APIRouter(prefix="/agents", tags=["agent-teams"])
+router = APIRouter(prefix="/agent-teams", tags=["Agent Teams"])
 
-
-@router.get("/{agent_id}/teams", response_model=List[TeamDTO])
-def list_agent_teams(
+@router.post("/{agent_id}/{team_id}", status_code=status.HTTP_201_CREATED)
+def add_agent_team(
     agent_id: int,
+    team_id: int,
     service: AgentTeamService = Depends(get_agent_team_service),
 ):
     try:
-        return service.list_teams_for_agent(agent_id)
-    except NotFoundError as e:
-        # agent_not_found
-        raise HTTPException(status_code=404, detail=e.code)
-
-
-@router.put("/{agent_id}/teams", status_code=status.HTTP_204_NO_CONTENT)
-def set_agent_teams(
-    agent_id: int,
-    payload: AgentTeamsUpdateDTO,
-    service: AgentTeamService = Depends(get_agent_team_service),
-):
-    try:
-        service.set_agent_teams(agent_id, payload.team_ids)
+        service.create(agent_id=agent_id, team_id=team_id)
         return None
     except NotFoundError as e:
-        # agent_not_found OU team_not_found (avec missing_team_ids)
-        if e.details:
-            raise HTTPException(status_code=404, detail={"code": e.code, **e.details})
         raise HTTPException(status_code=404, detail=e.code)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+@router.delete("/{agent_id}/{team_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_agent_team(
+    agent_id: int,
+    team_id: int,
+    service: AgentTeamService = Depends(get_agent_team_service),
+):
+    ok = service.delete(agent_id=agent_id, team_id=team_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Membership not found")
+    return None
+
+@router.get("/")
+def search_agent_teams(
+    agent_id: int | None = Query(None),
+    team_id: int | None = Query(None),
+    service: AgentTeamService = Depends(get_agent_team_service),
+):
+    items = service.search(agent_id=agent_id, team_id=team_id)
+    return [to_agent_team_dto(x) for x in items]

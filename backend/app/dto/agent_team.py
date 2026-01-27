@@ -1,10 +1,7 @@
-from typing import List, Set
-from pydantic import BaseModel, Field
+from datetime import datetime
+from pydantic import BaseModel
 
-from .team import TeamDTO
-
-class AgentTeamsUpdateDTO(BaseModel):
-    team_ids: Set[int] = Field(default_factory=set)
-
-class AgentTeamsDTO(BaseModel):
-    teams: List[TeamDTO]
+class AgentTeamDTO(BaseModel):
+    agent_id: int
+    team_id: int
+    created_at: datetime
