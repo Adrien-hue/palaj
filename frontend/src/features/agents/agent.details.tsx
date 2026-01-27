@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import type { AgentDetails as AgentDetailsType, Qualification } from "@/types";
 
 import { listPostes, listRegimes, patchAgent } from "@/services";
+import { AgentTeamsCard } from "@/features/agents/agent.teams-card";
 import { AgentHeaderCard } from "./cards/AgentHeaderCard";
 import { AgentRegimeCard } from "@/components/admin/AgentRegimeCard";
 import { QualificationCard } from "@/components/admin/QualificationCard";
@@ -112,21 +113,7 @@ export default function AgentDetails({
     <div className="space-y-4">
       <AgentHeaderCard agent={agent} />
 
-      <AgentRegimeCard
-        regime={regime}
-        loadOptions={loadRegimeOptions}
-        onChangeRegime={onChangeRegime}
-        onClearRegime={onClearRegime}
-        confirmClear={(regimeName) =>
-          confirm({
-            title: "Retirer le régime",
-            description: `Confirmer la suppression du régime "${regimeName}" pour cet agent ?`,
-            confirmText: "Retirer",
-            cancelText: "Annuler",
-            variant: "danger",
-          })
-        }
-      />
+      <AgentTeamsCard agent={agent} />
 
       <QualificationCard
         title="Qualifications"
@@ -145,6 +132,22 @@ export default function AgentDetails({
             title: "Supprimer une qualification",
             description: `Supprimer "${label}" ?`,
             confirmText: "Supprimer",
+            cancelText: "Annuler",
+            variant: "danger",
+          })
+        }
+      />
+
+      <AgentRegimeCard
+        regime={regime}
+        loadOptions={loadRegimeOptions}
+        onChangeRegime={onChangeRegime}
+        onClearRegime={onClearRegime}
+        confirmClear={(regimeName) =>
+          confirm({
+            title: "Retirer le régime",
+            description: `Confirmer la suppression du régime "${regimeName}" pour cet agent ?`,
+            confirmText: "Retirer",
             cancelText: "Annuler",
             variant: "danger",
           })
