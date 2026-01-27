@@ -4,7 +4,6 @@ from core.application.config.rh_rules_config import build_default_rh_engine
 from core.application.services import (
     AgentPlanningValidatorService,
     AgentService,
-    EtatJourAgentService,
     AgentPlanningFactory,
     PlanningDayAssembler,
     PostePlanningFactory,
@@ -40,12 +39,6 @@ agent_service = AgentService(
     etat_jour_agent_repo=etat_jour_agent_repo,
     qualification_repo=qualification_repo,
     regime_repo=regime_repo,
-)
-
-etat_jour_agent_service = EtatJourAgentService(
-    affectation_repo=affectation_repo, 
-    agent_repo=agent_repo,
-    etat_jour_agent_repo=etat_jour_agent_repo, 
 )
 
 poste_service = PosteService(
@@ -104,7 +97,6 @@ poste_planning_factory = PostePlanningFactory(
 
 __all__ = [
     "agent_service",
-    "etat_jour_agent_service",
     "poste_service",
     "qualification_service",
     "regime_service",
