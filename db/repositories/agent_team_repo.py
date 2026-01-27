@@ -5,16 +5,15 @@ from typing import List
 from sqlalchemy import select, delete
 
 from core.domain.entities.team import Team as TeamEntity
-from db.database import SQLiteDatabase
 from db.models.agent_team import AgentTeam as AgentTeamModel
 from db.models.team import Team as TeamModel
 from core.adapters.entity_mapper import EntityMapper
 from db.sql_repository import SQLRepository
 
+from db import db
 
 class AgentTeamSQLRepository(SQLRepository[AgentTeamModel, TeamEntity]):
-    def __init__(self, db: SQLiteDatabase):
-        self.db = db
+    def __init__(self):
         super().__init__(db=db, model_class=AgentTeamModel, entity_class=TeamEntity)
 
     def list_teams_for_agent(self, agent_id: int) -> List[TeamEntity]:

@@ -1,17 +1,17 @@
 from __future__ import annotations
 
-from typing import Optional, List
+from typing import Optional
 
 from sqlalchemy import select
 
 from core.domain.entities.team import Team as TeamEntity
-from db.database import SQLiteDatabase
 from db.models.team import Team as TeamModel
 from db.sql_repository import SQLRepository
 
+from db import db
 
 class TeamSQLRepository(SQLRepository[TeamModel, TeamEntity]):
-    def __init__(self, db: SQLiteDatabase):
+    def __init__(self):
         super().__init__(db=db, model_class=TeamModel, entity_class=TeamEntity)
 
     def _default_order_by(self):
