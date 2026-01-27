@@ -1,8 +1,8 @@
 import csv
 from datetime import datetime, date, timedelta
-from core.domain.entities import Agent, EtatJourAgent, Affectation, TypeJour
+from core.domain.entities import Agent, Affectation
 
-from db.repositories import agent_repo, affectation_repo, etat_jour_agent_repo, tranche_repo
+from db.repositories import agent_repo, affectation_repo, tranche_repo
 
 SAVE = True
 

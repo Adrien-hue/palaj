@@ -19,7 +19,6 @@ from db.repositories import (
     agent_day_repo,
     agent_day_assignment_repo,
     affectation_repo,
-    etat_jour_agent_repo,
     poste_repo,
     qualification_repo,
     regime_repo,
@@ -36,7 +35,6 @@ agent_service = AgentService(
     affectation_repo=affectation_repo,
     agent_repo=agent_repo,
     agent_day_repo=agent_day_repo,
-    etat_jour_agent_repo=etat_jour_agent_repo,
     qualification_repo=qualification_repo,
     regime_repo=regime_repo,
 )
