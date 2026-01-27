@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Users, Briefcase, BadgeCheck, ArrowLeft } from "lucide-react";
+import { Users, Briefcase, BadgeCheck, ArrowLeft, CirclePile } from "lucide-react";
 
 import {
   Sidebar,
@@ -24,6 +24,7 @@ import { PalajBrand } from "@/components/layout/PalajBrand";
 
 const nav = [
   { label: "Agents", href: "/admin/agents", icon: Users },
+  { label: "Equipes", href: "/admin/teams", icon: CirclePile },
   { label: "Postes", href: "/admin/postes", icon: Briefcase },
   { label: "Régimes", href: "/admin/regimes", icon: BadgeCheck },
 ] as const;
