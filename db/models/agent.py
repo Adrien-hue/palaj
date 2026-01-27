@@ -10,7 +10,6 @@ from .base import Base
 
 if TYPE_CHECKING:
     from .regime import Regime
-    from .affectation import Affectation
     from .qualification import Qualification
 
 
@@ -25,11 +24,7 @@ class Agent(Base):
     regime_id: Mapped[Optional[int]] = mapped_column(ForeignKey("regimes.id"), nullable=True)
 
     regime: Mapped[Optional[Regime]] = relationship("Regime", back_populates="agents")
-    affectations: Mapped[list[Affectation]] = relationship(
-        "Affectation",
-        back_populates="agent",
-        cascade="all, delete-orphan",
-    )
+
     qualifications: Mapped[list[Qualification]] = relationship(
         "Qualification",
         back_populates="agent",

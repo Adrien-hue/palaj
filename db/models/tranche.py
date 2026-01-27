@@ -10,7 +10,6 @@ from .base import Base
 
 if TYPE_CHECKING:
     from .poste import Poste
-    from .affectation import Affectation
 
 
 class Tranche(Base):
@@ -24,11 +23,6 @@ class Tranche(Base):
     poste_id: Mapped[int] = mapped_column(ForeignKey("postes.id"), nullable=False)
 
     poste: Mapped[Poste] = relationship("Poste", back_populates="tranches")
-    affectations: Mapped[list[Affectation]] = relationship(
-        "Affectation",
-        back_populates="tranche",
-        cascade="all, delete-orphan",
-    )
 
     def __repr__(self) -> str:
         return (
