@@ -12,8 +12,7 @@ from datetime import date, time, timedelta
 
 import pytest
 
-from core.domain.entities import Affectation, Agent, EtatJourAgent, Poste, Qualification, Regime, Tranche, TypeJour
-from core.domain.models.work_day import WorkDay
+from core.domain.entities import Affectation, Agent, Poste, Qualification, Regime, Tranche
 from core.domain.contexts.planning_context import PlanningContext
 
 # ====================
@@ -334,29 +333,6 @@ def make_repos_context(make_agent, make_workday):
 
     return _make
 
-
-@pytest.fixture
-def make_etat_jour_agent():
-    """
-    Factory pour créer un EtatJourAgent simple.
-    Usage dans un test :
-        etat_jour_agent = make_etat_jour_agent(type_jour=TypeJour.REPOS)
-    """
-    def _make(
-        agent_id = 1000,
-        jour = date(2025, 1, 1),
-        type_jour = TypeJour.ZCOT,
-        description = "Un jour en ZCOT",
-    ) -> EtatJourAgent:
-        return EtatJourAgent(
-            agent_id=agent_id,
-            jour=jour,
-            type_jour=type_jour,
-            description=description,
-        )
-
-    return _make
-
 @pytest.fixture
 def make_planning_like():
     """
@@ -466,70 +442,5 @@ def make_tranche():
             heure_fin=heure_fin,
             poste_id=poste_id
         )
-
-    return _make
-
-@pytest.fixture
-def make_workday(make_agent, make_tranche, make_etat_jour_agent):
-    """
-    Factory générique pour construire un WorkDay cohérent.
-
-    type_label :
-      - "poste"  → WorkDay avec tranche(s) (jour de service classique)
-      - "zcot"   → WorkDay avec EtatJourAgent ZCOT
-      - "repos"  → WorkDay de repos (EtatJourAgent REPOS)
-      - "conge"  → WorkDay de congé
-      - "absence"→ WorkDay d'absence
-      - autre    → WorkDay avec un EtatJourAgent de ce type (si Enum valide)
-
-    nocturne=True → pour type "poste", utilise une tranche de nuit 22h-6h
-                    (surchargable par h1/h2).
-    """
-
-    def _make(
-        jour: date,
-        agent: Agent | None = None,
-        type_label: str = "poste",
-        nocturne: bool = False,
-        h1: time | str | None = None,
-        h2: time | str | None = None,
-    ) -> WorkDay:
-        etat: EtatJourAgent | None = None
-        tranches: list[Tranche] = []
-
-        agent = agent or make_agent
-
-        label = type_label.lower()
-
-        # --- Journée POSTE (avec tranches) ---
-        if label == "poste":
-            # valeurs par défaut
-            if nocturne:
-                debut = h1 or "22:00"
-                fin = h2 or "06:00"
-            else:
-                debut = h1 or "08:00"
-                fin = h2 or "10:00"
-
-            tranches = [make_tranche(heure_debut=debut, heure_fin=fin)]
-            # pas besoin d'etat : WorkDay.type() renvoie POSTE si tranches != []
-
-        # --- ZCOT / REPOS / CONGE / ABSENCE : via EtatJourAgent ---
-        elif label in ("zcot", "repos", "conge", "absence"):
-            etat = make_etat_jour_agent(
-                jour=jour,
-                type_jour=getattr(TypeJour, label.upper()),
-            )
-
-        # --- Autre type → tentative générique ---
-        else:
-            # on essaie de construire un TypeJour(label)
-            try:
-                tj = TypeJour(label)
-            except ValueError:
-                tj = TypeJour.INCONNU
-            etat = make_etat_jour_agent(jour=jour, type_jour=tj)
-
-        return WorkDay(jour=jour, etat=etat, tranches=tranches)
 
     return _make

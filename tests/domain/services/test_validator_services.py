@@ -5,9 +5,7 @@ from core.domain.entities import Affectation, Agent, EtatJourAgent, Poste, Quali
 
 from core.domain.services.agent_validator_service import AgentValidatorService
 from core.domain.services.affectation_validator_service import AffectationValidatorService
-from core.domain.services.etat_jour_agent_validator_service import (
-    EtatJourAgentValidatorService,
-)
+
 from core.domain.services.poste_validator_service import PosteValidatorService
 from core.domain.services.qualification_validator_service import (
     QualificationValidatorService,

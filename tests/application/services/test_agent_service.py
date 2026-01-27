@@ -23,11 +23,10 @@ def repos():
 
 @pytest.fixture
 def service(repos):
-    affectation_repo, agent_repo, etat_repo, qualification_repo, regime_repo = repos
+    affectation_repo, agent_repo, qualification_repo, regime_repo = repos
     return AgentService(
         affectation_repo=affectation_repo,
         agent_repo=agent_repo,
-        etat_jour_agent_repo=etat_repo,
         qualification_repo=qualification_repo,
         regime_repo=regime_repo,
     )
@@ -74,7 +73,7 @@ def test_get_agent_complet_retourne_none_si_absent(service, repos):
     qualification_repo.list_for_agent.assert_not_called()
 
 
-def test_get_agent_complet_charge_tout_avec_regime(service, repos, make_agent, make_affectation, make_etat_jour_agent, make_regime, make_qualification):
+def test_get_agent_complet_charge_tout_avec_regime(service, repos, make_agent, make_affectation, make_regime, make_qualification):
     affectation_repo, agent_repo, etat_repo, qualification_repo, regime_repo = repos
 
     agent = make_agent(id=42, regime_id=7)
@@ -82,12 +81,10 @@ def test_get_agent_complet_charge_tout_avec_regime(service, repos, make_agent, m
 
     regime = make_regime(id=7, nom="R1")
     affectations = [make_affectation(agent_id=42, tranche_id=10)]
-    etats = [make_etat_jour_agent(agent_id=42)]
     qualifications = [make_qualification(agent_id=42)]
 
     regime_repo.get_by_id.return_value = regime
     affectation_repo.list_for_agent.return_value = affectations
-    etat_repo.list_for_agent.return_value = etats
     qualification_repo.list_for_agent.return_value = qualifications
 
     result = service.get_agent_complet(agent_id=42)
