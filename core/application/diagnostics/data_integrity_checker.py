@@ -6,7 +6,6 @@ from core.application.services.container import (
     poste_service,
     tranche_service,
     qualification_service,
-    affectation_service,
     etat_jour_agent_service,
     regime_service,
 )
@@ -39,7 +38,6 @@ class DataIntegrityChecker:
         self.poste_service = poste_service
         self.tranche_service = tranche_service
         self.qualification_service = qualification_service
-        self.affectation_service = affectation_service
         self.etat_jour_service = etat_jour_agent_service
         self.regime_service = regime_service
 
@@ -84,11 +82,6 @@ class DataIntegrityChecker:
     def check_qualifications(self):
         qualifications = self.qualification_service.list_qualifications()
         ok, alerts = self.qualification_validator.validate_all(qualifications)
-        self._register(alerts)
-
-    def check_affectations(self):
-        affectations = self.affectation_service.list_affectations_completes()
-        ok, alerts = self.affectation_validator.validate_all(affectations)
         self._register(alerts)
 
     def check_etats_jour(self):

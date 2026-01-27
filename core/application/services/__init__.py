@@ -1,6 +1,5 @@
 # core/application/services/__init__.py
 
-from core.application.services.affectation_service import AffectationService
 from core.application.services.agent_service import AgentService
 from core.application.services.agent_planning_validator_service import AgentPlanningValidatorService
 from core.application.services.etat_jour_agent_service import EtatJourAgentService
@@ -15,7 +14,6 @@ from core.application.services.tranche_service import TrancheService
 
 __all__ = [
     # Classes
-    "AffectationService",
     "AgentService",
     "AgentPlanningValidatorService",
     "EtatJourAgentService",
