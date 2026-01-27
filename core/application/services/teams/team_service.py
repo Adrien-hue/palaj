@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from core.application.ports.team_repo import TeamRepositoryPort
 from core.application.services.teams.exceptions import ConflictError, NotFoundError
@@ -37,19 +37,41 @@ class TeamService:
         except Exception:
             raise
 
-    def update(self, team_id: int, *, name: Optional[str], description: Optional[str]) -> Team:
+    def update(self, team_id: int, **changes: Any) -> Team:
         current = self.repo.get_by_id(team_id)
         if not current:
             raise NotFoundError(code="team_not_found", details={"team_id": team_id})
 
-        new_name = name if name is not None else current.name
-        new_desc = description if description is not None else current.description
+        # --- NAME ---
+        if "name" in changes:
+            raw_name = changes["name"]
+            if raw_name is None or str(raw_name).strip() == "":
+                raise ValueError("Team.name cannot be null/empty")  # ou ValidationError maison
 
-        # si le nom change : vérifier collision
-        if new_name != current.name:
-            existing = self.repo.get_by_name(new_name)
-            if existing and existing.id != team_id:
-                raise ConflictError(code="team_name_already_exists", details={"name": new_name})
+            new_name = str(raw_name).strip()
+
+            if new_name != current.name:
+                existing = self.repo.get_by_name(new_name)
+                if existing and existing.id != team_id:
+                    raise ConflictError(
+                        code="team_name_already_exists",
+                        details={"name": new_name},
+                    )
+        else:
+            new_name = current.name
+
+        # --- DESCRIPTION ---
+        if "description" in changes:
+            raw_desc = changes["description"]
+
+            if raw_desc is None:
+                # clear explicite
+                new_desc = None
+            else:
+                desc = str(raw_desc).strip()
+                new_desc = None if desc == "" else desc
+        else:
+            new_desc = current.description
 
         updated = Team(
             id=current.id,
@@ -60,8 +82,8 @@ class TeamService:
 
         saved = self.repo.update(updated)
         if not saved:
-            # très improbable (race condition delete), mais propre
             raise NotFoundError(code="team_not_found", details={"team_id": team_id})
+
         return saved
 
     def delete(self, team_id: int) -> None:

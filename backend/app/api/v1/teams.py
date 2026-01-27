@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from backend.app.api.deps import get_team_service
 from backend.app.dto.common.pagination import build_page, Page, PaginationParams, pagination_params
 from backend.app.dto.team import TeamCreateDTO, TeamDTO, TeamUpdateDTO
+from backend.app.mappers.teams import to_team_dto
 from core.application.services.teams.team_service import TeamService
 from core.application.services.teams.exceptions import NotFoundError, ConflictError
 
@@ -49,8 +50,14 @@ def update_team(
     payload: TeamUpdateDTO,
     service: TeamService = Depends(get_team_service),
 ):
+    changes = payload.model_dump(exclude_unset=True)
+    if not changes:
+        raise HTTPException(status_code=400, detail="No fields to update")
     try:
-        return service.update(team_id, name=payload.name, description=payload.description)
+        team = service.update(team_id, **changes)
+        if team is None:
+            raise HTTPException(status_code=404, detail="Team not found")
+        return to_team_dto(team)
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=e.code)
     except ConflictError as e:
