@@ -11,7 +11,6 @@ from .base import Base
 if TYPE_CHECKING:
     from .regime import Regime
     from .affectation import Affectation
-    from .etat_jour_agent import EtatJourAgent
     from .qualification import Qualification
 
 
@@ -28,11 +27,6 @@ class Agent(Base):
     regime: Mapped[Optional[Regime]] = relationship("Regime", back_populates="agents")
     affectations: Mapped[list[Affectation]] = relationship(
         "Affectation",
-        back_populates="agent",
-        cascade="all, delete-orphan",
-    )
-    etats: Mapped[list[EtatJourAgent]] = relationship(
-        "EtatJourAgent",
         back_populates="agent",
         cascade="all, delete-orphan",
     )
