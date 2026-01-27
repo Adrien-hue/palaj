@@ -5,6 +5,8 @@ import type { Team } from "@/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AdminDetailsRow } from "@/components/admin/AdminDetailsRow";
 
+import { TeamAgentsCard } from "@/features/teams/team.agents-card";
+
 function formatDateTime(iso: string) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
@@ -45,6 +47,8 @@ export default function TeamDetails({ team }: { team: Team }) {
           <AdminDetailsRow label="Créée le" value={formatDateTime(team.created_at)} />
         </CardContent>
       </Card>
+
+      <TeamAgentsCard team={team} />
     </div>
   );
 }
