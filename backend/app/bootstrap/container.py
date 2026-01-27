@@ -2,7 +2,6 @@
 from core.application.config.rh_rules_config import build_default_rh_engine
 
 from core.application.services import (
-    AffectationService,
     AgentPlanningValidatorService,
     AgentService,
     EtatJourAgentService,
@@ -33,11 +32,6 @@ from backend.app.settings import settings
 # ---------------------------------------------------------
 # Repositories -> Services
 # ---------------------------------------------------------
-affectation_service = AffectationService(
-    affectation_repo=affectation_repo, 
-    agent_repo=agent_repo, 
-    tranche_repo=tranche_repo
-)
 
 agent_service = AgentService(
     affectation_repo=affectation_repo,
@@ -109,7 +103,6 @@ poste_planning_factory = PostePlanningFactory(
 )
 
 __all__ = [
-    "affectation_service",
     "agent_service",
     "etat_jour_agent_service",
     "poste_service",
