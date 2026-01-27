@@ -83,6 +83,12 @@ class EntityMapper:
             if k in ctor_params and k not in payload and isinstance(v, _PRIMITIVE_TYPES):
                 payload[k] = v
 
+        # d) Compléter les champs manquants attendus par le ctor avec None
+        #    Important: les valeurs NULL en DB sont des None, et ne passent pas le filtre _PRIMITIVE_TYPES,
+        #    donc sans ça on peut rater des champs comme `description`.
+        for k in ctor_params:
+            payload.setdefault(k, None)
+
         # 5) Instancier l'entité
         entity = entity_class(**payload)
 
