@@ -122,7 +122,6 @@ class DataIntegrityChecker:
         self.check_tranches()
         self.check_postes()
         self.check_qualifications()
-        self.check_affectations()
         self.check_etats_jour()
 
         return {

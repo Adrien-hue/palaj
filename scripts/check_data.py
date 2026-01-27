@@ -11,7 +11,6 @@ from core.domain.services.agent_service import AgentService
 from core.domain.services.poste_validator_service import PosteValidatorService
 from core.domain.services.tranche_service import TrancheService
 from core.domain.services.qualification_service import QualificationService
-from core.domain.services.affectation_service import AffectationService
 from core.domain.services.etat_jour_agent_service import EtatJourAgentService
 from core.domain.services.regime_service import RegimeService
 
@@ -46,7 +45,6 @@ def main():
     poste_service = PosteValidatorService(poste_repo, tranche_repo)
     tranche_service = TrancheService(tranche_repo)
     qualification_service = QualificationService(qualification_repo, agent_repo, poste_repo)
-    affectation_service = AffectationService(agent_repo, affectation_repo, etat_jour_agent_repo, tranche_repo)
     etat_jour_agent_service = EtatJourAgentService(etat_jour_agent_repo, affectation_repo, agent_repo)
     regime_service = RegimeService(regime_repo)
 
@@ -56,7 +54,6 @@ def main():
         poste_service=poste_service,
         tranche_service=tranche_service,
         qualification_service=qualification_service,
-        affectation_service=affectation_service,
         etat_jour_agent_service=etat_jour_agent_service,
         regime_service=regime_service,
     )
