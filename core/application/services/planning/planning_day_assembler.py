@@ -1,13 +1,48 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from typing import Dict, List
 
 from core.application.ports.agent_day_repo import AgentDayRepositoryPort
 from core.application.ports.tranche_repo import TrancheRepositoryPort
 from core.domain.entities import Tranche
+from core.domain.enums.day_type import DayType
 from core.domain.models.planning_day import PlanningDay
+
+
+def _daterange(start: date, end: date) -> List[date]:
+    d = start
+    out: List[date] = []
+    while d <= end:
+        out.append(d)
+        d += timedelta(days=1)
+    return out
+
+def _densify_days(
+    days: List[PlanningDay],
+    start_date: date,
+    end_date: date,
+    *,
+    default_day_type: DayType = DayType.UNKNOWN,
+) -> List[PlanningDay]:
+    by_date = {d.day_date: d for d in days}
+    out: List[PlanningDay] = []
+    for d in _daterange(start_date, end_date):
+        existing = by_date.get(d)
+        if existing is not None:
+            out.append(existing)
+        else:
+            out.append(
+                PlanningDay(
+                    day_date=d,
+                    day_type=default_day_type,
+                    description=None,
+                    is_off_shift=False,
+                    tranches=[],
+                )
+            )
+    return out
 
 
 @dataclass
@@ -44,5 +79,38 @@ class PlanningDayAssembler:
             )
 
         sorted_planning_days = sorted(planning_days, key=lambda day: day.day_date)
+        
+        return _densify_days(sorted_planning_days, start_date, end_date)
 
-        return sorted_planning_days
+
+    def build_for_agents(self, agent_ids: List[int], start_date: date, end_date: date) -> Dict[int, List[PlanningDay]]:
+        agent_days = self.agent_day_repo.list_by_agents_and_range(agent_ids, start_date, end_date)
+
+        tranche_ids: List[int] = []
+        for d in agent_days:
+            tranche_ids.extend(d.tranche_ids)
+
+        unique_ids = sorted(set(tranche_ids))
+        tranches_by_id: Dict[int, Tranche] = {}
+        if unique_ids:
+            tranches = self.tranche_repo.list_by_ids(unique_ids)
+            tranches_by_id = {t.id: t for t in tranches}
+
+        by_agent: Dict[int, List[PlanningDay]] = {aid: [] for aid in agent_ids}
+
+        for d in agent_days:
+            tranches = [tranches_by_id[i] for i in d.tranche_ids if i in tranches_by_id]
+            by_agent.setdefault(d.agent_id, []).append(
+                PlanningDay(
+                    day_date=d.day_date,
+                    day_type=d.day_type,
+                    description=d.description,
+                    is_off_shift=d.is_off_shift,
+                    tranches=tranches,
+                )
+            )
+
+        for aid in by_agent:
+            by_agent[aid] = sorted(by_agent[aid], key=lambda day: day.day_date)
+            by_agent[aid] = _densify_days(by_agent[aid], start_date, end_date)
+        return by_agent

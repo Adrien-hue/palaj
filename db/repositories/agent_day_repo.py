@@ -80,6 +80,37 @@ class AgentDayRepository(SQLRepository[AgentDayModel, AgentDayEntity]):
                 for m in models
             ]
         
+    def list_by_agents_and_range(
+        self,
+        agent_ids: List[int],
+        start_date: date,
+        end_date: date,
+    ) -> List[AgentDayEntity]:
+        """
+        Bulk read AgentDays (thin) for multiple agents within date range (inclusive).
+        - No writes
+        - No loading of Agent or Tranche entities
+        - tranche_ids loaded via agent_day_assignments
+        """
+        if not agent_ids:
+            return []
+
+        with self.db.session_scope() as session:
+            models = (
+                session.query(AgentDayModel)
+                .filter(
+                    AgentDayModel.agent_id.in_(agent_ids),
+                    AgentDayModel.day_date >= start_date,
+                    AgentDayModel.day_date <= end_date,
+                )
+                .options(selectinload(AgentDayModel.assignments))
+                .order_by(AgentDayModel.agent_id.asc(), AgentDayModel.day_date.asc())
+                .all()
+            )
+
+            return [self._model_to_entity(m) for m in models]
+
+        
     def list_by_poste_and_range(
         self,
         poste_id: int,

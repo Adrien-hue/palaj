@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import List, Optional
 
 from sqlalchemy import select
 
 from core.domain.entities.team import Team as TeamEntity
+from db.models.agent_team import AgentTeam as AgentTeamModel
 from db.models.team import Team as TeamModel
 from db.sql_repository import SQLRepository
 
@@ -40,3 +41,12 @@ class TeamSQLRepository(SQLRepository[TeamModel, TeamEntity]):
                 select(TeamModel.id).where(TeamModel.id.in_(team_ids))
             ).all()
             return {r[0] for r in rows}
+
+    def list_agent_ids(self, team_id: int) -> List[int]:
+        with self.db.session_scope() as session:
+            rows = session.execute(
+                select(AgentTeamModel.agent_id)
+                .where(AgentTeamModel.team_id == team_id)
+                .order_by(AgentTeamModel.agent_id.asc())
+            ).all()
+            return [r[0] for r in rows]

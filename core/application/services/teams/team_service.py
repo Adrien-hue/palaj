@@ -16,6 +16,12 @@ class TeamService:
 
     def list(self, *, limit: Optional[int] = None, offset: int = 0) -> List[Team]:
         return self.repo.list(limit=limit, offset=offset)
+    
+    def list_agent_ids(self, team_id: int) -> List[int]:
+        self.get(team_id)
+        
+        return self.repo.list_agent_ids(team_id)
+
 
     def list_all(self) -> List[Team]:
         return self.repo.list_all()
