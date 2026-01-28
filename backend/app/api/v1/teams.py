@@ -1,11 +1,15 @@
+from datetime import date
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from backend.app.api.deps import get_team_service
+from backend.app.api.deps import get_team_planning_factory, get_team_service
 from backend.app.dto.common.pagination import build_page, Page, PaginationParams, pagination_params
 from backend.app.dto.team import TeamCreateDTO, TeamDTO, TeamUpdateDTO
+from backend.app.dto.team_planning import TeamPlanningResponseDTO
+from backend.app.mappers.team_planning import to_team_planning_response
 from backend.app.mappers.teams import to_team_dto
+from core.application.services.planning.team_planning_factory import TeamPlanningFactory
 from core.application.services.teams.team_service import TeamService
 from core.application.services.teams.exceptions import NotFoundError, ConflictError
 
@@ -42,6 +46,22 @@ def get_team(
         return service.get(team_id)
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=e.code)
+    
+
+@router.get("/{team_id}/planning", response_model=TeamPlanningResponseDTO)
+def get_team_planning(
+    team_id: int,
+    start_date: date = Query(..., description="YYYY-MM-DD"),
+    end_date: date = Query(..., description="YYYY-MM-DD"),
+    team_planning_factory: TeamPlanningFactory = Depends(get_team_planning_factory),
+):
+    try:
+        planning = team_planning_factory.build(team_id=team_id, start_date=start_date, end_date=end_date)
+        return to_team_planning_response(planning)
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail={"code": e.code, "details": e.details})
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.patch("/{team_id}", response_model=TeamDTO)

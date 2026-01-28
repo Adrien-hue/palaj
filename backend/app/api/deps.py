@@ -4,6 +4,7 @@ from collections.abc import Generator
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
+from core.application.services.planning.team_planning_factory import TeamPlanningFactory
 from db import db
 from db.models import User
 
@@ -17,6 +18,7 @@ from backend.app.bootstrap.container import (
     qualification_service,
     regime_service,
     team_service,
+    team_planning_factory,
     tranche_service,
 )
 from core.application.services import (
@@ -67,6 +69,9 @@ def get_regime_service() -> RegimeService:
 
 def get_team_service() -> TeamService:
     return team_service
+
+def get_team_planning_factory() -> TeamPlanningFactory:
+    return team_planning_factory
 
 def get_tranche_service() -> TrancheService:
     return tranche_service

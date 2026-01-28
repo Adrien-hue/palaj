@@ -8,6 +8,7 @@ from core.application.services import (
     PlanningDayAssembler,
     PostePlanningFactory,
     PostePlanningDayAssembler,
+    TeamPlanningFactory,
     PosteService,
     QualificationService,
     RegimeService,
@@ -103,6 +104,12 @@ poste_planning_factory = PostePlanningFactory(
     day_assembler=poste_planning_day_assembler
 )
 
+team_planning_factory = TeamPlanningFactory(
+    team_service=team_service,
+    agent_service=agent_service,
+    planning_day_assembler=planning_day_assembler,
+)
+
 __all__ = [
     "agent_service",
     "poste_service",
@@ -113,6 +120,7 @@ __all__ = [
     "agent_planning_validator_service",
     "agent_planning_factory",
     "poste_planning_factory",
+    "team_planning_factory",
     "agent_team_service",
     "team_service",
 ]
