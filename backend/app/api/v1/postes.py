@@ -3,7 +3,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from backend.app.api.deps import get_poste_coverage_requirement_service, get_poste_planning_factory, get_poste_service, get_tranche_service
 from backend.app.dto.common.pagination import build_page, Page, PaginationParams, pagination_params
-from backend.app.dto.poste_coverage_requirement import PosteCoverageDTO
+from backend.app.dto.poste_coverage_requirement import (
+    PosteCoverageDTO,
+    PosteCoveragePutDTO
+)
 from backend.app.dto.poste_planning import PostePlanningResponseDTO
 from backend.app.dto.postes import (
     PosteDTO, 
@@ -81,10 +84,10 @@ def get_poste_coverage(
     return to_poste_coverage_dto(poste_id, tranches, reqs)
 
 
-@router.put("/postes/{poste_id}/coverage", response_model=PosteCoverageDTO)
+@router.put("/{poste_id}/coverage", response_model=PosteCoverageDTO)
 def put_poste_coverage(
     poste_id: int,
-    payload: PosteCoverageDTO,
+    payload: PosteCoveragePutDTO,
     poste_coverage_requirement_service: PosteCoverageRequirementService = Depends(get_poste_coverage_requirement_service),
     tranche_service: TrancheService = Depends(get_tranche_service),
 ):
