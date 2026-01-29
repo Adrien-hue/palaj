@@ -6,7 +6,7 @@ import type { AgentPlanningVm, AgentDayVm } from "../vm/agentPlanning.vm";
 import { MonthlyGridBase } from "@/features/planning-common";
 
 import { AgentDayCell } from "./AgentDayCell";
-import { MonthDayDrawer } from "./AgentDaySheet";
+import { AgentDaySheet } from "./AgentDaySheet";
 
 export function AgentMonthlyPlanningGrid({
   anchorMonth,
@@ -40,7 +40,7 @@ export function AgentMonthlyPlanningGrid({
         />
       )}
       renderDetails={({ open, selectedDay, close }) => (
-        <MonthDayDrawer
+        <AgentDaySheet
           open={open}
           onClose={close}
           selectedDay={selectedDay}
