@@ -20,6 +20,7 @@ import {
 
 import type { ConfirmOptions } from "@/hooks/useConfirm";
 import { PosteHeaderCard } from "@/features/postes/cards/PosteHeaderCard";
+import { PosteCoverageCard } from "./cards/PosteCoverageCard";
 
 export default function PosteDetails({
   poste,
@@ -164,6 +165,12 @@ export default function PosteDetails({
             variant: "danger",
           })
         }
+      />
+
+      <PosteCoverageCard
+        posteId={poste.id}
+        tranches={tranches}
+        disabled={busyTranches || busyQualifications}
       />
 
       <QualificationCard
