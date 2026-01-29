@@ -1,6 +1,6 @@
 import { apiFetch } from "@/lib/api";
 
-import type { AgentPlanning, PostePlanning } from "@/types";
+import type { AgentPlanning, PostePlanning, TeamPlanning } from "@/types";
 
 export async function getAgentPlanning(
   agentId: number,
@@ -28,4 +28,17 @@ export async function getPostePlanning(
   search.set("end_date", params.endDate);
 
   return apiFetch<PostePlanning>(`/postes/${posteId}/planning?${search.toString()}`);
+}
+
+export async function getTeamPlanning(
+  teamId: number,
+  params: { startDate: string; endDate: string }
+) {
+  const search = new URLSearchParams();
+  search.set("start_date", params.startDate);
+  search.set("end_date", params.endDate);
+
+  return apiFetch<TeamPlanning>(
+    `/teams/${teamId}/planning?${search.toString()}`
+  );
 }
