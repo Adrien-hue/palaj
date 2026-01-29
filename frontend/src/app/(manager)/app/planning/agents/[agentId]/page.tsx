@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 
 import { getAgentPlanning } from "@/services/planning.service";
 import { listPostes } from "@/services/postes.service";
+import { listAgents } from "@/services/agents.service";
 
 import { buildPlanningVm } from "@/features/planning-agent/vm/agentPlanning.vm.builder";
 import {
@@ -9,8 +10,9 @@ import {
   monthGridRangeFrom,
 } from "@/features/planning-common/utils/month.utils";
 
-import { PlanningPageHeader } from "@/features/planning-common";
+import { AgentHeaderSelect } from "@/features/planning-agent/components/AgentHeaderSelect";
 import { PlanningPeriodControls } from "@/features/planning-common/period/PlanningPeriodControls";
+import { PlanningPageHeader } from "@/features/planning-common";
 
 import { AgentMonthlyPlanningGrid } from "@/features/planning-agent/components/AgentMonthlyPlanningGrid";
 import { formatDateFR } from "@/utils/date.format";
@@ -39,9 +41,6 @@ export default async function AgentPlanningPage({
 
   const todayISO = new Date().toISOString().slice(0, 10);
 
-  // ---------------------------------------
-  // ✅ Période (range prioritaire)
-  // ---------------------------------------
   const isRange = !!(sp.start && sp.end);
 
   const anchorMonth = isRange
@@ -56,14 +55,13 @@ export default async function AgentPlanningPage({
     ? `Planning du ${formatDateFR(range.start)} au ${formatDateFR(range.end)}`
     : "Planning mensuel";
 
-  const [planningDto, postesList] = await Promise.all([
+  const [planningDto, postesList, agentsList] = await Promise.all([
     getAgentPlanning(agentId, { startDate: range.start, endDate: range.end }),
     listPostes(),
+    listAgents(),
   ]);
 
   const planning = buildPlanningVm(planningDto);
-  const agent = planning.agent;
-  const agentName = `${agent.prenom} ${agent.nom}`;
 
   const posteNameById = new Map<number, string>(
     postesList.items.map((p) => [p.id, p.nom]),
@@ -72,7 +70,9 @@ export default async function AgentPlanningPage({
   return (
     <div className="space-y-4">
       <PlanningPageHeader
-        titleSlot={<div className="text-2xl font-semibold">{agentName}</div>}
+        titleSlot={
+          <AgentHeaderSelect agents={agentsList.items} valueId={agentId} />
+        }
         subtitle={subtitle}
         rightSlot={<PlanningPeriodControls navMode="replace" />}
       />

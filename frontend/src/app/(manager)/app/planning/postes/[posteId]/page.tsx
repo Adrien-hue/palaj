@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { getPostePlanning } from "@/services/planning.service";
+import { listPostes } from "@/services/postes.service";
 import type { PostePlanning } from "@/types/postePlanning";
 
 import { buildPostePlanningVm } from "@/features/planning-poste/vm/postePlanning.vm.builder";
@@ -10,8 +11,9 @@ import {
   monthGridRangeFrom,
 } from "@/features/planning-common/utils/month.utils";
 
-import { PlanningPageHeader } from "@/features/planning-common";
+import { PosteHeaderSelect } from "@/features/planning-poste/components/PosteHeaderSelect";
 import { PlanningPeriodControls } from "@/features/planning-common/period/PlanningPeriodControls";
+import { PlanningPageHeader } from "@/features/planning-common";
 
 import { PosteMonthlyPlanningGrid } from "@/features/planning-poste/components/PosteMonthlyPlanningGrid";
 import { formatDateFR } from "@/utils/date.format";
@@ -27,7 +29,10 @@ type PageProps = {
   }>;
 };
 
-export default async function PostePlanningPage({ params, searchParams }: PageProps) {
+export default async function PostePlanningPage({
+  params,
+  searchParams,
+}: PageProps) {
   const [{ posteId: rawId }, sp] = await Promise.all([params, searchParams]);
 
   const posteId = Number(rawId);
@@ -49,10 +54,10 @@ export default async function PostePlanningPage({ params, searchParams }: PagePr
     ? `Couverture du ${formatDateFR(range.start)} au ${formatDateFR(range.end)}`
     : "Couverture mensuelle";
 
-  const dto: PostePlanning = await getPostePlanning(posteId, {
-    startDate: range.start,
-    endDate: range.end,
-  });
+  const [dto, postesList] = await Promise.all([
+    getPostePlanning(posteId, { startDate: range.start, endDate: range.end }),
+    listPostes(),
+  ]);
 
   const planning = buildPostePlanningVm(dto);
   const poste = planning.poste;
@@ -60,7 +65,9 @@ export default async function PostePlanningPage({ params, searchParams }: PagePr
   return (
     <div className="space-y-4">
       <PlanningPageHeader
-        titleSlot={<div className="text-2xl font-semibold">{poste.nom}</div>}
+        titleSlot={
+          <PosteHeaderSelect postes={postesList.items} valueId={posteId} />
+        }
         subtitle={subtitle}
         rightSlot={<PlanningPeriodControls navMode="replace" />}
       />
