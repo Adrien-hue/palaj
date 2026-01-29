@@ -18,5 +18,5 @@ export const APP_TOP_NAV: AppNavItem[] = [
 export const PLANNING_TABS: AppNavItem[] = [
   { label: "Par agent", href: "/app/planning/agents" },
   { label: "Par poste", href: "/app/planning/postes" },
-  { label: "Par groupe", href: "/app/planning/groupes" },
+  { label: "Par groupe", href: "/app/planning/teams" },
 ];

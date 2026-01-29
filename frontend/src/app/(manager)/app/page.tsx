@@ -27,7 +27,7 @@ const CARDS: MenuCard[] = [
   {
     title: "Par équipe",
     description: "Piloter le planning par équipe.",
-    href: "/app/planning/groupes",
+    href: "/app/planning/teams",
     accentVar: "var(--palaj-j)",
   },
 ];
