@@ -60,15 +60,9 @@ export default async function PostePlanningPage({ params, searchParams }: PagePr
   return (
     <div className="space-y-4">
       <PlanningPageHeader
-        crumbs={[
-          { label: "Planning", href: "/app" },
-          { label: "Par poste", href: "/app/planning/postes" },
-          { label: poste.nom },
-        ]}
-        backHref="/app/planning/postes"
-        title={poste.nom}
+        titleSlot={<div className="text-2xl font-semibold">{poste.nom}</div>}
         subtitle={subtitle}
-        controls={<PlanningPeriodControls navMode="replace" />}
+        rightSlot={<PlanningPeriodControls navMode="replace" />}
       />
 
       <PosteMonthlyPlanningGrid anchorMonth={anchorMonth} planning={planning} />

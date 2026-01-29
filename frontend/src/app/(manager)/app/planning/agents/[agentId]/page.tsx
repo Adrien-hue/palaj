@@ -20,15 +20,18 @@ type PageProps = {
   searchParams: Promise<{
     // ✅ nouveau : période
     anchor?: string; // YYYY-MM-DD (on attend surtout YYYY-MM-01)
-    start?: string;  // YYYY-MM-DD
-    end?: string;    // YYYY-MM-DD
+    start?: string; // YYYY-MM-DD
+    end?: string; // YYYY-MM-DD
 
     // ✅ legacy
-    date?: string;   // YYYY-MM-DD
+    date?: string; // YYYY-MM-DD
   }>;
 };
 
-export default async function AgentPlanningPage({ params, searchParams }: PageProps) {
+export default async function AgentPlanningPage({
+  params,
+  searchParams,
+}: PageProps) {
   const [{ agentId: rawId }, sp] = await Promise.all([params, searchParams]);
 
   const agentId = Number(rawId);
@@ -63,21 +66,15 @@ export default async function AgentPlanningPage({ params, searchParams }: PagePr
   const agentName = `${agent.prenom} ${agent.nom}`;
 
   const posteNameById = new Map<number, string>(
-    postesList.items.map((p) => [p.id, p.nom])
+    postesList.items.map((p) => [p.id, p.nom]),
   );
 
   return (
     <div className="space-y-4">
       <PlanningPageHeader
-        crumbs={[
-          { label: "Planning", href: "/app" },
-          { label: "Par agent", href: "/app/planning/agents" },
-          { label: agentName },
-        ]}
-        backHref="/app/planning/agents"
-        title={agentName}
+        titleSlot={<div className="text-2xl font-semibold">{agentName}</div>}
         subtitle={subtitle}
-        controls={<PlanningPeriodControls navMode="replace" />} // ✅ nouveau
+        rightSlot={<PlanningPeriodControls navMode="replace" />}
       />
 
       <AgentMonthlyPlanningGrid
