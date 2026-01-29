@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { listTeams } from "@/services/teams.service";
 import { getTeamPlanning } from "@/services/planning.service";
 import type { Team, TeamPlanning, AgentDay, Agent } from "@/types";
-import { DayDetailsSheet } from "@/features/planning-team/DayDetailsSheet";
+import { TeamDaySheet } from "@/features/planning-team/TeamDaySheet";
 import {
   addDays,
   formatDayLabel,
@@ -209,7 +209,7 @@ export default function TeamPlanningClient() {
         onCellClick={(agent, day, selectedSegments) => openSheet(agent, day, selectedSegments)}
       />
 
-      <DayDetailsSheet
+      <TeamDaySheet
         open={sheetOpen}
         onOpenChange={setSheetOpen}
         agent={selectedAgent}
