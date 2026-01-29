@@ -2,6 +2,7 @@
 from core.application.ports.agent_day_assignment_repo import AgentDayAssignmentRepositoryPort
 from core.application.ports.agent_repo import AgentRepositoryPort
 from core.application.ports.agent_day_repo import AgentDayRepositoryPort
+from core.application.ports.poste_coverage_requirement_repo import PosteCoverageRequirementRepositoryPort
 from core.application.ports.poste_repo import PosteRepositoryPort
 from core.application.ports.qualification_repo import QualificationRepositoryPort
 from core.application.ports.regime_repo import RegimeRepositoryPort
@@ -11,6 +12,7 @@ __all__ = [
     "AgentRepositoryPort",
     "AgentDayRepositoryPort",
     "AgentDayAssignmentRepositoryPort",
+    "PosteCoverageRequirementRepositoryPort",
     "PosteRepositoryPort",
     "QualificationRepositoryPort",
     "RegimeRepositoryPort",
