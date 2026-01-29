@@ -9,6 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .base import Base
 
 if TYPE_CHECKING:
+    from .poste_coverage_requirement import PosteCoverageRequirement
     from .qualification import Qualification
     from .tranche import Tranche
 
@@ -29,6 +30,14 @@ class Poste(Base):
         back_populates="poste",
         cascade="all, delete-orphan",
     )
+
+    coverage_requirements: Mapped[list["PosteCoverageRequirement"]] = relationship(
+        "PosteCoverageRequirement",
+        back_populates="poste",
+        cascade="all, delete-orphan",
+    )
+
+
 
     def __repr__(self) -> str:
         return f"<Poste {self.nom}>"
