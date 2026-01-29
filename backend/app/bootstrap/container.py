@@ -9,6 +9,7 @@ from core.application.services import (
     PostePlanningFactory,
     PostePlanningDayAssembler,
     TeamPlanningFactory,
+    PosteCoverageRequirementService,
     PosteService,
     QualificationService,
     RegimeService,
@@ -21,6 +22,7 @@ from db.repositories import (
     agent_repo,
     agent_day_repo,
     agent_day_assignment_repo,
+    poste_coverage_requirement_repo,
     poste_repo,
     qualification_repo,
     regime_repo,
@@ -46,6 +48,10 @@ poste_service = PosteService(
     poste_repo=poste_repo,
     qualification_repo=qualification_repo,
     tranche_repo=tranche_repo,
+)
+
+poste_coverage_requirement_service = PosteCoverageRequirementService(
+    repo=poste_coverage_requirement_repo
 )
 
 qualification_service = QualificationService(
@@ -113,6 +119,7 @@ team_planning_factory = TeamPlanningFactory(
 __all__ = [
     "agent_service",
     "poste_service",
+    "poste_coverage_requirement_service",
     "qualification_service",
     "regime_service",
     "tranche_service",

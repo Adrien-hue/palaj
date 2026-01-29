@@ -1,8 +1,9 @@
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from backend.app.api.deps import get_poste_planning_factory, get_poste_service, get_tranche_service
+from backend.app.api.deps import get_poste_coverage_requirement_service, get_poste_planning_factory, get_poste_service, get_tranche_service
 from backend.app.dto.common.pagination import build_page, Page, PaginationParams, pagination_params
+from backend.app.dto.poste_coverage_requirement import PosteCoverageDTO
 from backend.app.dto.poste_planning import PostePlanningResponseDTO
 from backend.app.dto.postes import (
     PosteDTO, 
@@ -10,6 +11,7 @@ from backend.app.dto.postes import (
     PosteCreateDTO,
     PosteUpdateDTO
 )
+from backend.app.mappers.poste_coverage_requirement import poste_coverage_dto_to_entity, to_poste_coverage_dto
 from backend.app.mappers.poste_planning import to_poste_planning_response
 from backend.app.mappers.postes import to_poste_dto, to_poste_detail_dto
 from backend.app.dto.tranches import (
@@ -18,6 +20,7 @@ from backend.app.dto.tranches import (
 from backend.app.mappers.tranches import to_tranche_dto
 from core.application.services import PosteService, TrancheService
 from core.application.services.planning.poste_planning_factory import PostePlanningFactory
+from core.application.services.poste_coverage_requirement_service import PosteCoverageRequirementService
 
 router = APIRouter(prefix="/postes", tags=["Postes"])
 
@@ -66,6 +69,38 @@ def list_tranches_for_poste(
         raise HTTPException(status_code=404, detail=str(e))
 
     return [to_tranche_dto(t) for t in items]
+
+@router.get("/{poste_id}/coverage", response_model=PosteCoverageDTO)
+def get_poste_coverage(
+    poste_id: int,
+    poste_coverage_requirement_service: PosteCoverageRequirementService = Depends(get_poste_coverage_requirement_service),
+    tranche_service: TrancheService = Depends(get_tranche_service),
+):
+    reqs = poste_coverage_requirement_service.get_for_poste(poste_id)
+    tranches = tranche_service.list_by_poste_id(poste_id)
+    return to_poste_coverage_dto(poste_id, tranches, reqs)
+
+
+@router.put("/postes/{poste_id}/coverage", response_model=PosteCoverageDTO)
+def put_poste_coverage(
+    poste_id: int,
+    payload: PosteCoverageDTO,
+    poste_coverage_requirement_service: PosteCoverageRequirementService = Depends(get_poste_coverage_requirement_service),
+    tranche_service: TrancheService = Depends(get_tranche_service),
+):
+    # garde-fou simple: le poste_id URL est la source de vérité
+    if payload.poste_id != poste_id:
+        raise HTTPException(status_code=400, detail="poste_id mismatch between path and body")
+
+    entities = [poste_coverage_dto_to_entity(poste_id, r) for r in payload.requirements]
+
+    try:
+        saved = poste_coverage_requirement_service.replace_for_poste(poste_id, entities)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    tranches = tranche_service.list_by_poste_id(poste_id)
+    return to_poste_coverage_dto(poste_id, tranches, saved)
 
 @router.get("/{poste_id}/planning", response_model=PostePlanningResponseDTO)
 def get_poste_planning(
