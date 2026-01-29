@@ -1,3 +1,4 @@
+export * from "./components/MiniTimeline";
 export * from "./components/MonthlyGridBase";
 export * from "./components/PlanningPageHeader";
 export * from "./components/PlanningMonthControls";
