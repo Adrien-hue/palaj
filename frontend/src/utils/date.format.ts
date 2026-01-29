@@ -1,71 +1,60 @@
 // src/utils/date.format.ts
+import { fr } from "date-fns/locale";
+import {
+  addDays as dfAddDays,
+  addMonths as dfAddMonths,
+  differenceInCalendarDays,
+  endOfMonth,
+  format,
+  isWeekend as dfIsWeekend,
+  parseISO,
+  startOfMonth,
+  startOfWeek,
+} from "date-fns";
 
 /** "YYYY-MM-DD" -> "DD/MM/YYYY" (FR) */
 export function formatDateFR(isoDate: string): string {
-  const d = new Date(isoDate + "T00:00:00");
-  return new Intl.DateTimeFormat("fr-FR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  }).format(d);
+  const d = parseISO(isoDate);
+  return format(d, "dd/MM/yyyy", { locale: fr });
 }
 
 /** "YYYY-MM-DD" -> "jeudi 01 janvier 2026" (FR long) */
 export function formatDateFRLong(isoDate: string): string {
-  const d = new Date(isoDate + "T00:00:00");
-  return new Intl.DateTimeFormat("fr-FR", {
-    weekday: "long",
-    day: "2-digit",
-    month: "long",
-    year: "numeric",
-  }).format(d);
+  const d = parseISO(isoDate);
+  // LLLL => month long in locale
+  return format(d, "EEEE dd LLLL yyyy", { locale: fr });
 }
 
 /** "YYYY-MM-DD" -> "jeu. 01/01" */
 export function formatDayShortFR(isoDate: string): string {
-  const d = new Date(isoDate + "T00:00:00");
-  return d.toLocaleDateString("fr-FR", {
-    weekday: "short",
-    day: "2-digit",
-    month: "2-digit",
-  });
+  const d = parseISO(isoDate);
+  return format(d, "EEE dd/MM", { locale: fr });
 }
 
 /** "YYYY-MM-DD" + deltaDays -> "YYYY-MM-DD" */
 export function addDaysISO(isoDate: string, deltaDays: number): string {
-  const d = new Date(isoDate + "T00:00:00");
-  d.setDate(d.getDate() + deltaDays);
-  return toISODate(d);
+  const d = parseISO(isoDate);
+  return toISODate(dfAddDays(d, deltaDays));
 }
 
-/** "YYYY-MM-DD" -> Date (local, safe) */
+/** "YYYY-MM-DD" -> Date (safe) */
 export function parseISODate(isoDate: string): Date {
-  return new Date(isoDate + "T00:00:00");
+  return parseISO(isoDate);
 }
 
 /** Date -> "YYYY-MM-DD" */
 export function toISODate(d: Date): string {
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
+  return format(d, "yyyy-MM-dd");
 }
 
 /** Date + deltaDays */
 export function addDays(date: Date, deltaDays: number): Date {
-  const d = new Date(date);
-  d.setDate(d.getDate() + deltaDays);
-  return d;
+  return dfAddDays(date, deltaDays);
 }
 
-/** Lundi de la semaine courante */
+/** Lundi de la semaine courante (weekStartsOn: 1) */
 export function startOfWeekMonday(date: Date): Date {
-  const d = new Date(date);
-  const day = d.getDay(); // 0=dimanche
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
-  d.setHours(0, 0, 0, 0);
-  return d;
+  return startOfWeek(date, { weekStartsOn: 1 });
 }
 
 export function pad2(n: number) {
@@ -73,14 +62,28 @@ export function pad2(n: number) {
 }
 
 export function formatDayLabel(iso: string) {
-  const d = parseISODate(iso);
-  if (!d) return iso;
+  const d = parseISO(iso);
   // ex: "Mer 01/01"
-  const wd = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"][d.getDay()];
-  return `${wd} ${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}`;
+  return format(d, "EEE dd/MM", { locale: fr });
 }
 
 export function isWeekend(isoDate: string) {
-  const dow = new Date(isoDate + "T00:00:00").getDay(); // 0=dim,6=sam
-  return dow === 0 || dow === 6;
+  return dfIsWeekend(parseISO(isoDate));
+}
+
+/** Helpers utiles pour la navigation de période (date-fns) */
+export function startOfMonthDate(date: Date): Date {
+  return startOfMonth(date);
+}
+
+export function endOfMonthDate(date: Date): Date {
+  return endOfMonth(date);
+}
+
+export function addMonthsDate(date: Date, deltaMonths: number): Date {
+  return dfAddMonths(date, deltaMonths);
+}
+
+export function diffDaysInclusive(start: Date, end: Date): number {
+  return differenceInCalendarDays(end, start) + 1;
 }

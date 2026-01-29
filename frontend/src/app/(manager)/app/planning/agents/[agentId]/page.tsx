@@ -9,29 +9,49 @@ import {
   monthGridRangeFrom,
 } from "@/features/planning-common/utils/month.utils";
 
-import { PlanningPageHeader, PlanningMonthControls } from "@/features/planning-common";
+import { PlanningPageHeader } from "@/features/planning-common";
+import { PlanningPeriodControls } from "@/features/planning-common/period/PlanningPeriodControls";
+
 import { AgentMonthlyPlanningGrid } from "@/features/planning-agent/components/AgentMonthlyPlanningGrid";
+import { formatDateFR } from "@/utils/date.format";
 
 type PageProps = {
   params: Promise<{ agentId: string }>;
-  searchParams: Promise<{ date?: string }>;
+  searchParams: Promise<{
+    // ✅ nouveau : période
+    anchor?: string; // YYYY-MM-DD (on attend surtout YYYY-MM-01)
+    start?: string;  // YYYY-MM-DD
+    end?: string;    // YYYY-MM-DD
+
+    // ✅ legacy
+    date?: string;   // YYYY-MM-DD
+  }>;
 };
 
-export default async function AgentPlanningPage({
-  params,
-  searchParams,
-}: PageProps) {
-  const [{ agentId: rawId }, { date }] = await Promise.all([
-    params,
-    searchParams,
-  ]);
+export default async function AgentPlanningPage({ params, searchParams }: PageProps) {
+  const [{ agentId: rawId }, sp] = await Promise.all([params, searchParams]);
 
   const agentId = Number(rawId);
   if (!Number.isFinite(agentId)) notFound();
 
-  // Anchor du mois: YYYY-MM-01
-  const anchor = monthAnchorISO(date ?? new Date().toISOString().slice(0, 10));
-  const range = monthGridRangeFrom(anchor);
+  const todayISO = new Date().toISOString().slice(0, 10);
+
+  // ---------------------------------------
+  // ✅ Période (range prioritaire)
+  // ---------------------------------------
+  const isRange = !!(sp.start && sp.end);
+
+  const anchorMonth = isRange
+    ? monthAnchorISO(sp.start!) // on accroche l’affichage du grid sur le mois du start
+    : monthAnchorISO(sp.anchor ?? sp.date ?? todayISO);
+
+  const range = isRange
+    ? { start: sp.start!, end: sp.end! }
+    : monthGridRangeFrom(anchorMonth);
+
+  const subtitle = isRange
+    ? `Planning du ${formatDateFR(range.start)} au ${formatDateFR(range.end)}`
+    : "Planning mensuel";
 
   const [planningDto, postesList] = await Promise.all([
     getAgentPlanning(agentId, { startDate: range.start, endDate: range.end }),
@@ -40,7 +60,6 @@ export default async function AgentPlanningPage({
 
   const planning = buildPlanningVm(planningDto);
   const agent = planning.agent;
-
   const agentName = `${agent.prenom} ${agent.nom}`;
 
   const posteNameById = new Map<number, string>(
@@ -57,12 +76,12 @@ export default async function AgentPlanningPage({
         ]}
         backHref="/app/planning/agents"
         title={agentName}
-        subtitle="Planning mensuel"
-        controls={<PlanningMonthControls navMode="replace" />}
+        subtitle={subtitle}
+        controls={<PlanningPeriodControls navMode="replace" />} // ✅ nouveau
       />
 
       <AgentMonthlyPlanningGrid
-        anchorMonth={anchor}
+        anchorMonth={anchorMonth}
         planning={planning}
         posteNameById={posteNameById}
       />

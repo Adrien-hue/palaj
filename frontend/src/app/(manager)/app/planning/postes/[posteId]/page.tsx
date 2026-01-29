@@ -10,22 +10,44 @@ import {
   monthGridRangeFrom,
 } from "@/features/planning-common/utils/month.utils";
 
-import { PlanningPageHeader, PlanningMonthControls } from "@/features/planning-common"; 
+import { PlanningPageHeader } from "@/features/planning-common";
+import { PlanningPeriodControls } from "@/features/planning-common/period/PlanningPeriodControls";
+
 import { PosteMonthlyPlanningGrid } from "@/features/planning-poste/components/PosteMonthlyPlanningGrid";
+import { formatDateFR } from "@/utils/date.format";
 
 type PageProps = {
   params: Promise<{ posteId: string }>;
-  searchParams: Promise<{ date?: string }>;
+  searchParams: Promise<{
+    anchor?: string;
+    start?: string;
+    end?: string;
+
+    date?: string;
+  }>;
 };
 
 export default async function PostePlanningPage({ params, searchParams }: PageProps) {
-  const [{ posteId: rawId }, { date }] = await Promise.all([params, searchParams]);
+  const [{ posteId: rawId }, sp] = await Promise.all([params, searchParams]);
 
   const posteId = Number(rawId);
   if (!Number.isFinite(posteId)) notFound();
 
-  const anchor = monthAnchorISO(date ?? new Date().toISOString().slice(0, 10));
-  const range = monthGridRangeFrom(anchor);
+  const todayISO = new Date().toISOString().slice(0, 10);
+
+  const isRange = !!(sp.start && sp.end);
+
+  const anchorMonth = isRange
+    ? monthAnchorISO(sp.start!)
+    : monthAnchorISO(sp.anchor ?? sp.date ?? todayISO);
+
+  const range = isRange
+    ? { start: sp.start!, end: sp.end! }
+    : monthGridRangeFrom(anchorMonth);
+
+  const subtitle = isRange
+    ? `Couverture du ${formatDateFR(range.start)} au ${formatDateFR(range.end)}`
+    : "Couverture mensuelle";
 
   const dto: PostePlanning = await getPostePlanning(posteId, {
     startDate: range.start,
@@ -45,10 +67,11 @@ export default async function PostePlanningPage({ params, searchParams }: PagePr
         ]}
         backHref="/app/planning/postes"
         title={poste.nom}
-        subtitle="Couverture mensuelle"
-        controls={<PlanningMonthControls navMode="replace" />}
+        subtitle={subtitle}
+        controls={<PlanningPeriodControls navMode="replace" />}
       />
-      <PosteMonthlyPlanningGrid anchorMonth={anchor} planning={planning} />
+
+      <PosteMonthlyPlanningGrid anchorMonth={anchorMonth} planning={planning} />
     </div>
   );
 }
