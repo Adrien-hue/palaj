@@ -1,22 +1,34 @@
-// frontend/src/features/planning-common/period/PlanningPeriodControls.tsx
 "use client";
 
+import type { PlanningPeriod } from "./period.types";
 import { PlanningPeriodNavigator } from "@/components/planning/PlanningPeriodNavigator";
-import { usePlanningPeriodParam } from "./usePlanningPeriodParam";
+
+type Props = {
+  value: PlanningPeriod;
+  onChange: (p: PlanningPeriod) => void;
+  onPrev: () => void;
+  onNext: () => void;
+
+  disabled?: boolean;
+  className?: string;
+};
 
 export function PlanningPeriodControls({
-  navMode = "push",
-}: {
-  navMode?: "push" | "replace";
-}) {
-  const { period, setPeriod, step } = usePlanningPeriodParam({ navMode });
-
+  value,
+  onChange,
+  onPrev,
+  onNext,
+  disabled,
+  className,
+}: Props) {
   return (
     <PlanningPeriodNavigator
-      value={period}
-      onChange={(p) => setPeriod(p, navMode)}
-      onPrev={() => step(-1, navMode)}
-      onNext={() => step(1, navMode)}
+      value={value}
+      onChange={onChange}
+      onPrev={onPrev}
+      onNext={onNext}
+      disabled={disabled}
+      className={className}
     />
   );
 }
