@@ -1,48 +1,49 @@
 import { AgentDayVm } from "../vm/agentPlanning.vm";
-import { buildTimeWindows, formatWindows } from "@/features/planning-agent/utils/month.summary";
+import {
+  buildTimeWindows,
+  formatWindows,
+} from "@/features/planning-agent/utils/month.summary";
 import { AgentMiniGantt } from "./AgentMiniGantt";
 import { Badge } from "@/components/ui/badge";
+import { PlanningDayCellFrame } from "@/components/planning/PlanningDayCellFrame";
+import { DayTypeBadge, dayTypeLabel } from "@/components/planning/DayTypeBadge";
+import { cn } from "@/lib/utils";
+
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 function dayNumber(iso: string) {
   return String(Number(iso.slice(8, 10)));
 }
 
-function dayTypeLabel(dayType: string) {
-  return dayType === "working"
-    ? "Travail"
-    : dayType === "rest"
-    ? "Repos"
-    : dayType === "absence"
-    ? "Absence"
-    : dayType === "unknown"
-    ? "—"
-    : dayType;
-}
+type Window = { start: string; end: string };
 
-function dayTypeDotColor(dayType: string) {
-  if (dayType === "working") return "var(--palaj-l)";
-  if (dayType === "absence") return "var(--palaj-a)";
-  if (dayType === "rest") return "var(--app-muted)";
-  return "var(--app-muted)";
-}
+function pickPrimaryWindow(
+  windows: Window[],
+  segments: AgentDayVm["segments"],
+): Window | null {
+  if (windows.length === 0) return null;
 
-function DayTypeBadge({ dayType }: { dayType: string }) {
-  const label = dayTypeLabel(dayType);
+  const startingSegs = segments.filter((s) => !s.continuesPrev);
+  const primaryStart = startingSegs.length
+    ? startingSegs.map((s) => s.start).sort((a, b) => a.localeCompare(b))[0]
+    : null;
 
-  return (
-    <Badge
-      variant="outline"
-      className="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium"
-    >
-      <span className="inline-flex items-center gap-1.5">
-        <span
-          className="inline-flex h-2 w-2 rounded-full"
-          style={{ backgroundColor: dayTypeDotColor(dayType) }}
-        />
-        <span>{label}</span>
-      </span>
-    </Badge>
+  if (!primaryStart) return windows[0];
+
+  const w = windows.find(
+    (x) => x.start <= primaryStart && primaryStart < x.end,
   );
+  return w ?? windows[0];
+}
+
+function windowLabel(w: Window, index: number, windows: Window[]) {
+  if (index === 0 && w.start === "00:00:00") return "← suite";
+  if (index === windows.length - 1 && w.end === "23:59:00") return "→ nuit";
+  return null;
 }
 
 export function AgentDayCell(props: {
@@ -50,64 +51,159 @@ export function AgentDayCell(props: {
   isOutsideMonth: boolean;
   isSelected: boolean;
   isInSelectedWeek: boolean;
+  isOutsideRange?: boolean;
   onSelect: () => void;
-  posteNameById: Map<number, string>;
 }) {
-  const { day, isOutsideMonth, isSelected, isInSelectedWeek, onSelect } = props;
+  const {
+    day,
+    isOutsideMonth,
+    isSelected,
+    isInSelectedWeek,
+    isOutsideRange,
+    onSelect,
+  } = props;
 
-  const windows = buildTimeWindows(day.segments, 60);
-  const timeText = formatWindows(windows, 2);
+  const hasSegments = day.segments.length > 0;
 
-  const ringClass = isSelected
-    ? "ring-2 ring-[color:var(--app-ring)]"
-    : isInSelectedWeek
-    ? "ring-1 ring-[color:var(--app-border)]"
-    : "";
+  // ZCOT = working without segments (agent à disposition)
+  const effectiveDayType =
+    day.day_type === "working" && !hasSegments ? "zcot" : day.day_type;
 
-  const ariaLabel = [
+  const isWorkingDay = effectiveDayType === "working";
+  const isZcotDay = effectiveDayType === "zcot";
+
+  // Build windows only for working days with segments
+  const windows =
+    isWorkingDay && hasSegments
+      ? (buildTimeWindows(day.segments, 60) as Window[])
+      : [];
+  const timeText = windows.length ? formatWindows(windows, 4) : "";
+
+  const hasCarryFromPrev =
+    hasSegments && day.segments.some((s) => s.continuesPrev);
+  const hasCarryToNext =
+    hasSegments && day.segments.some((s) => s.continuesNext);
+  const hasOwnStart = hasSegments && day.segments.some((s) => !s.continuesPrev);
+  const isCarryOnlyDay = hasSegments && hasCarryFromPrev && !hasOwnStart;
+
+  const primaryWindow = pickPrimaryWindow(windows, day.segments);
+  const extraWindowsCount =
+    primaryWindow && windows.length > 1 ? windows.length - 1 : 0;
+
+  const ariaParts = [
     `Jour ${dayNumber(day.day_date)}`,
-    `Type: ${dayTypeLabel(day.day_type)}`,
-    timeText ? `Horaires: ${timeText}` : null,
-  ]
-    .filter(Boolean)
-    .join(", ");
+    `Type: ${dayTypeLabel(effectiveDayType)}`,
+  ];
+  if (isWorkingDay && hasSegments && timeText)
+    ariaParts.push(`Horaires: ${timeText}`);
+  const ariaLabel = ariaParts.join(", ");
 
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      aria-pressed={isSelected}
-      aria-label={ariaLabel}
-      className={[
-        "w-full rounded-xl border p-2 text-left transition",
-        "border-[color:var(--app-border)] bg-[color:var(--app-surface)] hover:bg-[color:var(--app-soft)]",
-        "focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-ring)]",
-        "hover:-translate-y-[1px] hover:shadow-sm",
-        isOutsideMonth ? "opacity-50" : "",
-        ringClass,
-      ].join(" ")}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div className="text-sm font-semibold text-[color:var(--app-text)] tabular-nums">
-          {dayNumber(day.day_date)}
-        </div>
-        <DayTypeBadge dayType={day.day_type} />
-      </div>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div>
+          <PlanningDayCellFrame
+            onSelect={onSelect}
+            ariaLabel={ariaLabel}
+            pressed={isSelected}
+            isOutsideMonth={isOutsideMonth}
+            isOutsideRange={isOutsideRange}
+            isInSelectedWeek={isInSelectedWeek}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div
+                className={cn(
+                  "text-sm font-semibold tabular-nums",
+                  (isOutsideMonth || isOutsideRange) && "text-muted-foreground",
+                )}
+              >
+                {dayNumber(day.day_date)}
+              </div>
+              <DayTypeBadge dayType={effectiveDayType} />
+            </div>
 
-      <div className="mt-1 truncate text-[12px] text-[color:var(--app-muted)]">
-        {timeText}
-      </div>
+            {/* Secondary line: depends on day type */}
+            <div className="mt-1 flex items-center gap-2">
+              {isWorkingDay && hasSegments ? (
+                <>
+                  <Badge variant="secondary" className="tabular-nums">
+                    {primaryWindow
+                      ? `${primaryWindow.start.slice(0, 5)}–${primaryWindow.end.slice(0, 5)}`
+                      : "—"}
+                    {hasCarryToNext ? " →" : ""}
+                  </Badge>
 
-      {day.segments.length > 0 ? (
-        <div className="mt-2">
-          <AgentMiniGantt
-            segments={day.segments}
-            dayStart="00:00:00"
-            dayEnd="24:00:00"
-            maxLanes={2}
-          />
+                  {isCarryOnlyDay ? (
+                    <Badge variant="outline" className="text-muted-foreground">
+                      ← Suite
+                    </Badge>
+                  ) : null}
+
+                  {extraWindowsCount > 0 ? (
+                    <Badge
+                      variant="outline"
+                      className="tabular-nums text-muted-foreground"
+                    >
+                      +{extraWindowsCount}
+                    </Badge>
+                  ) : null}
+                </>
+              ) : (
+                <div className="text-[12px] text-muted-foreground">
+                  {dayTypeLabel(effectiveDayType)}
+                </div>
+              )}
+            </div>
+
+            {/* Timeline only for working days with segments */}
+            {isWorkingDay && hasSegments ? (
+              <div className="mt-2">
+                <AgentMiniGantt
+                  segments={day.segments}
+                  dayStart="00:00:00"
+                  dayEnd="24:00:00"
+                  maxLanes={2}
+                />
+              </div>
+            ) : null}
+          </PlanningDayCellFrame>
         </div>
-      ) : null}
-    </button>
+      </TooltipTrigger>
+
+      <TooltipContent className="max-w-[260px]">
+        <div className="space-y-2">
+          <div className="text-xs font-medium">
+            {isWorkingDay && hasSegments ? "Horaires" : "Statut"}
+          </div>
+
+          {isWorkingDay && hasSegments ? (
+            <div className="space-y-1">
+              {windows.map((w, i) => {
+                const label = windowLabel(w, i, windows);
+                return (
+                  <div
+                    key={i}
+                    className="flex items-center justify-between gap-2 text-xs tabular-nums text-muted-foreground"
+                  >
+                    <span>
+                      {w.start.slice(0, 5)} – {w.end.slice(0, 5)}
+                    </span>
+                    {label ? (
+                      <span className="text-[11px] text-muted-foreground/80">
+                        {label}
+                      </span>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="text-xs text-muted-foreground">
+              {dayTypeLabel(effectiveDayType)}
+            </div>
+          )}
+        </div>
+      </TooltipContent>
+    </Tooltip>
   );
 }

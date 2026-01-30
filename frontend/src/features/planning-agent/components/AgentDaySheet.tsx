@@ -6,44 +6,9 @@ import { AgentDayGantt } from "./AgentDayGantt";
 
 import { Badge } from "@/components/ui/badge";
 
-import { PlanningSheetShell } from "@/components/planning/PlanningSheetShell";
+import { DayTypeBadge } from "@/components/planning/DayTypeBadge";
 import { DrawerSection, EmptyBox } from "@/components/planning/DrawerSection";
-
-function dayTypeLabel(dayType: string) {
-  return dayType === "working"
-    ? "Travail"
-    : dayType === "rest"
-    ? "Repos"
-    : dayType === "absence"
-    ? "Absence"
-    : dayType === "unknown"
-    ? "—"
-    : dayType;
-}
-
-function dayTypeDotColor(dayType: string) {
-  if (dayType === "working") return "var(--palaj-l)";
-  if (dayType === "absence") return "var(--palaj-a)";
-  if (dayType === "rest") return "var(--app-muted)";
-  return "var(--app-muted)";
-}
-
-function DayTypeBadge({ dayType }: { dayType: string }) {
-  return (
-    <Badge
-      variant="outline"
-      className="rounded-full px-2 py-0.5 text-[11px] font-medium"
-    >
-      <span className="inline-flex items-center gap-1.5">
-        <span
-          className="inline-flex h-2 w-2 rounded-full"
-          style={{ backgroundColor: dayTypeDotColor(dayType) }}
-        />
-        <span>{dayTypeLabel(dayType)}</span>
-      </span>
-    </Badge>
-  );
-}
+import { PlanningSheetShell } from "@/components/planning/PlanningSheetShell";
 
 export function AgentDaySheet({
   open,
