@@ -45,7 +45,6 @@ export function AgentPlanningGrid(props: AgentPlanningGridProps) {
           isSelected={isSelected}
           isInSelectedWeek={isInSelectedWeek}
           onSelect={onSelect}
-          posteNameById={posteNameById}
         />
       )}
       renderDetails={({ open, selectedDay, close }) => (
