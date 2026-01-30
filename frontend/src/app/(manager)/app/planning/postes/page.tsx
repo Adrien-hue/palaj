@@ -1,28 +1,27 @@
 import { listPostes } from "@/services";
 import type { ListParams } from "@/types";
 
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { PostePicker } from "@/components/postes/PostePicker";
+import { monthAnchorISO } from "@/features/planning-common/utils/month.utils";
+import { PostePlanningClient } from "@/features/planning-poste/components/PostePlanningClient";
 
-export default async function PlanningPostesIndexPage() {
+type PageProps = {
+  searchParams: Promise<{ anchor?: string; date?: string }>;
+};
+
+export default async function PlanningPostesPage({ searchParams }: PageProps) {
+  const sp = await searchParams;
+
   const params: ListParams = { page: 1, page_size: 200 };
   const data = await listPostes(params);
 
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const initialAnchor = monthAnchorISO(sp.anchor ?? sp.date ?? todayISO);
+
   return (
-    <div className="mx-auto max-w-2xl">
-      <Card className="border-[color:var(--app-border)] bg-[color:var(--app-surface)] shadow-sm">
-        <CardHeader className="space-y-2">
-          <h1 className="text-2xl font-semibold tracking-tight text-[color:var(--app-text)]">
-            Planning par poste
-          </h1>
-          <p className="text-sm text-[color:var(--app-muted)]">
-            Choisis un poste pour ouvrir son planning.
-          </p>
-        </CardHeader>
-        <CardContent className="pt-0">
-          <PostePicker postes={data.items} />
-        </CardContent>
-      </Card>
-    </div>
+    <PostePlanningClient
+      initialPosteId={null}
+      initialAnchor={initialAnchor}
+      postes={data.items}
+    />
   );
 }
