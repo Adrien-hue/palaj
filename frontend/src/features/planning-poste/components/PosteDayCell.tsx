@@ -1,11 +1,12 @@
 import type { PosteDayVm } from "@/features/planning-poste/vm/postePlanning.vm";
 import { PosteMiniGantt } from "./PosteMiniGantt";
 import { Badge } from "@/components/ui/badge";
+import { PlanningDayCellFrame } from "@/components/planning/PlanningDayCellFrame";
+import { cn } from "@/lib/utils";
 
 import {
   Tooltip,
   TooltipContent,
-  TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
@@ -30,12 +31,14 @@ export function PosteDayCell({
   isOutsideMonth,
   isSelected,
   isInSelectedWeek,
+  isOutsideRange,
   onSelect,
 }: {
   day: PosteDayVm;
   isOutsideMonth: boolean;
   isSelected: boolean;
   isInSelectedWeek: boolean;
+  isOutsideRange?: boolean;
   onSelect: () => void;
 }) {
   const { total, covered } = day.coverage;
@@ -48,57 +51,74 @@ export function PosteDayCell({
       ? `Jour ${dayNumber(day.day_date)}, aucune tranche`
       : `Jour ${dayNumber(day.day_date)}, couverture ${covered} sur ${total}`;
 
-  const ringClass = isSelected
-    ? "ring-2 ring-[color:var(--app-ring)]"
-    : isInSelectedWeek
-    ? "ring-1 ring-[color:var(--app-border)]"
-    : "";
+  const label = coverageLabel(total, covered);
 
-  const tooltipText = `${coverageLabel(total, covered)} • ${ratio}`;
+  const isCoveragePartial = total > 0 && covered < total;
 
   return (
-    <TooltipProvider>
-      <button
-        type="button"
-        onClick={onSelect}
-        aria-pressed={isSelected}
-        aria-label={ariaLabel}
-        className={[
-          "w-full rounded-xl border p-2 text-left transition",
-          "border-[color:var(--app-border)] bg-[color:var(--app-surface)] hover:bg-[color:var(--app-soft)]",
-          "focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-ring)]",
-          "hover:-translate-y-[1px] hover:shadow-sm",
-          isOutsideMonth ? "opacity-50" : "",
-          ringClass,
-        ].join(" ")}
-      >
-        <div className="flex items-start justify-between gap-2">
-          <div className="text-sm font-semibold tabular-nums text-[color:var(--app-text)]">
-            {dayNumber(day.day_date)}
-          </div>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div>
+          <PlanningDayCellFrame
+            onSelect={onSelect}
+            ariaLabel={ariaLabel}
+            pressed={isSelected}
+            isOutsideMonth={isOutsideMonth}
+            isOutsideRange={isOutsideRange}
+            isInSelectedWeek={isInSelectedWeek}
+            className={cn(
+              isCoveragePartial &&
+                !isSelected &&
+                "border-amber-500/40 bg-amber-500/5 hover:bg-amber-500/10",
+            )}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div
+                className={cn(
+                  "text-sm font-semibold tabular-nums",
+                  (isOutsideMonth || isOutsideRange) && "text-muted-foreground",
+                )}
+              >
+                {dayNumber(day.day_date)}
+              </div>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
               <Badge
                 variant={coverageVariant(total, covered)}
                 className="shrink-0 tabular-nums"
-                tabIndex={0}
               >
                 {ratio}
               </Badge>
-            </TooltipTrigger>
-            <TooltipContent>{tooltipText}</TooltipContent>
-          </Tooltip>
-        </div>
+            </div>
 
-        {hasCoverage ? (
-          <PosteMiniGantt segments={day.segments} />
-        ) : (
-          <div className="mt-2 text-[12px] text-[color:var(--app-muted)]">
-            Non couvert
+            {hasCoverage ? (
+              <PosteMiniGantt segments={day.segments} />
+            ) : (
+              <div className="mt-2 text-[12px] text-muted-foreground">
+                Non couvert
+              </div>
+            )}
+          </PlanningDayCellFrame>
+        </div>
+      </TooltipTrigger>
+
+      <TooltipContent className="max-w-[260px]">
+        <div className="space-y-2">
+          <div className="text-xs font-medium">Couverture</div>
+
+          <div className="flex items-center justify-between gap-2 text-xs">
+            <span className="text-muted-foreground">{label}</span>
+            <span className="tabular-nums text-muted-foreground/80">
+              {ratio}
+            </span>
           </div>
-        )}
-      </button>
-    </TooltipProvider>
+
+          {total > 0 ? (
+            <div className="text-xs text-muted-foreground">
+              {covered} / {total} tranches couvertes
+            </div>
+          ) : null}
+        </div>
+      </TooltipContent>
+    </Tooltip>
   );
 }
