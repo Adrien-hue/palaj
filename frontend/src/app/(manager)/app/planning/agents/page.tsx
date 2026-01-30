@@ -1,28 +1,26 @@
-import { listAgents } from "@/services";
-import type { ListParams } from "@/types";
+import { listAgents } from "@/services/agents.service";
+import { listPostes } from "@/services/postes.service";
+import { monthAnchorISO } from "@/features/planning-common/utils/month.utils";
+import { AgentPlanningClient } from "@/features/planning-agent/components/AgentPlanningClient";
 
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { AgentPicker } from "@/components/agents/AgentPicker";
+type PageProps = {
+  searchParams: Promise<{ date?: string; anchor?: string }>;
+};
 
-export default async function PlanningAgentsIndexPage() {
-  const params: ListParams = { page: 1, page_size: 200 };
-  const data = await listAgents(params);
+export default async function AgentsPlanningPage({ searchParams }: PageProps) {
+  const sp = await searchParams;
+
+  const [agentsList, postesList] = await Promise.all([listAgents(), listPostes()]);
+
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const initialAnchor = monthAnchorISO(sp.anchor ?? sp.date ?? todayISO);
 
   return (
-    <div className="mx-auto max-w-2xl">
-      <Card className="border-[color:var(--app-border)] bg-[color:var(--app-surface)] shadow-sm">
-        <CardHeader className="space-y-2">
-          <h1 className="text-2xl font-semibold tracking-tight text-[color:var(--app-text)]">
-            Planning par agent
-          </h1>
-          <p className="text-sm text-[color:var(--app-muted)]">
-            Choisis un agent pour ouvrir son planning.
-          </p>
-        </CardHeader>
-        <CardContent className="pt-0">
-          <AgentPicker agents={data.items} />
-        </CardContent>
-      </Card>
-    </div>
+    <AgentPlanningClient
+      initialAgentId={null}
+      initialAnchor={initialAnchor}
+      agents={agentsList.items}
+      postes={postesList.items}
+    />
   );
 }
