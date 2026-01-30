@@ -1,7 +1,8 @@
 import type { AgentPlanning, Tranche } from "@/types";
 import type { AgentPlanningVm, AgentDayVm, ShiftSegmentVm } from "./agentPlanning.vm";
+
 import { addDaysISO } from "@/utils/date.format";
-import { timeToMinutes } from "@/utils/time.format";
+import { splitOvernight } from "@/features/planning-common/timeline/splitOvernight";
 
 function emptyDay(day_date: string): AgentDayVm {
   return {
@@ -13,88 +14,75 @@ function emptyDay(day_date: string): AgentDayVm {
   };
 }
 
-function splitOvernight(dayDate: string, t: Tranche): Array<{ day_date: string; seg: ShiftSegmentVm }> {
-  const startMin = timeToMinutes(t.heure_debut);
-  const endMin = timeToMinutes(t.heure_fin);
+function segKey(args: {
+  day_date: string;
+  trancheId: number;
+  start: string;
+  continuesPrev: boolean;
+  continuesNext: boolean;
+}) {
+  const { day_date, trancheId, start, continuesPrev, continuesNext } = args;
 
-  if (endMin >= startMin) {
-    return [{
-      day_date: dayDate,
-      seg: {
-        key: `${dayDate}-${t.id}-${t.heure_debut}`,
-        sourceTrancheId: t.id,
-        nom: t.nom,
-        posteId: t.poste_id,
-        start: t.heure_debut,
-        end: t.heure_fin,
-        continuesPrev: false,
-        continuesNext: false,
-      },
-    }];
-  }
-
-  const nextDay = addDaysISO(dayDate, 1);
-
-  return [
-    {
-      day_date: dayDate,
-      seg: {
-        key: `${dayDate}-${t.id}-p1`,
-        sourceTrancheId: t.id,
-        nom: t.nom,
-        posteId: t.poste_id,
-        start: t.heure_debut,
-        end: "23:59:00",
-        continuesPrev: false,
-        continuesNext: true,
-      },
-    },
-    {
-      day_date: nextDay,
-      seg: {
-        key: `${nextDay}-${t.id}-p2`,
-        sourceTrancheId: t.id,
-        nom: t.nom,
-        posteId: t.poste_id,
-        start: "00:00:00",
-        end: t.heure_fin,
-        continuesPrev: true,
-        continuesNext: false,
-      },
-    },
-  ];
+  if (continuesNext) return `${day_date}-${trancheId}-p1`;
+  if (continuesPrev) return `${day_date}-${trancheId}-p2`;
+  return `${day_date}-${trancheId}-${start}`;
 }
 
 export function buildPlanningVm(dto: AgentPlanning): AgentPlanningVm {
-  // 1) map date -> day dto (pour type/desc/off_shift)
-  const dayByDate = new Map(dto.days.map((d) => [d.day_date, d]));
+  // 1) map date -> day dto (for type/desc/off_shift)
+  const dayByDate = new Map(dto.days.map((d) => [d.day_date, d] as const));
 
-  // 2) initialise la plage complète
+  // 2) init full range
   const daysVm: AgentDayVm[] = [];
   let cur = dto.start_date;
+
   while (cur <= dto.end_date) {
     const dayDto = dayByDate.get(cur);
-    daysVm.push(
-      dayDto
-        ? { ...dayDto, segments: [] }
-        : emptyDay(cur)
-    );
+    daysVm.push(dayDto ? { ...dayDto, segments: [] } : emptyDay(cur));
     cur = addDaysISO(cur, 1);
   }
 
-  const segByDate = new Map(daysVm.map((d) => [d.day_date, d.segments]));
+  const segByDate = new Map(daysVm.map((d) => [d.day_date, d.segments] as const));
 
-  // 3) split + distribution des segments
+  // 3) split + distribute segments
   for (const dayDto of dto.days) {
     for (const t of dayDto.tranches) {
-      for (const part of splitOvernight(dayDto.day_date, t)) {
-        if (!segByDate.has(part.day_date)) continue; // hors range (rare)
+      const parts = splitOvernight<Tranche, ShiftSegmentVm>(
+        {
+          dayDate: dayDto.day_date,
+          input: t,
+          start: t.heure_debut,
+          end: t.heure_fin,
+          // align with your previous agent builder
+          endOfDay: "23:59:00",
+          startOfDay: "00:00:00",
+        },
+        ({ day_date, start, end, continuesPrev, continuesNext, input }) => ({
+          key: segKey({
+            day_date,
+            trancheId: input.id,
+            start,
+            continuesPrev,
+            continuesNext,
+          }),
+          sourceTrancheId: input.id,
+          nom: input.nom,
+          posteId: input.poste_id,
+          start,
+          end,
+          continuesPrev,
+          continuesNext,
+        })
+      );
+
+      for (const part of parts) {
+        if (!segByDate.has(part.day_date)) continue; // out of range (rare)
         segByDate.get(part.day_date)!.push(part.seg);
       }
     }
   }
 
-  // 4) tri des segments dans chaque jour
+  // 4) sort segments inside each day
   for (const d of daysVm) {
     d.segments.sort((a, b) => a.start.localeCompare(b.start));
   }
