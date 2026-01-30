@@ -9,6 +9,7 @@ import type { PlanningPeriod } from "@/features/planning-common/period/period.ty
 import { shiftPlanningPeriod } from "@/features/planning-common/period/period.utils";
 
 import { PosteHeaderSelect } from "@/features/planning-poste/components/PosteHeaderSelect";
+import { PostePlanningGrid } from "@/features/planning-poste/components/PostePlanningGrid";
 import { usePostePlanning } from "@/features/planning-poste/hooks/usePostePlanning";
 
 import { buildPostePlanningVm } from "@/features/planning-poste/vm/postePlanning.vm.builder";
@@ -46,6 +47,11 @@ export function PostePlanningClient({
       isRange: true,
     };
   }, [period]);
+
+  const anchorMonth = React.useMemo(() => {
+    if (period.kind === "month") return toISODate(startOfMonth(period.month));
+    return toISODate(startOfMonth(new Date(range.start + "T00:00:00")));
+  }, [period, range.start]);
 
   const subtitle = React.useMemo(() => {
     return range.isRange
@@ -110,11 +116,20 @@ export function PostePlanningClient({
           </CardContent>
         </Card>
       ) : planningVm ? (
-        <Card>
-          <CardContent className="p-6 text-sm text-muted-foreground">
-            Grid à réadapter (prochaine étape) — les données poste sont bien chargées ✅
-          </CardContent>
-        </Card>
+        range.isRange ? (
+          <PostePlanningGrid
+            mode="range"
+            startDate={range.start}
+            endDate={range.end}
+            planning={planningVm}
+          />
+        ) : (
+          <PostePlanningGrid
+            mode="month"
+            anchorMonth={anchorMonth}
+            planning={planningVm}
+          />
+        )
       ) : (
         <Card>
           <CardContent className="p-6 text-sm text-muted-foreground">
