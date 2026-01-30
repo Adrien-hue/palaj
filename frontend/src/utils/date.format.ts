@@ -10,6 +10,11 @@ import {
   parseISO,
   startOfMonth,
   startOfWeek,
+  endOfISOWeek,
+  startOfISOWeek,
+  lastDayOfMonth,
+  eachDayOfInterval,
+  isSameMonth,
 } from "date-fns";
 
 /** "YYYY-MM-DD" -> "DD/MM/YYYY" (FR) */
@@ -86,4 +91,36 @@ export function addMonthsDate(date: Date, deltaMonths: number): Date {
 
 export function diffDaysInclusive(start: Date, end: Date): number {
   return differenceInCalendarDays(end, start) + 1;
+}
+
+/** Semaine ISO (lundi -> dimanche) à partir d'une date ISO. */
+export function isoWeekRangeFrom(isoDate: string): { start: string; end: string } {
+  const d = parseISO(isoDate);
+  const start = startOfISOWeek(d);
+  const end = endOfISOWeek(d);
+  return { start: toISODate(start), end: toISODate(end) };
+}
+
+/** Range d'une grille mensuelle (du lundi de la semaine du 1er au dimanche de la semaine du dernier jour) */
+export function monthGridRangeFrom(anchorISO: string): { start: string; end: string } {
+  const anchor = parseISO(anchorISO);
+  const first = startOfMonth(anchor);
+  const last = lastDayOfMonth(anchor);
+
+  const start = startOfISOWeek(first);
+  const end = endOfISOWeek(last);
+
+  return { start: toISODate(start), end: toISODate(end) };
+}
+
+/** Liste inclusive de jours ISO entre start et end. */
+export function buildDaysRange(startISO: string, endISO: string): string[] {
+  const start = parseISO(startISO);
+  const end = parseISO(endISO);
+  return eachDayOfInterval({ start, end }).map(toISODate);
+}
+
+/** Même mois calendaire (utile pour griser les jours hors mois affiché). */
+export function isInSameMonth(dayISO: string, anchorISO: string): boolean {
+  return isSameMonth(parseISO(dayISO), parseISO(anchorISO));
 }
