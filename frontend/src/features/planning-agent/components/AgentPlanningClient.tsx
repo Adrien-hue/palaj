@@ -12,7 +12,7 @@ import type { PlanningPeriod } from "@/features/planning-common/period/period.ty
 import { shiftPlanningPeriod } from "@/features/planning-common/period/period.utils";
 
 import { AgentHeaderSelect } from "@/features/planning-agent/components/AgentHeaderSelect";
-import { AgentMonthlyPlanningGrid } from "@/features/planning-agent/components/AgentMonthlyPlanningGrid";
+import { AgentPlanningGrid } from "@/features/planning-agent/components/AgentPlanningGrid";
 
 import { Card, CardContent } from "@/components/ui/card";
 import { formatDateFR, toISODate } from "@/utils/date.format";
@@ -71,7 +71,7 @@ export function AgentPlanningClient({
 
   const posteNameById = React.useMemo(
     () => new Map<number, string>(postes.map((p) => [p.id, p.nom])),
-    [postes]
+    [postes],
   );
 
   const planningVm = React.useMemo(() => {
@@ -89,6 +89,12 @@ export function AgentPlanningClient({
           : isValidating
             ? "Mise à jour…"
             : subtitle;
+
+  const anchorMonth = React.useMemo(() => {
+    if (period.kind === "month") return toISODate(startOfMonth(period.month));
+    // range : ancre sur le mois du start (juste pour griser "hors mois" si besoin)
+    return toISODate(startOfMonth(new Date(range.start + "T00:00:00")));
+  }, [period, range.start]);
 
   return (
     <div className="space-y-4">
@@ -125,11 +131,22 @@ export function AgentPlanningClient({
           </CardContent>
         </Card>
       ) : planningVm ? (
-        <AgentMonthlyPlanningGrid
-          anchorMonth={toISODate(startOfMonth(new Date(range.start + "T00:00:00")))}
-          planning={planningVm}
-          posteNameById={posteNameById}
-        />
+        range.isRange ? (
+          <AgentPlanningGrid
+            mode="range"
+            startDate={range.start}
+            endDate={range.end}
+            planning={planningVm}
+            posteNameById={posteNameById}
+          />
+        ) : (
+          <AgentPlanningGrid
+            mode="month"
+            anchorMonth={anchorMonth}
+            planning={planningVm}
+            posteNameById={posteNameById}
+          />
+        )
       ) : (
         <Card>
           <CardContent className="p-6 text-sm text-muted-foreground">
