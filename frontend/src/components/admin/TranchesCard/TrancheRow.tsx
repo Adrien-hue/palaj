@@ -3,17 +3,22 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { ColorPicker } from "@/components/ui/color-picker";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 import type { TrancheDraft } from "./types";
 import { formatRange, isValidTimeHHMM } from "./helpers";
 
+const HEX_RE = /^#[0-9A-Fa-f]{6}$/;
+
 export type TrancheRowProps = {
   id: number;
   label: string;
   heure_debut: string; // "HH:MM"
   heure_fin: string; // "HH:MM"
+
+  color?: string | null;
 
   disabled?: boolean;
   locked?: boolean;
@@ -25,8 +30,13 @@ export type TrancheRowProps = {
   onSave: (draft: TrancheDraft) => Promise<void> | void;
 };
 
-function makeDraft(label: string, heure_debut: string, heure_fin: string): TrancheDraft {
-  return { nom: label, heure_debut, heure_fin };
+function makeDraft(
+  label: string,
+  heure_debut: string,
+  heure_fin: string,
+  color?: string | null,
+): TrancheDraft {
+  return { nom: label, heure_debut, heure_fin, color: color ?? null };
 }
 
 export default function TrancheRow({
@@ -34,6 +44,7 @@ export default function TrancheRow({
   label,
   heure_debut,
   heure_fin,
+  color = null,
   disabled = false,
   locked = false,
   isEditing = false,
@@ -43,8 +54,8 @@ export default function TrancheRow({
   onSave,
 }: TrancheRowProps) {
   const baseDraft = useMemo(
-    () => makeDraft(label, heure_debut, heure_fin),
-    [label, heure_debut, heure_fin]
+    () => makeDraft(label, heure_debut, heure_fin, color),
+    [label, heure_debut, heure_fin, color],
   );
 
   const [draft, setDraft] = useState<TrancheDraft>(baseDraft);
@@ -63,9 +74,16 @@ export default function TrancheRow({
     return (
       draft.nom !== label ||
       draft.heure_debut !== heure_debut ||
-      draft.heure_fin !== heure_fin
+      draft.heure_fin !== heure_fin ||
+      (draft.color ?? null) !== (color ?? null)
     );
-  }, [draft, label, heure_debut, heure_fin]);
+  }, [draft, label, heure_debut, heure_fin, color]);
+
+  const isColorValid = useMemo(() => {
+    const v = draft.color;
+    if (v == null || v === "") return true; // null = no color
+    return HEX_RE.test(v);
+  }, [draft.color]);
 
   const canSave = useMemo(() => {
     if (actionsDisabled) return false;
@@ -74,22 +92,27 @@ export default function TrancheRow({
     if (draft.nom.trim().length === 0) return false;
     if (!isValidTimeHHMM(draft.heure_debut)) return false;
     if (!isValidTimeHHMM(draft.heure_fin)) return false;
+    if (!isColorValid) return false;
 
     return true;
-  }, [actionsDisabled, isDirty, draft]);
+  }, [actionsDisabled, isDirty, draft, isColorValid]);
 
   const updateName = useCallback(
     (value: string) => setDraft((p) => ({ ...p, nom: value })),
-    []
+    [],
   );
   const updateStart = useCallback(
     (value: string) => setDraft((p) => ({ ...p, heure_debut: value })),
-    []
+    [],
   );
   const updateEnd = useCallback(
     (value: string) => setDraft((p) => ({ ...p, heure_fin: value })),
-    []
+    [],
   );
+
+  const updateColor = useCallback((value: string | null) => {
+    setDraft((p) => ({ ...p, color: value }));
+  }, []);
 
   const handleCancel = useCallback(() => {
     setDraft(baseDraft);
@@ -97,7 +120,12 @@ export default function TrancheRow({
   }, [baseDraft, onCancelEdit]);
 
   const handleSave = useCallback(async () => {
-    await onSave(draft);
+    // Normalise : uppercase + null si vide
+    const v = draft.color;
+    const normalized =
+      v == null || v.trim() === "" ? null : v.trim().toUpperCase();
+
+    await onSave({ ...draft, color: normalized });
   }, [draft, onSave]);
 
   return (
@@ -120,7 +148,13 @@ export default function TrancheRow({
                 size="sm"
                 onClick={handleSave}
                 disabled={!canSave}
-                title={!canSave ? "Aucun changement à enregistrer" : "Enregistrer"}
+                title={
+                  !canSave
+                    ? !isColorValid
+                      ? "Couleur invalide (format #RRGGBB)"
+                      : "Aucun changement à enregistrer"
+                    : "Enregistrer"
+                }
               >
                 Enregistrer
               </Button>
@@ -160,7 +194,7 @@ export default function TrancheRow({
       </div>
 
       {isEditing ? (
-        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+        <div className="mt-3 grid gap-3 sm:grid-cols-4">
           <div className="grid gap-1.5">
             <Label htmlFor={`tranche-${id}-nom`}>Nom</Label>
             <Input
@@ -194,6 +228,16 @@ export default function TrancheRow({
               value={draft.heure_fin}
               onChange={(e) => updateEnd(e.target.value)}
               disabled={actionsDisabled}
+            />
+          </div>
+
+          <div className="grid gap-1.5">
+            <ColorPicker
+              id={`tranche-${id}-color`}
+              label="Couleur"
+              value={draft.color ?? null}
+              disabled={actionsDisabled}
+              onChange={(next) => updateColor(next)}
             />
           </div>
         </div>

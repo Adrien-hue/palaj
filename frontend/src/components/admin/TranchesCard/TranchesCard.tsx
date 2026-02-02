@@ -47,6 +47,7 @@ export function TranchesCard({
         nom: t.nom,
         heure_debut: toTimeInput(t.heure_debut),
         heure_fin: toTimeInput(t.heure_fin),
+        color: t.color,
       }));
   }, [tranches]);
 
@@ -105,6 +106,7 @@ export function TranchesCard({
         nom: draft.nom.trim(),
         heure_debut: toApiTime(draft.heure_debut),
         heure_fin: toApiTime(draft.heure_fin),
+        color: draft.color ?? null,
       });
     } catch (e: any) {
       setError(e?.message ?? "Impossible de mettre à jour la tranche.");
@@ -216,6 +218,7 @@ export function TranchesCard({
                       label={r.nom}
                       heure_debut={r.heure_debut}
                       heure_fin={r.heure_fin}
+                      color={r.color}
                       disabled={disabled}
                       locked={lockRows || (editingId !== null && editingId !== r.id)}
                       isEditing={editingId === r.id}

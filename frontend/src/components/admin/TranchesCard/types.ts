@@ -5,6 +5,7 @@ export type TrancheDraft = {
   nom: string;
   heure_debut: string; // "HH:MM" for input
   heure_fin: string; // "HH:MM" for input
+  color?: string | null;
 };
 
 export type TranchesCardProps = {
@@ -20,7 +21,7 @@ export type TranchesCardProps = {
   }) => Promise<void> | void;
   onUpdate: (
     trancheId: number,
-    payload: { nom: string; heure_debut: string; heure_fin: string }
+    payload: { nom: string; heure_debut: string; heure_fin: string; color?: string | null }
   ) => Promise<void> | void;
   onDelete: (trancheId: number) => Promise<void> | void;
 
