@@ -1,6 +1,11 @@
 import type { PostePlanning } from "@/types/postePlanning";
 import type { Tranche, Agent } from "@/types";
-import type { PostePlanningVm, PosteDayVm, PosteShiftSegmentVm } from "./postePlanning.vm";
+import type {
+  PostePlanningVm,
+  PosteDayVm,
+  PosteShiftSegmentVm,
+} from "./postePlanning.vm";
+import type { PosteCoverageConfigVm } from "./posteCoverageConfig.vm.builder";
 
 import { addDaysISO } from "@/utils/date.format";
 import { splitOvernight } from "@/features/planning-common/timeline/splitOvernight";
@@ -13,7 +18,7 @@ function emptyDay(day_date: string): PosteDayVm {
     is_off_shift: false,
     tranches: [],
     segments: [],
-    coverage: { total: 0, covered: 0 },
+    coverage: { required: 0, assigned: 0, missing: 0, isConfigured: false },
   };
 }
 
@@ -28,7 +33,16 @@ function makeBaseSeg(args: {
   continuesNext: boolean;
   allAgents?: Agent[];
 }): PosteShiftSegmentVm {
-  const { key, tranche, agent, start, end, continuesPrev, continuesNext, allAgents } = args;
+  const {
+    key,
+    tranche,
+    agent,
+    start,
+    end,
+    continuesPrev,
+    continuesNext,
+    allAgents,
+  } = args;
 
   return {
     key,
@@ -52,16 +66,25 @@ function segKey(args: {
   continuesPrev: boolean;
   continuesNext: boolean;
 }) {
-  const { day_date, trancheId, agentId, start, continuesPrev, continuesNext } = args;
+  const { day_date, trancheId, agentId, start, continuesPrev, continuesNext } =
+    args;
 
   if (continuesNext) return `${day_date}-${trancheId}-${agentId}-p1`;
   if (continuesPrev) return `${day_date}-${trancheId}-${agentId}-p2`;
   return `${day_date}-${trancheId}-${agentId}-${start}`;
 }
 
+function weekdayMon0FromIsoDate(isoDate: string): number {
+  const js = new Date(isoDate + "T00:00:00").getDay(); // 0=dimanche
+  return (js + 6) % 7; // 0=lundi ... 6=dimanche
+}
+
 type Input = { tranche: Tranche; agent: Agent; allAgents: Agent[] };
 
-export function buildPostePlanningVm(dto: PostePlanning): PostePlanningVm {
+export function buildPostePlanningVm(
+  dto: PostePlanning,
+  opts?: { coverageConfig?: PosteCoverageConfigVm | null },
+): PostePlanningVm {
   const dayByDate = new Map(dto.days.map((d) => [d.day_date, d] as const));
 
   // 1) init full range
@@ -74,29 +97,73 @@ export function buildPostePlanningVm(dto: PostePlanning): PostePlanningVm {
     if (!dayDto) {
       daysVm.push(emptyDay(cur));
     } else {
-      const total = dayDto.tranches.length;
-      const covered = dayDto.tranches.filter((x) => (x.agents?.length ?? 0) > 0).length;
+      const cfg = opts?.coverageConfig;
+      const weekday = weekdayMon0FromIsoDate(dayDto.day_date);
+
+      const getRequired = (trancheId: number) =>
+        cfg?.requiredByWeekday[weekday]?.[trancheId];
+
+      const tranches = dayDto.tranches.map((x) => {
+        const agents = x.agents ?? [];
+        const trancheId = x.tranche.id;
+
+        const required = getRequired(trancheId);
+        const assigned = agents.length;
+
+        return {
+          tranche: x.tranche,
+          agents,
+          coverage: {
+            required: required ?? 0,
+            assigned,
+            delta: assigned - (required ?? 0),
+            isConfigured: required != null,
+          },
+        };
+      });
+
+      const requiredTotal = tranches.reduce(
+        (acc, t) => acc + (t.coverage?.required ?? 0),
+        0,
+      );
+      const assignedTotal = tranches.reduce(
+        (acc, t) => acc + (t.coverage?.assigned ?? 0),
+        0,
+      );
+
+      const missingTotal = tranches.reduce((acc, t) => {
+        const required = t.coverage?.required ?? 0;
+        const assigned = t.coverage?.assigned ?? 0;
+        return acc + Math.max(0, required - assigned);
+      }, 0);
+
+      const isConfigured =
+        cfg?.requiredByWeekday[weekday] != null &&
+        Object.keys(cfg.requiredByWeekday[weekday]).length > 0;
 
       daysVm.push({
         day_date: dayDto.day_date,
         day_type: dayDto.day_type,
         description: dayDto.description ?? null,
         is_off_shift: !!dayDto.is_off_shift,
-        tranches: dayDto.tranches.map((x) => ({
-          tranche: x.tranche,
-          agents: x.agents ?? [],
-        })),
+        tranches,
         segments: [],
-        coverage: { total, covered },
+        coverage: {
+          required: requiredTotal,
+          assigned: assignedTotal,
+          missing: missingTotal,
+          isConfigured,
+        },
       });
     }
 
     cur = addDaysISO(cur, 1);
   }
 
-  const segByDate = new Map(daysVm.map((d) => [d.day_date, d.segments] as const));
+  const segByDate = new Map(
+    daysVm.map((d) => [d.day_date, d.segments] as const),
+  );
 
-  // 2) expand covered tranches => 1 segment per agent (+ overnight split)
   for (const dayDto of dto.days) {
     for (const x of dayDto.tranches) {
       const tranche = x.tranche;
@@ -134,7 +201,7 @@ export function buildPostePlanningVm(dto: PostePlanning): PostePlanningVm {
               continuesPrev,
               continuesNext,
               allAgents: input.allAgents,
-            })
+            }),
         );
 
         for (const part of parts) {

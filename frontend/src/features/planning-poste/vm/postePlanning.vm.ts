@@ -8,7 +8,7 @@ export type PosteShiftSegmentVm = {
   posteId: number;
 
   start: string; // "HH:MM:SS"
-  end: string;   // "HH:MM:SS"
+  end: string; // "HH:MM:SS"
 
   continuesPrev: boolean;
   continuesNext: boolean;
@@ -21,6 +21,13 @@ export type PosteShiftSegmentVm = {
 export type PosteTrancheVm = {
   tranche: Tranche;
   agents: Agent[];
+
+  coverage?: {
+    required: number;
+    assigned: number;
+    delta: number;
+    isConfigured: boolean;
+  };
 };
 
 export type PosteDayVm = {
@@ -34,8 +41,10 @@ export type PosteDayVm = {
   segments: PosteShiftSegmentVm[];
 
   coverage: {
-    total: number;
-    covered: number;
+    required: number;
+    assigned: number;
+    missing: number;
+    isConfigured: boolean;
   };
 };
 
