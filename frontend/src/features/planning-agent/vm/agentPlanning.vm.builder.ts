@@ -72,6 +72,7 @@ export function buildPlanningVm(dto: AgentPlanning): AgentPlanningVm {
           end,
           continuesPrev,
           continuesNext,
+          color: input.color,
         })
       );
 

@@ -12,6 +12,8 @@ export type ShiftSegmentVm = {
 
   continuesPrev: boolean;
   continuesNext: boolean;
+
+  color: string | null;
 };
 
 export type AgentDayVm = Omit<AgentDay, "tranches"> & {
