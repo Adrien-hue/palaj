@@ -14,16 +14,31 @@ function dayNumber(iso: string) {
   return String(Number(iso.slice(8, 10)));
 }
 
-function coverageVariant(total: number, covered: number) {
-  if (total === 0) return "secondary";
-  if (covered >= total) return "success";
-  return "warning";
+type CoverageVariant = "secondary" | "success" | "warning";
+
+function coverageVariant(day: PosteDayVm): CoverageVariant {
+  const { required, missing, isConfigured } = day.coverage;
+
+  if (!isConfigured) return "secondary";
+
+  if (required === 0) return "secondary";
+
+  return missing === 0 ? "success" : "warning";
 }
 
-function coverageLabel(total: number, covered: number) {
-  if (total === 0) return "Aucune tranche";
-  if (covered >= total) return "Couverture complète";
+function coverageLabel(day: PosteDayVm) {
+  const { required, missing, isConfigured } = day.coverage;
+
+  if (!isConfigured) return "Couverture non configurée";
+  if (required === 0) return "Aucun besoin configuré";
+  if (missing === 0) return "Couverture complète";
   return "Couverture incomplète";
+}
+
+function coverageRatio(day: PosteDayVm) {
+  const { required, assigned, isConfigured } = day.coverage;
+  if (!isConfigured) return "—";
+  return required > 0 ? `${assigned}/${required}` : "0/0";
 }
 
 export function PosteDayCell({
@@ -41,19 +56,23 @@ export function PosteDayCell({
   isOutsideRange?: boolean;
   onSelect: () => void;
 }) {
-  const { total, covered } = day.coverage;
+  const { required, assigned, missing, isConfigured } = day.coverage;
 
-  const ratio = total > 0 ? `${covered}/${total}` : "—";
+  const ratio = coverageRatio(day);
+  const label = coverageLabel(day);
+
   const hasCoverage = day.segments.length > 0;
 
-  const ariaLabel =
-    total === 0
-      ? `Jour ${dayNumber(day.day_date)}, aucune tranche`
-      : `Jour ${dayNumber(day.day_date)}, couverture ${covered} sur ${total}`;
+  const ariaLabel = !isConfigured
+    ? `Jour ${dayNumber(day.day_date)}, couverture non configurée`
+    : required === 0
+      ? `Jour ${dayNumber(day.day_date)}, aucun besoin configuré`
+      : missing === 0
+        ? `Jour ${dayNumber(day.day_date)}, couverture complète (${assigned} sur ${required})`
+        : `Jour ${dayNumber(day.day_date)}, sous-couverture (${assigned} sur ${required}, manque ${missing})`;
 
-  const label = coverageLabel(total, covered);
-
-  const isCoveragePartial = total > 0 && covered < total;
+  const isCoveragePartial =
+    isConfigured && required > 0 && missing > 0;
 
   return (
     <Tooltip>
@@ -83,8 +102,9 @@ export function PosteDayCell({
               </div>
 
               <Badge
-                variant={coverageVariant(total, covered)}
+                variant={coverageVariant(day)}
                 className="shrink-0 tabular-nums"
+                title={label}
               >
                 {ratio}
               </Badge>
@@ -101,20 +121,43 @@ export function PosteDayCell({
         </div>
       </TooltipTrigger>
 
-      <TooltipContent className="max-w-[260px]">
+      <TooltipContent className="max-w-[280px]">
         <div className="space-y-2">
           <div className="text-xs font-medium">Couverture</div>
 
           <div className="flex items-center justify-between gap-2 text-xs">
             <span className="text-muted-foreground">{label}</span>
-            <span className="tabular-nums text-muted-foreground/80">
-              {ratio}
-            </span>
+            <span className="tabular-nums text-muted-foreground/80">{ratio}</span>
           </div>
 
-          {total > 0 ? (
+          {!isConfigured ? (
             <div className="text-xs text-muted-foreground">
-              {covered} / {total} tranches couvertes
+              Aucune règle de couverture n’est configurée pour ce jour.
+            </div>
+          ) : required === 0 ? (
+            <div className="text-xs text-muted-foreground">
+              Besoin total : <span className="tabular-nums">0</span>
+            </div>
+          ) : (
+            <div className="space-y-1 text-xs text-muted-foreground">
+              <div className="flex items-center justify-between gap-2">
+                <span>Besoin</span>
+                <span className="tabular-nums">{required}</span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span>Affectés</span>
+                <span className="tabular-nums">{assigned}</span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span>Manque</span>
+                <span className="tabular-nums">{missing}</span>
+              </div>
+            </div>
+          )}
+
+          {!hasCoverage ? (
+            <div className="pt-1 text-[12px] text-muted-foreground/80">
+              Aucun segment planifié sur la journée.
             </div>
           ) : null}
         </div>

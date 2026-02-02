@@ -11,11 +11,13 @@ import { shiftPlanningPeriod } from "@/features/planning-common/period/period.ut
 import { PosteHeaderSelect } from "@/features/planning-poste/components/PosteHeaderSelect";
 import { PostePlanningGrid } from "@/features/planning-poste/components/PostePlanningGrid";
 import { usePostePlanning } from "@/features/planning-poste/hooks/usePostePlanning";
+import { usePosteCoverage } from "@/features/planning-poste/hooks/usePosteCoverage";
 
 import { buildPostePlanningVm } from "@/features/planning-poste/vm/postePlanning.vm.builder";
 
 import { Card, CardContent } from "@/components/ui/card";
 import { formatDateFR, toISODate } from "@/utils/date.format";
+import { buildPosteCoverageConfigVm } from "../vm/posteCoverageConfig.vm.builder";
 
 type PosteListItem = { id: number; nom: string };
 
@@ -59,27 +61,46 @@ export function PostePlanningClient({
       : "Couverture mensuelle";
   }, [range.start, range.end, range.isRange]);
 
-  const { data, error, isLoading, isValidating } = usePostePlanning({
+  const planning = usePostePlanning({
     posteId,
     startDate: range.start,
     endDate: range.end,
   });
 
+  const coverage = usePosteCoverage({ posteId });
+
+  const coverageConfigVm = React.useMemo(() => {
+    if (!coverage.data) return null;
+    return buildPosteCoverageConfigVm(coverage.data);
+  }, [coverage.data]);
+
   const planningVm = React.useMemo(() => {
-    if (!data) return null;
-    return buildPostePlanningVm(data);
-  }, [data]);
+    if (!planning.data) return null;
+    return buildPostePlanningVm(planning.data, {
+      coverageConfig: coverageConfigVm,
+    });
+  }, [planning.data, coverageConfigVm]);
+
+  const planningError = planning.error ?? null;
+  const coverageWarning = coverage.error ?? null;
+
+  const isLoading = planning.isLoading;
+
+  const isValidating = planning.isValidating;
 
   const headerSubtitle =
     posteId === null
       ? subtitle
       : isLoading
         ? "Chargement…"
-        : error
+        : planningError
           ? "Erreur de chargement du planning"
           : isValidating
             ? "Mise à jour…"
             : subtitle;
+
+  const coverageStatusText =
+    posteId !== null && coverageWarning ? "Couverture indisponible" : null;
 
   return (
     <div className="space-y-4">
@@ -109,10 +130,10 @@ export function PostePlanningClient({
             Veuillez sélectionner un poste pour afficher sa couverture.
           </CardContent>
         </Card>
-      ) : error ? (
+      ) : planningError ? (
         <Card>
           <CardContent className="p-6 text-sm text-muted-foreground">
-            Impossible de charger la couverture. {(error as Error).message}
+            Impossible de charger la couverture. {(planningError as Error).message}
           </CardContent>
         </Card>
       ) : planningVm ? (
