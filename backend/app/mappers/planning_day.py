@@ -1,6 +1,6 @@
 # backend/app/mappers/planning_day_mapper.py
 from backend.app.dto.planning_day import PlanningDayDTO
-from backend.app.dto.tranches import TrancheDTO
+from backend.app.mappers.tranches import to_tranche_dto
 from core.domain.models.planning_day import PlanningDay
 
 def to_planning_day_dto(day: PlanningDay) -> PlanningDayDTO:
@@ -10,13 +10,6 @@ def to_planning_day_dto(day: PlanningDay) -> PlanningDayDTO:
         description=day.description,
         is_off_shift=day.is_off_shift,
         tranches=[
-            TrancheDTO(
-                id=t.id,
-                nom=t.nom,
-                heure_debut=t.heure_debut,
-                heure_fin=t.heure_fin,
-                poste_id=t.poste_id,
-            )
-            for t in day.tranches
+            to_tranche_dto(t) for t in day.tranches
         ],
     )
