@@ -5,7 +5,7 @@ from typing import Optional
 from core.domain.entities import Poste
 
 class Tranche:
-    def __init__(self, id: int, nom: str, heure_debut: time | str, heure_fin: time | str, poste_id: int):
+    def __init__(self, id: int, nom: str, heure_debut: time | str, heure_fin: time | str, poste_id: int, color: str | None = None):
         """
         Représente une tranche horaire de travail.
 
@@ -20,6 +20,7 @@ class Tranche:
         self.heure_debut = self.__parse_heure(heure_debut)
         self.heure_fin = self.__parse_heure(heure_fin)
         self.poste_id = poste_id
+        self.color = color
 
         self._poste: Poste | None = None
 

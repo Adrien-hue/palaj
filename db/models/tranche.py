@@ -25,6 +25,7 @@ class Tranche(Base):
     heure_debut: Mapped[Time] = mapped_column(Time, nullable=False)
     heure_fin: Mapped[Time] = mapped_column(Time, nullable=False)
     poste_id: Mapped[int] = mapped_column(ForeignKey("postes.id"), nullable=False)
+    color: Mapped[str | None] = mapped_column(String(7), nullable=True)
 
     poste: Mapped[Poste] = relationship("Poste", back_populates="tranches")
 
