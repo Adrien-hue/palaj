@@ -55,6 +55,7 @@ function makeBaseSeg(args: {
     continuesNext,
     agent,
     agents: allAgents,
+    color: tranche.color ?? null,
   };
 }
 

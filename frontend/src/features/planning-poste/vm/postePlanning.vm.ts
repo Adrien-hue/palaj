@@ -16,6 +16,8 @@ export type PosteShiftSegmentVm = {
   agent: Agent;
 
   agents?: Agent[];
+
+  color: string | null;
 };
 
 export type PosteTrancheVm = {
