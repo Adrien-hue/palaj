@@ -16,7 +16,7 @@ export function PlanningPageHeader({
   className?: string;
 }) {
   return (
-    <Card className={cn("border border-border bg-card shadow-sm", className)}>
+    <Card className={cn("border border-border bg-card shadow-sm py-2", className)}>
       <CardContent className="p-4 sm:p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
