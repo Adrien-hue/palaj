@@ -17,8 +17,11 @@ export function AgentMiniGantt({
   maxLanes?: number;
 }) {
   const range = useMemo(
-    () => ({ startMin: timeToMinutes(dayStart), endMin: timeToMinutes(dayEnd) }),
-    [dayStart, dayEnd]
+    () => ({
+      startMin: timeToMinutes(dayStart),
+      endMin: timeToMinutes(dayEnd),
+    }),
+    [dayStart, dayEnd],
   );
 
   const input = useMemo(
@@ -29,18 +32,21 @@ export function AgentMiniGantt({
         startMin: timeToMinutes(s.start),
         endMin: timeToMinutes(s.end),
       })),
-    [segments]
+    [segments],
   );
-
+  console.log("seg color : ", input.map(s => s.color));
   return (
     <MiniTimelineTrack
       segments={input}
       range={range}
       maxLanes={maxLanes}
       ariaLabel="Aperçu des tranches"
-      getTooltip={(s) => `${s.nom} • ${s.start.slice(0, 5)}–${s.end.slice(0, 5)}`}
-      // Optionnel : couleur via tokens shadcn
-      barStyle={() => undefined}
+      getTooltip={(s) =>
+        `${s.nom} • ${s.start.slice(0, 5)}–${s.end.slice(0, 5)}`
+      }
+      barStyle={(s) => (s.color ? { backgroundColor: s.color } : undefined)}
+      // Optionnel: si tu veux garder le style par défaut quand color absent
+      barClassName="bg-foreground/45"
     />
   );
 }
