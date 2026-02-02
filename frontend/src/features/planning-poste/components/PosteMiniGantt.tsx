@@ -42,6 +42,8 @@ export function PosteMiniGantt({
         const cont = `${s.continuesPrev ? "↤" : ""}${s.continuesNext ? "↦" : ""}`.trim();
         return [s.nom, time, "•", agentName, cont].filter(Boolean).join(" ");
       }}
+      barStyle={(s) => (s.color ? { backgroundColor: s.color } : undefined)}
+      barClassName="bg-foreground/45"
     />
   );
 }
