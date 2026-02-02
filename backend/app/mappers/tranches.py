@@ -7,4 +7,5 @@ def to_tranche_dto(t) -> TrancheDTO:
         heure_debut=t.heure_debut,
         heure_fin=t.heure_fin,
         poste_id=t.poste_id,
+        color=t.color
     )

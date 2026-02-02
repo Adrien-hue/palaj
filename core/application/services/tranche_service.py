@@ -30,7 +30,7 @@ class TrancheService:
     def count(self) -> int:
         return self.tranche_repo.count()
     
-    def create(self, *, nom: str, heure_debut: time, heure_fin: time, poste_id: int) -> Tranche:
+    def create(self, *, nom: str, heure_debut: time, heure_fin: time, poste_id: int, color: Optional[str] = None) -> Tranche:
         # Vérifier que le poste existe (si dispo)
         if self.poste_repo is not None:
             if self.poste_repo.get_by_id(poste_id) is None:
@@ -42,6 +42,7 @@ class TrancheService:
             heure_debut=heure_debut,
             heure_fin=heure_fin,
             poste_id=poste_id,
+            color=color
         )
         return self.tranche_repo.create(tranche)
 
@@ -86,6 +87,8 @@ class TrancheService:
             tranche.heure_fin = changes["heure_fin"]
         if "poste_id" in changes:
             tranche.poste_id = changes["poste_id"]
+        if "color" in changes:
+            tranche.color = changes["color"]
 
         return self.tranche_repo.update(tranche)
 
