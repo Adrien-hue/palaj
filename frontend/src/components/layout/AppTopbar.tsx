@@ -15,6 +15,7 @@ import {
   NavigationMenuLink,
   NavigationMenuList,
 } from "@/components/ui/navigation-menu";
+import { cn } from "@/lib/utils";
 
 function isNavActive(pathname: string, item: AppNavItem) {
   if (item.isActive) return item.isActive(pathname);
@@ -35,14 +36,14 @@ function TopNav() {
               <NavigationMenuLink asChild>
                 <Link
                   href={item.href}
-                  className={[
-                    "rounded-md px-3 py-2 text-sm font-medium transition",
-                    "focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus)]",
-                    active
-                      ? "bg-[color:var(--app-surface)] text-[color:var(--app-text)] shadow-sm ring-1 ring-[color:var(--app-border)]"
-                      : "text-[color:var(--app-muted)] hover:bg-[color:var(--app-surface)] hover:text-[color:var(--app-text)]",
-                  ].join(" ")}
                   aria-current={active ? "page" : undefined}
+                  className={cn(
+                    "rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                    "focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                    active
+                      ? "bg-accent text-accent-foreground shadow-sm"
+                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                  )}
                 >
                   {item.label}
                 </Link>
@@ -56,10 +57,11 @@ function TopNav() {
 }
 
 export function AppTopbar() {
-  const pathname = usePathname();
+  // (garde si tu en as besoin plus tard)
+  usePathname();
 
   return (
-    <header className="sticky top-0 z-50 border-b border-[color:var(--app-topbar-border)] bg-[color:var(--app-topbar-bg)] backdrop-blur">
+    <header className="sticky top-0 z-50 border-b bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="mx-auto flex h-14 w-full max-w-[1600px] items-center justify-between px-6">
         <div className="flex items-center gap-4">
           <PalajBrand />
@@ -73,16 +75,16 @@ export function AppTopbar() {
               readOnly
               value="Rechercher…"
               aria-label="Rechercher (bientôt disponible)"
-              className={[
+              className={cn(
                 "h-9 w-56 cursor-default",
-                "border-[color:var(--app-border)] bg-[color:var(--app-surface)] text-[color:var(--app-muted)]",
-                "focus-visible:ring-0 focus-visible:ring-offset-0",
-              ].join(" ")}
+                "text-muted-foreground",
+                "focus-visible:ring-0 focus-visible:ring-offset-0"
+              )}
             />
           </div>
 
-          <Button asChild variant="ghost" className="text-[color:var(--app-muted)] hover:text-[color:var(--app-text)]">
-            <Link href="/admin">
+          <Button asChild variant="ghost">
+            <Link href="/admin" className="text-muted-foreground hover:text-foreground">
               Admin <ArrowUpRight className="ml-2 h-4 w-4" />
             </Link>
           </Button>
