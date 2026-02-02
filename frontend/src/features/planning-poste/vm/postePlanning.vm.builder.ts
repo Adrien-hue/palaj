@@ -1,13 +1,9 @@
 import type { PostePlanning } from "@/types/postePlanning";
 import type { Tranche, Agent } from "@/types";
-import type {
-  PostePlanningVm,
-  PosteDayVm,
-  PosteShiftSegmentVm,
-} from "./postePlanning.vm";
+import type { PostePlanningVm, PosteDayVm, PosteShiftSegmentVm } from "./postePlanning.vm";
 
 import { addDaysISO } from "@/utils/date.format";
-import { timeToMinutes } from "@/utils/time.format";
+import { splitOvernight } from "@/features/planning-common/timeline/splitOvernight";
 
 function emptyDay(day_date: string): PosteDayVm {
   return {
@@ -48,72 +44,25 @@ function makeBaseSeg(args: {
   };
 }
 
-function splitOvernightPerAgent(
-  dayDate: string,
-  tranche: Tranche,
-  agent: Agent,
-  allAgents: Agent[]
-): Array<{ day_date: string; seg: PosteShiftSegmentVm }> {
-  const startMin = timeToMinutes(tranche.heure_debut);
-  const endMin = timeToMinutes(tranche.heure_fin);
+function segKey(args: {
+  day_date: string;
+  trancheId: number;
+  agentId: number;
+  start: string;
+  continuesPrev: boolean;
+  continuesNext: boolean;
+}) {
+  const { day_date, trancheId, agentId, start, continuesPrev, continuesNext } = args;
 
-  // Normal (same day)
-  if (endMin >= startMin) {
-    return [
-      {
-        day_date: dayDate,
-        seg: makeBaseSeg({
-          key: `${dayDate}-${tranche.id}-${agent.id}-${tranche.heure_debut}`,
-          day_date: dayDate,
-          tranche,
-          agent,
-          start: tranche.heure_debut,
-          end: tranche.heure_fin,
-          continuesPrev: false,
-          continuesNext: false,
-          allAgents,
-        }),
-      },
-    ];
-  }
-
-  // Overnight -> split across dayDate and next day
-  const nextDay = addDaysISO(dayDate, 1);
-
-  return [
-    {
-      day_date: dayDate,
-      seg: makeBaseSeg({
-        key: `${dayDate}-${tranche.id}-${agent.id}-p1`,
-        day_date: dayDate,
-        tranche,
-        agent,
-        start: tranche.heure_debut,
-        end: "23:59:59",
-        continuesPrev: false,
-        continuesNext: true,
-        allAgents,
-      }),
-    },
-    {
-      day_date: nextDay,
-      seg: makeBaseSeg({
-        key: `${nextDay}-${tranche.id}-${agent.id}-p2`,
-        day_date: nextDay,
-        tranche,
-        agent,
-        start: "00:00:00",
-        end: tranche.heure_fin,
-        continuesPrev: true,
-        continuesNext: false,
-        allAgents,
-      }),
-    },
-  ];
+  if (continuesNext) return `${day_date}-${trancheId}-${agentId}-p1`;
+  if (continuesPrev) return `${day_date}-${trancheId}-${agentId}-p2`;
+  return `${day_date}-${trancheId}-${agentId}-${start}`;
 }
 
+type Input = { tranche: Tranche; agent: Agent; allAgents: Agent[] };
+
 export function buildPostePlanningVm(dto: PostePlanning): PostePlanningVm {
-  const dayByDate = new Map(dto.days.map((d) => [d.day_date, d]));
+  const dayByDate = new Map(dto.days.map((d) => [d.day_date, d] as const));
 
   // 1) init full range
   const daysVm: PosteDayVm[] = [];
@@ -145,23 +94,51 @@ export function buildPostePlanningVm(dto: PostePlanning): PostePlanningVm {
     cur = addDaysISO(cur, 1);
   }
 
-  const segByDate = new Map(daysVm.map((d) => [d.day_date, d.segments]));
+  const segByDate = new Map(daysVm.map((d) => [d.day_date, d.segments] as const));
 
-  // 2) expand covered tranches => 1 segment par agent (+ overnight split)
+  // 2) expand covered tranches => 1 segment per agent (+ overnight split)
   for (const dayDto of dto.days) {
     for (const x of dayDto.tranches) {
       const tranche = x.tranche;
       const agents = x.agents ?? [];
 
-      // ✅ On n'ajoute rien si non couvert
+      // ✅ no segment when not covered
       if (agents.length === 0) continue;
 
-      // ✅ 1 barre par agent
       for (const agent of agents) {
-        const parts = splitOvernightPerAgent(dayDto.day_date, tranche, agent, agents);
+        const parts = splitOvernight<Input, PosteShiftSegmentVm>(
+          {
+            dayDate: dayDto.day_date,
+            input: { tranche, agent, allAgents: agents },
+            start: tranche.heure_debut,
+            end: tranche.heure_fin,
+            // align with your previous poste builder
+            endOfDay: "23:59:59",
+            startOfDay: "00:00:00",
+          },
+          ({ day_date, start, end, continuesPrev, continuesNext, input }) =>
+            makeBaseSeg({
+              key: segKey({
+                day_date,
+                trancheId: input.tranche.id,
+                agentId: input.agent.id,
+                start,
+                continuesPrev,
+                continuesNext,
+              }),
+              day_date,
+              tranche: input.tranche,
+              agent: input.agent,
+              start,
+              end,
+              continuesPrev,
+              continuesNext,
+              allAgents: input.allAgents,
+            })
+        );
 
         for (const part of parts) {
-          if (!segByDate.has(part.day_date)) continue; // hors range
+          if (!segByDate.has(part.day_date)) continue; // out of range
           segByDate.get(part.day_date)!.push(part.seg);
         }
       }
