@@ -2,8 +2,15 @@
 
 import * as React from "react";
 import { cn } from "@/lib/utils";
-import { useTimelineLanes, type TimelineInputSegment } from "./useTimelineLanes";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  useTimelineLanes,
+  type TimelineInputSegment,
+} from "./useTimelineLanes";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 type Props<T> = {
   segments: TimelineInputSegment<T>[];
@@ -18,6 +25,9 @@ type Props<T> = {
   getLabel: (s: T) => string;
   getTooltip?: (s: T) => React.ReactNode;
   barClassName?: (s: T) => string;
+  barStyle?: (s: T) => React.CSSProperties | undefined;
+  onBarClick?: (s: T) => void;
+
   textClassName?: (s: T) => string;
   minBarWidthPx?: number; // default 36
 };
@@ -34,6 +44,8 @@ export function DayTimeline<T>({
   getLabel,
   getTooltip,
   barClassName,
+  barStyle,
+  onBarClick,
   textClassName,
   minBarWidthPx = 36,
 }: Props<T>) {
@@ -93,13 +105,16 @@ export function DayTimeline<T>({
 
           const bar = (
             <div
-              role="img"
+              role={onBarClick ? "button" : "img"}
               tabIndex={0}
               aria-label={typeof tooltip === "string" ? tooltip : label}
               className={cn(
                 "absolute flex items-center rounded-xl px-2 text-[11px] font-semibold shadow-sm",
                 "focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                barClassName ? barClassName(seg as any) : "bg-foreground/60 text-background"
+                onBarClick && "cursor-pointer hover:brightness-95",
+                barClassName
+                  ? barClassName(seg as any)
+                  : "bg-foreground/60 text-background",
               )}
               style={{
                 left: `${seg.leftPct}%`,
@@ -107,9 +122,26 @@ export function DayTimeline<T>({
                 top: topForLane(seg.lane),
                 height: barHeight,
                 minWidth: minBarWidthPx,
+                ...(barStyle ? barStyle(seg as any) : null),
               }}
+              onClick={onBarClick ? () => onBarClick(seg as any) : undefined}
+              onKeyDown={
+                onBarClick
+                  ? (e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        onBarClick(seg as any);
+                      }
+                    }
+                  : undefined
+              }
             >
-              <div className={cn("min-w-0 truncate leading-none", textClassName?.(seg as any))}>
+              <div
+                className={cn(
+                  "min-w-0 truncate leading-none",
+                  textClassName?.(seg as any),
+                )}
+              >
                 {label}
               </div>
             </div>
@@ -121,7 +153,9 @@ export function DayTimeline<T>({
               <TooltipContent>{tooltip}</TooltipContent>
             </Tooltip>
           ) : (
-            <React.Fragment key={String(getId(seg as any))}>{bar}</React.Fragment>
+            <React.Fragment key={String(getId(seg as any))}>
+              {bar}
+            </React.Fragment>
           );
         })}
       </div>
