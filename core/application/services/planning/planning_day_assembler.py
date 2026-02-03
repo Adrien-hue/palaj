@@ -81,6 +81,44 @@ class PlanningDayAssembler:
         sorted_planning_days = sorted(planning_days, key=lambda day: day.day_date)
         
         return _densify_days(sorted_planning_days, start_date, end_date)
+    
+    def build_one_for_agent(self, agent_id: int, day_date: date) -> PlanningDay:
+        """
+        Build a single PlanningDay projection for one agent and one date.
+        No densify, no range rebuild, optimized for PUT response.
+        """
+        agent_day = self.agent_day_repo.get_by_agent_and_date(agent_id, day_date)
+
+        if agent_day is None:
+            # Si tu veux que PUT renvoie toujours une journée, même si supprimée,
+            # on renvoie une journée "vide" (UNKNOWN) plutôt que None.
+            return PlanningDay(
+                day_date=day_date,
+                day_type="unknown",
+                description=None,
+                is_off_shift=False,
+                tranches=[],
+            )
+
+        tranche_ids = list(getattr(agent_day, "tranche_ids", []) or [])
+        tranches: List[Tranche] = []
+
+        if tranche_ids:
+            unique_ids = sorted(set(tranche_ids))
+            tranche_models = self.tranche_repo.list_by_ids(unique_ids)
+            tranches_by_id: Dict[int, Tranche] = {t.id: t for t in tranche_models}
+            tranches = [tranches_by_id[i] for i in tranche_ids if i in tranches_by_id]
+
+        # V1: 0..1 tranche max (au cas où)
+        tranches = tranches[:1]
+
+        return PlanningDay(
+            day_date=agent_day.day_date,
+            day_type=agent_day.day_type,
+            description=agent_day.description,
+            is_off_shift=agent_day.is_off_shift,
+            tranches=tranches,
+        )
 
 
     def build_for_agents(self, agent_ids: List[int], start_date: date, end_date: date) -> Dict[int, List[PlanningDay]]:
