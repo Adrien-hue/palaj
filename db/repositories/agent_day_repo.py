@@ -19,6 +19,36 @@ class AgentDayRepository(SQLRepository[AgentDayModel, AgentDayEntity]):
     def __init__(self):
         super().__init__(db, AgentDayModel, AgentDayEntity)
 
+    def create(self, entity: AgentDayEntity) -> AgentDayEntity:
+        model = EntityMapper.entity_to_model(entity, self.model_class)
+        with self.db.session_scope() as session:
+            session.add(model)
+            session.flush()
+            session.refresh(model)
+            result = self._model_to_entity(model)
+            assert result is not None
+            return result
+        
+    def delete_by_agent_and_date(self, agent_id: int, day_date: date) -> bool:
+        """
+        Supprime le AgentDay via la clé métier (agent_id, day_date).
+        Retourne True si supprimé, False sinon.
+        Cascade DB + relationship gèrent agent_day_assignments.
+        """
+        with self.db.session_scope() as session:
+            model = (
+                session.query(self.model_class)
+                .filter(
+                    self.model_class.agent_id == agent_id,
+                    self.model_class.day_date == day_date,
+                )
+                .one_or_none()
+            )
+            if not model:
+                return False
+            session.delete(model)
+            return True
+
     def exists_for_agent(self, agent_id: int) -> bool:
         """
         Returns True if at least one AgentDay exists for the given agent_id.
@@ -146,6 +176,16 @@ class AgentDayRepository(SQLRepository[AgentDayModel, AgentDayEntity]):
             )
 
             return [self._model_to_entity(m) for m in models]
+        
+    def update(self, entity: AgentDayEntity) -> AgentDayEntity:
+        model = EntityMapper.entity_to_model(entity, self.model_class)
+        with self.db.session_scope() as session:
+            merged = session.merge(model)
+            session.flush()
+            session.refresh(merged)
+            result = self._model_to_entity(merged)
+            assert result is not None
+            return result
 
     def _model_to_entity(self, model: AgentDayModel) -> AgentDayEntity:
         day = EntityMapper.model_to_entity(model, AgentDayEntity)

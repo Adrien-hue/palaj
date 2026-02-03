@@ -1,6 +1,9 @@
 from typing import Protocol
 
-from core.domain.entities import AgentDay
+from core.domain.entities import AgentDayAssignment
+
 
 class AgentDayAssignmentRepositoryPort(Protocol):
+    def create(self, entity: AgentDayAssignment) -> AgentDayAssignment: ...
+    def delete_by_agent_day_id(self, agent_day_id: int) -> bool: ...
     def exists_for_tranche(self, tranche_id: int) -> bool: ...
