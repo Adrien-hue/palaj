@@ -4,15 +4,16 @@ from collections.abc import Generator
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
-from core.application.services.planning.team_planning_factory import TeamPlanningFactory
 from db import db
 from db.models import User
 
 from backend.app.bootstrap.container import (
+    agent_day_service,
     agent_service,
     agent_planning_validator_service,
     agent_planning_factory,
     agent_team_service,
+    planning_day_assembler,
     poste_coverage_requirement_service,
     poste_planning_factory,
     poste_service,
@@ -23,15 +24,18 @@ from backend.app.bootstrap.container import (
     tranche_service,
 )
 from core.application.services import (
+    AgentDayService,
     AgentService,
     AgentTeamService,
     AgentPlanningFactory,
     AgentPlanningValidatorService,
+    PlanningDayAssembler,
     PostePlanningFactory,
     PosteCoverageRequirementService,
     PosteService,
     QualificationService,
     RegimeService,
+    TeamPlanningFactory,
     TeamService,
     TrancheService,
 )
@@ -45,6 +49,9 @@ def get_db() -> Generator[Session, None, None]:
     with db.session_scope() as session:
         yield session
 
+def get_agent_day_service() -> AgentDayService:
+    return agent_day_service
+
 def get_agent_service() -> AgentService:
     return agent_service
 
@@ -56,6 +63,9 @@ def get_agent_planning_factory() -> AgentPlanningFactory:
 
 def get_agent_planning_validator_service() -> AgentPlanningValidatorService:
     return agent_planning_validator_service
+
+def get_planning_day_assembler() -> PlanningDayAssembler:
+    return planning_day_assembler
 
 def get_poste_planning_factory() -> PostePlanningFactory:
     return poste_planning_factory

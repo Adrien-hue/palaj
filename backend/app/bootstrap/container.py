@@ -2,6 +2,7 @@
 from core.application.config.rh_rules_config import build_default_rh_engine
 
 from core.application.services import (
+    AgentDayService,
     AgentPlanningValidatorService,
     AgentService,
     AgentPlanningFactory,
@@ -36,6 +37,11 @@ from backend.app.settings import settings
 # ---------------------------------------------------------
 # Repositories -> Services
 # ---------------------------------------------------------
+
+agent_day_service = AgentDayService(
+    agent_day_repo=agent_day_repo,
+    assignment_repo=agent_day_assignment_repo,
+)
 
 agent_service = AgentService(
     agent_repo=agent_repo,
@@ -117,6 +123,7 @@ team_planning_factory = TeamPlanningFactory(
 )
 
 __all__ = [
+    "agent_day_service",
     "agent_service",
     "poste_service",
     "poste_coverage_requirement_service",
@@ -124,6 +131,7 @@ __all__ = [
     "regime_service",
     "tranche_service",
     "rh_rules_engine",
+    "planning_day_assembler",
     "agent_planning_validator_service",
     "agent_planning_factory",
     "poste_planning_factory",
