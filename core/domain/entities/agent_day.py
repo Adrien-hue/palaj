@@ -8,12 +8,14 @@ from core.domain.enums.day_type import DayType
 class AgentDay:
     def __init__(
         self,
+        id: int,
         agent_id: int,
         day_date: date,
-        day_type: DayType,
+        day_type: str,
         description: Optional[str] = None,
         is_off_shift: bool = False,
     ):
+        self.id = id
         self.agent_id = agent_id
         self.day_date = day_date
         self.day_type = day_type
@@ -21,6 +23,10 @@ class AgentDay:
         self.is_off_shift = is_off_shift
 
         self._tranche_ids: List[int] | None = None
+
+    @property
+    def day_type_enum(self) -> DayType:
+        return DayType(self.day_type)
 
     @property
     def tranche_ids(self) -> List[int]:

@@ -11,7 +11,14 @@ from core.domain.enums.day_type import DayType
 @dataclass(frozen=True)
 class PlanningDay:
     day_date: date
-    day_type: DayType
+    day_type: str
     description: Optional[str]
     is_off_shift: bool
     tranches: List[Tranche]
+
+    @property
+    def day_type_enum(self) -> DayType:
+        try:
+            return DayType(self.day_type)
+        except ValueError:
+            return DayType.UNKNOWN
