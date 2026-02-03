@@ -16,8 +16,8 @@ export function dayTypeLabel(dayType: string) {
     ? "ZCOT"
     : dayType === "rest"
     ? "Repos"
-    : dayType === "absence"
-    ? "Absence"
+    : dayType === "absent"
+    ? "ABS."
     : dayType === "unknown"
     ? "—"
     : dayType;
@@ -28,7 +28,7 @@ export function dayTypeLabel(dayType: string) {
 export function dayTypeDotClass(dayType: string) {
   if (dayType === "working") return "bg-emerald-500";
   if (dayType === "zcot") return "bg-teal-500";
-  if (dayType === "absence") return "bg-amber-500";
+  if (dayType === "absent") return "bg-amber-500";
   if (dayType === "rest") return "bg-muted-foreground/40";
   return "bg-muted-foreground/40";
 }
