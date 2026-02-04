@@ -6,25 +6,24 @@ import type { AgentPlanningVm, AgentDayVm } from "../vm/agentPlanning.vm";
 import { PlanningGridBase } from "@/components/planning/PlanningGridBase";
 
 import { AgentDayCell } from "./AgentDayCell";
-import { AgentDaySheet } from "./AgentDaySheet";
 
 type AgentPlanningGridProps =
   | {
       mode: "month";
-      anchorMonth: string; // ISO YYYY-MM-DD (any day in month)
+      anchorMonth: string; // ISO YYYY-MM-DD
       planning: AgentPlanningVm;
-      posteNameById: Map<number, string>;
+      onDayClick?: (day: AgentDayVm) => void;
     }
   | {
       mode: "range";
       startDate: string; // ISO YYYY-MM-DD
       endDate: string; // ISO YYYY-MM-DD
       planning: AgentPlanningVm;
-      posteNameById: Map<number, string>;
+      onDayClick?: (day: AgentDayVm) => void;
     };
 
 export function AgentPlanningGrid(props: AgentPlanningGridProps) {
-  const { planning, posteNameById } = props;
+  const { planning } = props;
 
   const byDate = useMemo(
     () => new Map(planning.days.map((d) => [d.day_date, d] as const)),
@@ -38,23 +37,20 @@ export function AgentPlanningGrid(props: AgentPlanningGridProps) {
         : { mode: "range" as const, startDate: props.startDate, endDate: props.endDate })}
       getDay={(iso) => byDate.get(iso)}
       getDayDate={(day) => day.day_date}
-      renderCell={({ day, isOutsideMonth, isSelected, isInSelectedWeek, onSelect }) => (
+      renderCell={({ day, isOutsideMonth, isSelected, isInSelectedWeek, isOutsideRange, onSelect }) => (
         <AgentDayCell
           day={day}
           isOutsideMonth={isOutsideMonth}
+          isOutsideRange={isOutsideRange}
           isSelected={isSelected}
           isInSelectedWeek={isInSelectedWeek}
-          onSelect={onSelect}
+          onSelect={() => {
+            onSelect();
+            props.onDayClick?.(day);
+          }}
         />
       )}
-      renderDetails={({ open, selectedDay, close }) => (
-        <AgentDaySheet
-          open={open}
-          onClose={close}
-          selectedDay={selectedDay}
-          posteNameById={posteNameById}
-        />
-      )}
+      renderDetails={() => null}
       closeOnEscape
       gridLabel="Planning agent"
     />

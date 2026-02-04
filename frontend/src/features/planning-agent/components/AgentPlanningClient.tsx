@@ -13,9 +13,13 @@ import { shiftPlanningPeriod } from "@/features/planning-common/period/period.ut
 
 import { AgentHeaderSelect } from "@/features/planning-agent/components/AgentHeaderSelect";
 import { AgentPlanningGrid } from "@/features/planning-agent/components/AgentPlanningGrid";
+import { AgentDaySheet } from "@/features/planning-agent/components/AgentDaySheet";
 
 import { Card, CardContent } from "@/components/ui/card";
 import { formatDateFR, toISODate } from "@/utils/date.format";
+
+import type { AgentDayVm } from "@/features/planning-agent/vm/agentPlanning.vm";
+import type { AgentPlanningKey } from "@/features/planning-agent/hooks/agentPlanning.key";
 
 type AgentListItem = {
   id: number;
@@ -27,7 +31,7 @@ type AgentListItem = {
 
 export function AgentPlanningClient({
   initialAgentId = null,
-  initialAnchor, // YYYY-MM-01 (ou YYYY-MM-DD, on normalise)
+  initialAnchor,
   agents,
   postes,
 }: {
@@ -79,6 +83,38 @@ export function AgentPlanningClient({
     return buildPlanningVm(data);
   }, [data]);
 
+  const planningKey = React.useMemo<AgentPlanningKey | null>(() => {
+    if (agentId === null) return null;
+    return ["agentPlanning", agentId, range.start, range.end] as const;
+  }, [agentId, range.start, range.end]);
+
+  const [selectedDayDate, setSelectedDayDate] = React.useState<string | null>(
+    null,
+  );
+  const [sheetOpen, setSheetOpen] = React.useState(false);
+
+  const selectedDay = React.useMemo(() => {
+    if (!planningVm || !selectedDayDate) return null;
+    return planningVm.days.find((d) => d.day_date === selectedDayDate) ?? null;
+  }, [planningVm, selectedDayDate]);
+
+  React.useEffect(() => {
+    setSheetOpen(false);
+    setSelectedDayDate(null);
+  }, [agentId, range.start, range.end]);
+
+  React.useEffect(() => {
+    if (sheetOpen && selectedDayDate && planningVm) {
+      const stillExists = planningVm.days.some(
+        (d) => d.day_date === selectedDayDate,
+      );
+      if (!stillExists) {
+        setSheetOpen(false);
+        setSelectedDayDate(null);
+      }
+    }
+  }, [sheetOpen, selectedDayDate, planningVm]);
+
   const headerSubtitle =
     agentId === null
       ? subtitle
@@ -92,7 +128,6 @@ export function AgentPlanningClient({
 
   const anchorMonth = React.useMemo(() => {
     if (period.kind === "month") return toISODate(startOfMonth(period.month));
-    // range : ancre sur le mois du start (juste pour griser "hors mois" si besoin)
     return toISODate(startOfMonth(new Date(range.start + "T00:00:00")));
   }, [period, range.start]);
 
@@ -137,14 +172,20 @@ export function AgentPlanningClient({
             startDate={range.start}
             endDate={range.end}
             planning={planningVm}
-            posteNameById={posteNameById}
+            onDayClick={(day) => {
+              setSelectedDayDate(day.day_date);
+              setSheetOpen(true);
+            }}
           />
         ) : (
           <AgentPlanningGrid
             mode="month"
             anchorMonth={anchorMonth}
             planning={planningVm}
-            posteNameById={posteNameById}
+            onDayClick={(day) => {
+              setSelectedDayDate(day.day_date);
+              setSheetOpen(true);
+            }}
           />
         )
       ) : (
@@ -154,6 +195,17 @@ export function AgentPlanningClient({
           </CardContent>
         </Card>
       )}
+
+      {agentId !== null ? (
+        <AgentDaySheet
+          open={sheetOpen}
+          onClose={() => setSheetOpen(false)}
+          selectedDay={selectedDay}
+          posteNameById={posteNameById}
+          agentId={agentId}
+          planningKey={planningKey}
+        />
+      ) : null}
     </div>
   );
 }

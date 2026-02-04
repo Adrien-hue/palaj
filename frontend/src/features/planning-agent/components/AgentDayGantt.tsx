@@ -17,8 +17,11 @@ export function AgentDayGantt({
   dayEnd?: string;
 }) {
   const range = useMemo(
-    () => ({ startMin: timeToMinutes(dayStart), endMin: timeToMinutes(dayEnd) }),
-    [dayStart, dayEnd]
+    () => ({
+      startMin: timeToMinutes(dayStart),
+      endMin: timeToMinutes(dayEnd),
+    }),
+    [dayStart, dayEnd],
   );
 
   const input = useMemo(
@@ -28,7 +31,7 @@ export function AgentDayGantt({
         startMin: timeToMinutes(s.start),
         endMin: timeToMinutes(s.end),
       })),
-    [segments]
+    [segments],
   );
 
   return (
@@ -44,10 +47,18 @@ export function AgentDayGantt({
       getTooltip={(s) => {
         const poste = posteNameById.get(s.posteId) ?? `Poste #${s.posteId}`;
         const time = `${s.start.slice(0, 5)}–${s.end.slice(0, 5)}`;
-        const cont = `${s.continuesPrev ? "←" : ""}${s.continuesNext ? "→" : ""}`.trim();
+        const cont =
+          `${s.continuesPrev ? "←" : ""}${s.continuesNext ? "→" : ""}`.trim();
         return [s.nom, time, "•", poste, cont].filter(Boolean).join(" ");
       }}
       barClassName={() => "bg-primary text-primary-foreground"}
+      barStyle={(s) =>
+        s.color
+          ? {
+              backgroundColor: s.color,
+            }
+          : undefined
+      }
     />
   );
 }

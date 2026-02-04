@@ -34,7 +34,7 @@ export function AgentMiniGantt({
       })),
     [segments],
   );
-  console.log("seg color : ", input.map(s => s.color));
+  
   return (
     <MiniTimelineTrack
       segments={input}
