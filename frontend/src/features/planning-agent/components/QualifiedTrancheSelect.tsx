@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useId } from "react";
+import { useEffect, useMemo, useId, useRef } from "react";
 import type { Tranche } from "@/types";
 import { useQualifiedTranches } from "@/features/planning-agent/hooks/useQualifiedTranches";
+import { useCoveredTrancheIds } from "@/features/planning-agent/hooks/useCoveredTrancheIds";
 
 import {
   Select,
@@ -24,6 +25,9 @@ type Props = {
   posteNameById: Map<number, string>;
   disabled?: boolean;
 
+  dateISO: string | null;
+  refreshKey?: number;
+
   /** UI */
   label?: string | null;
   className?: string;
@@ -40,6 +44,8 @@ export function QualifiedTrancheSelect({
   onChange,
   posteNameById,
   disabled,
+  dateISO,
+  refreshKey,
 
   label = "Tranche",
   className,
@@ -50,7 +56,31 @@ export function QualifiedTrancheSelect({
   errorLabel = "Erreur de chargement",
 }: Props) {
   const id = useId();
-  const { tranches, isLoading, error } = useQualifiedTranches(agentId);
+
+  const { tranches, isLoading, error, posteIds } = useQualifiedTranches(agentId);
+
+  const {
+    coveredTrancheIds,
+    isLoading: loadingCoverage,
+    refreshCoverage,
+  } = useCoveredTrancheIds({ dateISO, posteIds });
+
+  // clé stable dérivée des posteIds
+  const posteIdsKey = useMemo(() => posteIds.join(","), [posteIds]);
+
+  // ne refresh que si refreshKey a réellement changé
+  const lastAppliedRefreshKey = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    if (refreshKey === undefined) return;
+    if (!dateISO) return;
+    if (posteIds.length === 0) return;
+
+    if (lastAppliedRefreshKey.current === refreshKey) return;
+    lastAppliedRefreshKey.current = refreshKey;
+
+    refreshCoverage();
+  }, [refreshKey, dateISO, posteIdsKey, posteIds.length, refreshCoverage]);
 
   const grouped = useMemo(() => {
     const map = new Map<number, Tranche[]>();
@@ -67,8 +97,11 @@ export function QualifiedTrancheSelect({
     return [...map.entries()].sort(([a], [b]) => a - b);
   }, [tranches]);
 
+  // Force remount du menu quand la couverture change / refresh
+  const contentKey = `${refreshKey ?? 0}-${coveredTrancheIds.size}`;
+
   const stringValue = value === null ? undefined : String(value);
-  const isDisabled = disabled || isLoading;
+  const isDisabled = disabled || isLoading || loadingCoverage;
 
   return (
     <div className={cn("space-y-1", className)}>
@@ -87,10 +120,14 @@ export function QualifiedTrancheSelect({
         disabled={isDisabled}
       >
         <SelectTrigger id={id} className="w-full">
-          <SelectValue placeholder={isLoading ? loadingLabel : placeholder} />
+          <SelectValue
+            placeholder={
+              isLoading || loadingCoverage ? loadingLabel : placeholder
+            }
+          />
         </SelectTrigger>
 
-        <SelectContent>
+        <SelectContent key={contentKey}>
           <ScrollArea className="h-72">
             {error ? (
               <div className="px-2 py-2 text-sm text-destructive">
@@ -108,26 +145,45 @@ export function QualifiedTrancheSelect({
               ? grouped.map(([posteId, trs]) => {
                   const posteName =
                     posteNameById.get(posteId) ?? `Poste #${posteId}`;
+
                   return (
                     <SelectGroup key={posteId}>
                       <SelectLabel className="text-xs">{posteName}</SelectLabel>
-                      {trs.map((t) => (
-                        <SelectItem key={t.id} value={String(t.id)}>
-                          <div className="flex items-center gap-2">
-                            <span
-                              className="h-2.5 w-2.5 shrink-0 rounded-full border"
-                              style={{
-                                backgroundColor: t.color ?? "transparent",
-                              }}
-                              aria-hidden="true"
-                            />
-                            <span className="truncate">
-                              {t.nom} ({t.heure_debut.slice(0, 5)}–
-                              {t.heure_fin.slice(0, 5)})
-                            </span>
-                          </div>
-                        </SelectItem>
-                      ))}
+
+                      {trs.map((t) => {
+                        const isCovered = coveredTrancheIds.has(t.id);
+
+                        return (
+                          <SelectItem
+                            key={`${t.id}-${isCovered ? "covered" : "open"}`}
+                            value={String(t.id)}
+                            className={cn(
+                              "flex items-center",
+                              isCovered && "opacity-70"
+                            )}
+                          >
+                            <div className="flex w-full items-center gap-2">
+                              <span
+                                className="h-2.5 w-2.5 shrink-0 rounded-full border"
+                                style={{
+                                  backgroundColor: t.color ?? "transparent",
+                                }}
+                                aria-hidden="true"
+                              />
+                              <span className="min-w-0 flex-1 truncate">
+                                {t.nom} ({t.heure_debut.slice(0, 5)}–
+                                {t.heure_fin.slice(0, 5)})
+                              </span>
+
+                              {isCovered ? (
+                                <span className="shrink-0 rounded-full border px-2 py-0.5 text-[10px] text-muted-foreground">
+                                  Couvert
+                                </span>
+                              ) : null}
+                            </div>
+                          </SelectItem>
+                        );
+                      })}
                     </SelectGroup>
                   );
                 })

@@ -38,6 +38,7 @@ export function AgentDaySheet({
 }) {
   const dateLabel = selectedDay ? formatDateFR(selectedDay.day_date) : "Jour";
   const { saveDay, removeDay } = useAgentPlanningEdit(agentId, planningKey);
+  const [coverageRefreshKey, setCoverageRefreshKey] = useState(0);
 
   // -----
   // Form state
@@ -72,6 +73,8 @@ export function AgentDaySheet({
       description: description.trim() ? description.trim() : null,
       tranche_id: isWorking ? trancheId : null,
     });
+
+    setCoverageRefreshKey((x) => x + 1);
   }
 
   async function handleDelete() {
@@ -174,9 +177,11 @@ export function AgentDaySheet({
                   <QualifiedTrancheSelect
                     agentId={agentId}
                     value={trancheId}
+                    dateISO={selectedDay.day_date}
                     onChange={setTrancheId}
                     posteNameById={posteNameById}
                     label="Tranche"
+                    refreshKey={coverageRefreshKey}
                   />
 
                   {trancheId === null ? (
