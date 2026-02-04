@@ -7,3 +7,9 @@ export type AgentDay = {
   is_off_shift: boolean;
   tranches: Tranche[];
 };
+
+export type AgentDayPutDTO = {
+  day_type: string;
+  description: string | null;
+  tranche_id: number | null;
+};

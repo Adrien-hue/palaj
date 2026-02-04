@@ -17,6 +17,8 @@ export type ShiftSegmentVm = {
 };
 
 export type AgentDayVm = Omit<AgentDay, "tranches"> & {
+  tranche_id: number | null;
+
   segments: ShiftSegmentVm[];
 };
 
