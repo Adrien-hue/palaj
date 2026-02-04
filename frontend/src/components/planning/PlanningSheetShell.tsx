@@ -10,6 +10,7 @@ import {
   SheetHeader,
   SheetTitle,
   SheetDescription,
+  SheetFooter,
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 
@@ -40,6 +41,9 @@ export type PlanningSheetShellProps = {
   empty?: React.ReactNode;
 
   children?: React.ReactNode;
+
+  footer?: React.ReactNode;
+  footerClassName?: string;
 };
 
 export function PlanningSheetShell({
@@ -54,6 +58,8 @@ export function PlanningSheetShell({
   isEmpty,
   empty,
   children,
+  footer,
+  footerClassName,
 }: PlanningSheetShellProps) {
   const headerInner = (
     <SheetHeader className="space-y-2">
@@ -83,8 +89,10 @@ export function PlanningSheetShell({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className={cn("p-0", contentClassName ?? DEFAULT_SHEET_WIDTH)}>
-        <div className={cn("h-full", rootClassName)}>
+      <SheetContent
+        className={cn("p-0", contentClassName ?? DEFAULT_SHEET_WIDTH)}
+      >
+        <div className={cn("h-full flex flex-col", rootClassName)}>
           {headerVariant === "sticky" ? (
             <div className="sticky top-0 z-10 border-b border-border bg-background/95 backdrop-blur p-4">
               {headerInner}
@@ -96,11 +104,23 @@ export function PlanningSheetShell({
           {/* Body */}
           <div
             className={cn(
+              "flex-1 overflow-auto",
               headerVariant === "sticky" ? bodyClassName : "px-6 pb-6",
             )}
           >
             {isEmpty ? empty : children}
           </div>
+
+          {footer ? (
+            <div
+              className={cn(
+                "sticky bottom-0 z-10 border-t border-border bg-background/95 backdrop-blur p-4",
+                footerClassName,
+              )}
+            >
+              <SheetFooter>{footer}</SheetFooter>
+            </div>
+          ) : null}
         </div>
       </SheetContent>
     </Sheet>
