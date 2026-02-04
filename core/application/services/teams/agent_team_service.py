@@ -6,7 +6,7 @@ from typing import List, Optional
 from core.application.ports.agent_team_repo import AgentTeamRepositoryPort
 from core.application.ports.agent_repo import AgentRepositoryPort
 from core.application.ports.team_repo import TeamRepositoryPort
-from core.application.services.teams.exceptions import NotFoundError
+from core.application.services.exceptions import NotFoundError
 from core.domain.entities.team import Team
 from core.domain.entities.agent_team import AgentTeam
 

@@ -1,4 +1,5 @@
 # core/application/services/poste_service.py
+from datetime import date
 from typing import Any, List, Optional
 
 from core.application.ports import (
@@ -6,6 +7,8 @@ from core.application.ports import (
     QualificationRepositoryPort,
     TrancheRepositoryPort,
 )
+from core.application.read_models.poste_coverage_day_rm import PosteCoverageDayRM
+from core.application.services.exceptions import NotFoundError
 from core.domain.entities import Poste
 
 
@@ -53,6 +56,21 @@ class PosteService:
 
     def get_by_id(self, poste_id: int) -> Poste | None:
         return self.poste_repo.get_by_id(poste_id)
+    
+    def get_poste_coverage_for_day(self, *, poste_id: int, day_date: date) -> PosteCoverageDayRM:
+        if self.poste_repo is not None:
+            poste = self.poste_repo.get_by_id(poste_id)
+            if poste is None:
+                raise NotFoundError(code="poste_not_found", details={"poste_id": poste_id})
+
+        tranches = self.poste_repo.get_coverage_for_day(poste_id=poste_id, day_date=day_date)
+
+        return PosteCoverageDayRM(
+            poste_id=poste_id,
+            day_date=day_date,
+            weekday=day_date.weekday(),
+            tranches=tranches,
+        )
 
     def list(self, *, limit: Optional[int] = None, offset: int = 0) -> List[Poste]:
         return self.poste_repo.list(limit=limit, offset=offset)

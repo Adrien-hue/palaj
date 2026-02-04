@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, List, Optional
 
 from core.application.ports.team_repo import TeamRepositoryPort
-from core.application.services.teams.exceptions import ConflictError, NotFoundError
+from core.application.services.exceptions import ConflictError, NotFoundError
 from core.domain.entities.team import Team
 
 
