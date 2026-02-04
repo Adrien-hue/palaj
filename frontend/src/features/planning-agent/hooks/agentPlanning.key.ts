@@ -1,0 +1,1 @@
+export type AgentPlanningKey = readonly ["agentPlanning", number, string, string];
