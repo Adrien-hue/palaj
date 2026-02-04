@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { startOfMonth, endOfMonth } from "date-fns";
+import { startOfMonth, endOfMonth, set } from "date-fns";
 
 import { buildPlanningVm } from "@/features/planning-agent/vm/agentPlanning.vm.builder";
 import { useAgentPlanning } from "@/features/planning-agent/hooks/useAgentPlanning";
@@ -15,11 +15,19 @@ import { AgentHeaderSelect } from "@/features/planning-agent/components/AgentHea
 import { AgentPlanningGrid } from "@/features/planning-agent/components/AgentPlanningGrid";
 import { AgentDaySheet } from "@/features/planning-agent/components/AgentDaySheet";
 
+import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { formatDateFR, toISODate } from "@/utils/date.format";
 
-import type { AgentDayVm } from "@/features/planning-agent/vm/agentPlanning.vm";
 import type { AgentPlanningKey } from "@/features/planning-agent/hooks/agentPlanning.key";
+import { AgentBulkEditSheet } from "./AgentBulkEditSheet";
 
 type AgentListItem = {
   id: number;
@@ -93,15 +101,80 @@ export function AgentPlanningClient({
   );
   const [sheetOpen, setSheetOpen] = React.useState(false);
 
+  const [multiSelect, setMultiSelect] = React.useState(false);
+
+  const toggleMultiSelect = React.useCallback(() => {
+    setMultiSelect((v) => {
+      const next = !v;
+      if (next) {
+        clearMultiSelection();
+      }
+      return next;
+    });
+  }, []);
+
+  const [selectedDates, setSelectedDates] = React.useState<Set<string>>(
+    () => new Set(),
+  );
+  const [anchorDate, setAnchorDate] = React.useState<string | null>(null);
+
+  const selectedCount = selectedDates.size;
+
+  const clearMultiSelection = React.useCallback(() => {
+    setSelectedDates(new Set());
+    setAnchorDate(null);
+  }, []);
+
+  const exitMultiSelect = React.useCallback(() => {
+    setMultiSelect(false);
+    clearMultiSelection();
+  }, [clearMultiSelection]);
+
   const selectedDay = React.useMemo(() => {
     if (!planningVm || !selectedDayDate) return null;
     return planningVm.days.find((d) => d.day_date === selectedDayDate) ?? null;
   }, [planningVm, selectedDayDate]);
 
+  const handleMultiSelectDay = React.useCallback(
+    (iso: string, e: React.MouseEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+
+      setSelectedDates((prev) => {
+        const next = new Set(prev);
+
+        if (e.shiftKey && anchorDate && planningVm) {
+          const ordered = planningVm.days
+            .map((d) => d.day_date)
+            .slice()
+            .sort((a, b) => a.localeCompare(b));
+
+          const a = ordered.indexOf(anchorDate);
+          const b = ordered.indexOf(iso);
+
+          if (a !== -1 && b !== -1) {
+            const [start, end] = a < b ? [a, b] : [b, a];
+            for (let i = start; i <= end; i++) next.add(ordered[i]);
+            return next;
+          }
+        }
+
+        if (next.has(iso)) next.delete(iso);
+        else next.add(iso);
+
+        return next;
+      });
+
+      setAnchorDate((prev) => (e.shiftKey ? (prev ?? iso) : iso));
+    },
+    [anchorDate, planningVm],
+  );
+
   React.useEffect(() => {
     setSheetOpen(false);
     setSelectedDayDate(null);
-  }, [agentId, range.start, range.end]);
+    setMultiSelect(false);
+    clearMultiSelection();
+  }, [agentId, range.start, range.end, clearMultiSelection]);
 
   React.useEffect(() => {
     if (sheetOpen && selectedDayDate && planningVm) {
@@ -131,6 +204,13 @@ export function AgentPlanningClient({
     return toISODate(startOfMonth(new Date(range.start + "T00:00:00")));
   }, [period, range.start]);
 
+  const [bulkOpen, setBulkOpen] = React.useState(false);
+
+  const selectedDatesSorted = React.useMemo(
+    () => Array.from(selectedDates).sort((a, b) => a.localeCompare(b)),
+    [selectedDates],
+  );
+
   return (
     <div className="space-y-4">
       <PlanningPageHeader
@@ -143,15 +223,85 @@ export function AgentPlanningClient({
         }
         subtitle={headerSubtitle}
         rightSlot={
-          <PlanningPeriodControls
-            value={period}
-            onChange={setPeriod}
-            onPrev={() => setPeriod((p) => shiftPlanningPeriod(p, -1))}
-            onNext={() => setPeriod((p) => shiftPlanningPeriod(p, 1))}
-            disabled={agentId !== null && isLoading}
-          />
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex items-center gap-2 cursor-pointer">
+                    <Switch
+                      id="multi-select"
+                      checked={multiSelect}
+                      onCheckedChange={toggleMultiSelect}
+                    />
+                    <Label htmlFor="multi-select">Sélection multiple</Label>
+                  </div>
+                </TooltipTrigger>
+
+                <TooltipContent side="bottom" align="start">
+                  <p className="text-sm">
+                    Sélectionnez plusieurs jours pour leur appliquer un statut,
+                    <br />
+                    une tranche et un commentaire en une seule fois.
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+
+            <PlanningPeriodControls
+              value={period}
+              onChange={setPeriod}
+              onPrev={() => setPeriod((p) => shiftPlanningPeriod(p, -1))}
+              onNext={() => setPeriod((p) => shiftPlanningPeriod(p, 1))}
+              disabled={agentId !== null && isLoading}
+            />
+          </div>
         }
       />
+
+      {multiSelect ? (
+        <div className="sticky top-0 z-10">
+          <div className="rounded-xl border bg-card/95 p-3 shadow-sm backdrop-blur">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-2 text-sm">
+                <span className="font-medium">
+                  {selectedCount}{" "}
+                  {selectedCount > 1
+                    ? "jours sélectionnés"
+                    : "jour sélectionné"}
+                </span>
+                {selectedCount === 0 ? (
+                  <span className="text-muted-foreground">
+                    — cliquez pour sélectionner, Shift pour une plage
+                  </span>
+                ) : null}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={clearMultiSelection}
+                  disabled={selectedCount === 0}
+                >
+                  Tout désélectionner
+                </Button>
+
+                <Button
+                  type="button"
+                  onClick={() => setBulkOpen(true)}
+                  disabled={selectedCount === 0}
+                >
+                  Éditer
+                </Button>
+
+                <Button type="button" variant="ghost" onClick={exitMultiSelect}>
+                  Quitter
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {agentId === null ? (
         <Card>
@@ -172,7 +322,11 @@ export function AgentPlanningClient({
             startDate={range.start}
             endDate={range.end}
             planning={planningVm}
+            multiSelect={multiSelect}
+            multiSelectedDates={selectedDates}
+            onMultiSelectDay={(day, e) => handleMultiSelectDay(day.day_date, e)}
             onDayClick={(day) => {
+              if (multiSelect) return;
               setSelectedDayDate(day.day_date);
               setSheetOpen(true);
             }}
@@ -182,7 +336,11 @@ export function AgentPlanningClient({
             mode="month"
             anchorMonth={anchorMonth}
             planning={planningVm}
+            multiSelect={multiSelect}
+            multiSelectedDates={selectedDates}
+            onMultiSelectDay={(day, e) => handleMultiSelectDay(day.day_date, e)}
             onDayClick={(day) => {
+              if (multiSelect) return;
               setSelectedDayDate(day.day_date);
               setSheetOpen(true);
             }}
@@ -204,6 +362,22 @@ export function AgentPlanningClient({
           posteNameById={posteNameById}
           agentId={agentId}
           planningKey={planningKey}
+        />
+      ) : null}
+
+      {agentId !== null ? (
+        <AgentBulkEditSheet
+          open={bulkOpen}
+          onClose={() => setBulkOpen(false)}
+          agentId={agentId}
+          planningKey={planningKey}
+          selectedDates={selectedDatesSorted}
+          posteNameById={posteNameById}
+          onApplied={() => {
+            // après succès: on clear la sélection et on reste en mode multi (ou pas)
+            clearMultiSelection();
+            // option: setMultiSelect(false);
+          }}
         />
       ) : null}
     </div>
