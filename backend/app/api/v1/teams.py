@@ -11,7 +11,7 @@ from backend.app.mappers.team_planning import to_team_planning_response
 from backend.app.mappers.teams import to_team_dto
 from core.application.services.planning.team_planning_factory import TeamPlanningFactory
 from core.application.services.teams.team_service import TeamService
-from core.application.services.teams.exceptions import NotFoundError, ConflictError
+from core.application.services.exceptions import NotFoundError, ConflictError
 
 router = APIRouter(prefix="/teams", tags=["teams"])
 

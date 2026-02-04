@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from backend.app.api.deps import get_poste_coverage_requirement_service, get_poste_planning_factory, get_poste_service, get_tranche_service
 from backend.app.dto.common.pagination import build_page, Page, PaginationParams, pagination_params
+from backend.app.dto.poste_coverage_day import PosteCoverageDayDTO
 from backend.app.dto.poste_coverage_requirement import (
     PosteCoverageDTO,
     PosteCoveragePutDTO
@@ -14,6 +15,7 @@ from backend.app.dto.postes import (
     PosteCreateDTO,
     PosteUpdateDTO
 )
+from backend.app.mappers.poste_coverage_day import to_poste_coverage_day_dto
 from backend.app.mappers.poste_coverage_requirement import poste_coverage_dto_to_entity, to_poste_coverage_dto
 from backend.app.mappers.poste_planning import to_poste_planning_response
 from backend.app.mappers.postes import to_poste_dto, to_poste_detail_dto
@@ -22,6 +24,7 @@ from backend.app.dto.tranches import (
 )
 from backend.app.mappers.tranches import to_tranche_dto
 from core.application.services import PosteService, TrancheService
+from core.application.services.exceptions import NotFoundError
 from core.application.services.planning.poste_planning_factory import PostePlanningFactory
 from core.application.services.poste_coverage_requirement_service import PosteCoverageRequirementService
 
@@ -125,6 +128,18 @@ def get_poste_planning(
         if msg.lower() == "poste not found":
             raise HTTPException(status_code=404, detail=msg)
         raise HTTPException(status_code=400, detail=msg)
+    
+@router.get("/{poste_id}/planning/coverage", response_model=PosteCoverageDayDTO)
+def get_poste_planning_coverage(
+    poste_id: int,
+    date: date,
+    service: PosteService = Depends(get_poste_service),
+) -> PosteCoverageDayDTO:
+    try:
+        rm = service.get_poste_coverage_for_day(poste_id=poste_id, day_date=date)
+        return to_poste_coverage_day_dto(rm)
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail={"code": e.code, "details": e.details})
 
 @router.patch("/{poste_id}", response_model=PosteDTO)
 def update_poste(

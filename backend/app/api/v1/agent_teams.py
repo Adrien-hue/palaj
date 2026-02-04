@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from backend.app.api.deps import get_agent_team_service, require_role
 from backend.app.mappers.agent_teams import to_agent_team_dto
 from core.application.services.teams.agent_team_service import AgentTeamService
-from core.application.services.teams.exceptions import NotFoundError
+from core.application.services.exceptions import NotFoundError
 
 router = APIRouter(prefix="/agent-teams", tags=["Agent Teams"])
 
