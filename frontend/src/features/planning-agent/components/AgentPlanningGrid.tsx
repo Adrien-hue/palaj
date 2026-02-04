@@ -1,5 +1,6 @@
 "use client";
 
+import type { MouseEvent as ReactMouseEvent } from "react";
 import { useMemo } from "react";
 
 import type { AgentPlanningVm, AgentDayVm } from "../vm/agentPlanning.vm";
@@ -13,6 +14,11 @@ type AgentPlanningGridProps =
       anchorMonth: string; // ISO YYYY-MM-DD
       planning: AgentPlanningVm;
       onDayClick?: (day: AgentDayVm) => void;
+
+      multiSelect?: boolean;
+      multiSelectedDates?: ReadonlySet<string>;
+      onMultiSelectDay?: (day: AgentDayVm, e: ReactMouseEvent<HTMLButtonElement>) => void;
+
     }
   | {
       mode: "range";
@@ -20,6 +26,11 @@ type AgentPlanningGridProps =
       endDate: string; // ISO YYYY-MM-DD
       planning: AgentPlanningVm;
       onDayClick?: (day: AgentDayVm) => void;
+
+      multiSelect?: boolean;
+      multiSelectedDates?: ReadonlySet<string>;
+      onMultiSelectDay?: (day: AgentDayVm, e: ReactMouseEvent<HTMLButtonElement>) => void;
+
     };
 
 export function AgentPlanningGrid(props: AgentPlanningGridProps) {
@@ -27,24 +38,41 @@ export function AgentPlanningGrid(props: AgentPlanningGridProps) {
 
   const byDate = useMemo(
     () => new Map(planning.days.map((d) => [d.day_date, d] as const)),
-    [planning.days]
+    [planning.days],
   );
 
   return (
     <PlanningGridBase<AgentDayVm>
       {...(props.mode === "month"
         ? { mode: "month" as const, anchorMonth: props.anchorMonth }
-        : { mode: "range" as const, startDate: props.startDate, endDate: props.endDate })}
+        : {
+            mode: "range" as const,
+            startDate: props.startDate,
+            endDate: props.endDate,
+          })}
       getDay={(iso) => byDate.get(iso)}
       getDayDate={(day) => day.day_date}
-      renderCell={({ day, isOutsideMonth, isSelected, isInSelectedWeek, isOutsideRange, onSelect }) => (
+      renderCell={({
+        day,
+        isOutsideMonth,
+        isSelected,
+        isInSelectedWeek,
+        isOutsideRange,
+        onSelect,
+      }) => (
         <AgentDayCell
           day={day}
           isOutsideMonth={isOutsideMonth}
           isOutsideRange={isOutsideRange}
           isSelected={isSelected}
           isInSelectedWeek={isInSelectedWeek}
-          onSelect={() => {
+          isMultiSelected={props.multiSelectedDates?.has(day.day_date) ?? false}
+          onSelect={(e) => {
+            if (props.multiSelect) {
+              props.onMultiSelectDay?.(day, e);
+              return;
+            }
+
             onSelect();
             props.onDayClick?.(day);
           }}

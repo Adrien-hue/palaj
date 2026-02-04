@@ -52,7 +52,8 @@ export function AgentDayCell(props: {
   isSelected: boolean;
   isInSelectedWeek: boolean;
   isOutsideRange?: boolean;
-  onSelect: () => void;
+  isMultiSelected?: boolean;
+  onSelect: (e: React.MouseEvent<HTMLButtonElement>) => void;
 }) {
   const {
     day,
@@ -60,6 +61,7 @@ export function AgentDayCell(props: {
     isSelected,
     isInSelectedWeek,
     isOutsideRange,
+    isMultiSelected = false,
     onSelect,
   } = props;
 
@@ -106,6 +108,7 @@ export function AgentDayCell(props: {
             onSelect={onSelect}
             ariaLabel={ariaLabel}
             pressed={isSelected}
+            multiSelected={isMultiSelected}
             isOutsideMonth={isOutsideMonth}
             isOutsideRange={isOutsideRange}
             isInSelectedWeek={isInSelectedWeek}
