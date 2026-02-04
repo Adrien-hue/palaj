@@ -1,6 +1,6 @@
 // src/services/agent-planning.service.ts
 import { apiFetch } from "@/lib/api";
-import type { AgentDay, AgentDayPutDTO } from "@/types";
+import type { AgentDay, AgentDayPutDTO, AgentPlanningDayBulkPutDTO, AgentPlanningDayBulkPutResponseDTO } from "@/types";
 
 export async function putAgentDayPlanning(
   agentId: number,
@@ -25,5 +25,19 @@ export async function deleteAgentDayPlanning(
     {
       method: "DELETE",
     }
+  );
+}
+
+export async function bulkUpsertAgentPlanningDays(
+  agentId: number,
+  payload: AgentPlanningDayBulkPutDTO,
+): Promise<AgentPlanningDayBulkPutResponseDTO> {
+  return apiFetch<AgentPlanningDayBulkPutResponseDTO>(
+    `/agents/${agentId}/planning/days:bulk`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: payload,
+    },
   );
 }

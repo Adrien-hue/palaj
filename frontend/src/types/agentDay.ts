@@ -13,3 +13,21 @@ export type AgentDayPutDTO = {
   description: string | null;
   tranche_id: number | null;
 };
+
+export type AgentPlanningDayBulkPutDTO = {
+  day_dates: string[];
+  day_type: string;
+  description?: string | null;
+  tranche_id?: number | null;
+};
+
+export type BulkFailedItem = {
+  day_date: string;
+  code: string;
+  message: string;
+};
+
+export type AgentPlanningDayBulkPutResponseDTO = {
+  updated: AgentDay[];
+  failed: BulkFailedItem[];
+};
