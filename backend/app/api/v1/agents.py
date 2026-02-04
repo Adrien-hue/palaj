@@ -4,7 +4,7 @@ from backend.app.api.deps import get_agent_day_service, get_agent_service, get_a
 from backend.app.dto.agents import AgentCreateDTO, AgentDTO, AgentDetailDTO, AgentUpdateDTO
 from backend.app.dto.common.pagination import build_page, Page, PaginationParams, pagination_params
 from backend.app.dto.planning import AgentPlanningResponseDTO
-from backend.app.dto.planning_day import PlanningDayDTO, PlanningDayPutDTO
+from backend.app.dto.planning_day import AgentPlanningDayBulkPutResponseDTO, PlanningDayDTO, PlanningDayPutDTO, AgentPlanningDayBulkPutDTO, BulkFailedItem
 from backend.app.mappers.agents_light import to_agent_dto
 from backend.app.mappers.agents import to_agent_detail_dto
 from backend.app.mappers.planning import to_agent_planning_response
@@ -125,3 +125,51 @@ def upsert_agent_planning_day(
         return to_planning_day_dto(planning_day)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    
+@router.put(
+    "/{agent_id}/planning/days:bulk",
+    response_model=AgentPlanningDayBulkPutResponseDTO,
+)
+def bulk_upsert_agent_planning_days(
+    agent_id: int,
+    payload: AgentPlanningDayBulkPutDTO,
+    agent_day_service: AgentDayService = Depends(get_agent_day_service),
+    planning_day_assembler: PlanningDayAssembler = Depends(get_planning_day_assembler),
+):
+    updated = []
+    failed = []
+
+    for day_date in payload.day_dates:
+        try:
+            agent_day_service.upsert_day(
+                agent_id=agent_id,
+                day_date=day_date,
+                day_type=payload.day_type,
+                tranche_id=payload.tranche_id,
+                description=payload.description,
+            )
+
+            planning_day = planning_day_assembler.build_one_for_agent(
+                agent_id=agent_id,
+                day_date=day_date,
+            )
+            updated.append(to_planning_day_dto(planning_day))
+
+        except ValueError as e:
+            failed.append(
+                BulkFailedItem(
+                    day_date=day_date,
+                    code="VALIDATION_ERROR",
+                    message=str(e),
+                )
+            )
+        except Exception as e:
+            failed.append(
+                BulkFailedItem(
+                    day_date=day_date,
+                    code="UNEXPECTED_ERROR",
+                    message=str(e),
+                )
+            )
+
+    return AgentPlanningDayBulkPutResponseDTO(updated=updated, failed=failed)
