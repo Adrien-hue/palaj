@@ -5,15 +5,22 @@ import useSWR from "swr";
 import { searchQualifications } from "@/services/qualifications.service";
 import { listTranchesForPoste } from "@/services/tranches.service";
 import type { Tranche } from "@/types";
+import { useMemo } from "react";
 
 export function useQualifiedTranches(agentId: number) {
   const {
     data: qualifications,
     isLoading: loadingQualifs,
     error: errorQualifs,
-  } = useSWR(["qualifications", agentId], () => searchQualifications({agent_id: agentId}));
-  console.debug("useQualifiedTranches - agentId:", agentId);
-  const posteIds = (qualifications ?? []).map((q) => q.poste_id);
+  } = useSWR(["qualifications", agentId], () =>
+    searchQualifications({ agent_id: agentId }),
+  );
+  
+  const posteIds = useMemo(() => {
+    const ids = new Set<number>();
+    for (const q of qualifications ?? []) ids.add(q.poste_id);
+    return Array.from(ids).sort((a, b) => a - b);
+  }, [qualifications]);
 
   const {
     data: tranchesByPoste,
@@ -22,9 +29,11 @@ export function useQualifiedTranches(agentId: number) {
   } = useSWR(
     posteIds.length ? ["qualified-tranches", ...posteIds] : null,
     async () => {
-      const results = await Promise.all(posteIds.map((id) => listTranchesForPoste(id)));
+      const results = await Promise.all(
+        posteIds.map((id) => listTranchesForPoste(id)),
+      );
       return results;
-    }
+    },
   );
 
   const tranches: Tranche[] = (tranchesByPoste ?? []).flat();
