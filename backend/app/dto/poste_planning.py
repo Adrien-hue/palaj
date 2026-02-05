@@ -31,3 +31,11 @@ class PostePlanningResponseDTO(BaseModel):
     end_date: date
 
     days: List[PostePlanningDayDTO] = Field(default_factory=list)
+
+class PostePlanningTrancheEdit(BaseModel):
+    tranche_id: int
+    agent_ids: List[int] = Field(default_factory=list)
+
+class PostePlanningDayEditRequest(BaseModel):
+    tranches: List[PostePlanningTrancheEdit] = Field(default_factory=list)
+    cleanup_empty_agent_days: bool = True
