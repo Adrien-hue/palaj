@@ -1,0 +1,1 @@
+export type PostePlanningKey = readonly ["postePlanning", number, string, string];
