@@ -7,6 +7,7 @@ from core.application.services.planning.agent_planning_factory import AgentPlann
 from core.application.services.planning.planning_day_assembler import PlanningDayAssembler
 from core.application.services.planning.poste_planning_factory import PostePlanningFactory
 from core.application.services.planning.poste_planning_day_assembler import PostePlanningDayAssembler
+from core.application.services.planning.poste_planning_day_service import PostePlanningDayService
 from core.application.services.planning.team_planning_factory import TeamPlanningFactory
 from core.application.services.poste_coverage_requirement_service import PosteCoverageRequirementService
 from core.application.services.poste_service import PosteService
@@ -25,6 +26,7 @@ __all__ = [
     "PlanningDayAssembler",
     "PostePlanningFactory",
     "PostePlanningDayAssembler",
+    "PostePlanningDayService",
     "TeamPlanningFactory",
     "PosteCoverageRequirementService",
     "PosteService",
