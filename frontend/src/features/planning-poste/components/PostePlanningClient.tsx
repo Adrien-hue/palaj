@@ -10,8 +10,12 @@ import { shiftPlanningPeriod } from "@/features/planning-common/period/period.ut
 
 import { PosteHeaderSelect } from "@/features/planning-poste/components/PosteHeaderSelect";
 import { PostePlanningGrid } from "@/features/planning-poste/components/PostePlanningGrid";
+import { PosteDaySheet } from "@/features/planning-poste/components/PosteDaySheet";
+
 import { usePostePlanning } from "@/features/planning-poste/hooks/usePostePlanning";
 import { usePosteCoverage } from "@/features/planning-poste/hooks/usePosteCoverage";
+import { useAgents } from "@/features/agents/hooks/useAgents";
+import { usePostePlanningActions } from "@/features/planning-poste/hooks/usePostePlanningActions";
 
 import { buildPostePlanningVm } from "@/features/planning-poste/vm/postePlanning.vm.builder";
 
@@ -30,6 +34,8 @@ export function PostePlanningClient({
   initialAnchor: string; // YYYY-MM-01
   postes: PosteListItem[];
 }) {
+  const agents = useAgents();
+
   const [posteId, setPosteId] = React.useState<number | null>(initialPosteId);
 
   const [period, setPeriod] = React.useState<PlanningPeriod>(() => {
@@ -81,11 +87,63 @@ export function PostePlanningClient({
     });
   }, [planning.data, coverageConfigVm]);
 
+  const actions = usePostePlanningActions({
+    posteId,
+    mutatePlanning: planning.mutate,
+  });
+
+  // ---------------- selection + sheet ----------------
+
+  const [selectedDate, setSelectedDate] = React.useState<string | null>(null);
+  const [sheetOpen, setSheetOpen] = React.useState(false);
+
+  const resetSelection = React.useCallback(() => {
+    setSelectedDate(null);
+    setSheetOpen(false);
+  }, []);
+
+  const closeSheet = React.useCallback(() => {
+    setSheetOpen(false);
+    setSelectedDate(null);
+  }, []);
+
+  // reset selection on poste/period change
+  React.useEffect(() => {
+    resetSelection();
+  }, [resetSelection, posteId, range.start, range.end]);
+
+  // Ensure ESC closes everything (capture)
+  React.useEffect(() => {
+    if (!sheetOpen) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      closeSheet();
+    };
+
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [sheetOpen, closeSheet]);
+
+  const selectedDayVm = React.useMemo(() => {
+    if (!planningVm || !selectedDate) return null;
+    return planningVm.days.find((d) => d.day_date === selectedDate) ?? null;
+  }, [planningVm, selectedDate]);
+
+  const handleSelectedDateChange = React.useCallback(
+    (d: string | null) => {
+      setSelectedDate(d);
+      if (d && planningVm) setSheetOpen(true);
+    },
+    [planningVm]
+  );
+
+  // ---------------- UI state ----------------
+
   const planningError = planning.error ?? null;
-  const coverageWarning = coverage.error ?? null;
-
   const isLoading = planning.isLoading;
-
   const isValidating = planning.isValidating;
 
   const headerSubtitle =
@@ -99,8 +157,7 @@ export function PostePlanningClient({
             ? "Mise à jour…"
             : subtitle;
 
-  const coverageStatusText =
-    posteId !== null && coverageWarning ? "Couverture indisponible" : null;
+  const canShowGrid = posteId !== null && !planningError && !!planningVm;
 
   return (
     <div className="space-y-4">
@@ -109,7 +166,7 @@ export function PostePlanningClient({
           <PosteHeaderSelect
             postes={postes}
             valueId={posteId}
-            onChange={(id) => setPosteId(id)}
+            onChange={setPosteId}
           />
         }
         subtitle={headerSubtitle}
@@ -136,19 +193,25 @@ export function PostePlanningClient({
             Impossible de charger la couverture. {(planningError as Error).message}
           </CardContent>
         </Card>
-      ) : planningVm ? (
+      ) : canShowGrid ? (
         range.isRange ? (
           <PostePlanningGrid
             mode="range"
             startDate={range.start}
             endDate={range.end}
-            planning={planningVm}
+            planning={planningVm!}
+            selectedDate={selectedDate}
+            onSelectedDateChange={handleSelectedDateChange}
+            closeOnEscape={!sheetOpen}
           />
         ) : (
           <PostePlanningGrid
             mode="month"
             anchorMonth={anchorMonth}
-            planning={planningVm}
+            planning={planningVm!}
+            selectedDate={selectedDate}
+            onSelectedDateChange={handleSelectedDateChange}
+            closeOnEscape={!sheetOpen}
           />
         )
       ) : (
@@ -158,6 +221,21 @@ export function PostePlanningClient({
           </CardContent>
         </Card>
       )}
+
+      {/* Sheet extraite */}
+      {posteId !== null && planning.data?.poste ? (
+        <PosteDaySheet
+          open={sheetOpen}
+          onClose={closeSheet}
+          day={selectedDayVm}
+          poste={planning.data.poste}
+          availableAgents={agents.data ?? []}
+          isSaving={actions.isSaving}
+          isDeleting={actions.isDeleting}
+          onSaveDay={actions.saveDay}
+          onDeleteDay={actions.deleteDay}
+        />
+      ) : null}
     </div>
   );
 }

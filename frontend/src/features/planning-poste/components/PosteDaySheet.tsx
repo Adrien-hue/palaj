@@ -1,22 +1,34 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { X } from "lucide-react";
 
 import type { Poste } from "@/types/postes";
+import type { Agent, PostePlanningDayPutBody } from "@/types";
 import type { PosteDayVm } from "@/features/planning-poste/vm/postePlanning.vm";
 
 import { Badge } from "@/components/ui/badge";
-
+import { Button } from "@/components/ui/button";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-import { timeLabelHHMM } from "@/utils/time.format";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 
 import { PlanningSheetShell } from "@/components/planning/PlanningSheetShell";
 import { DrawerSection, EmptyBox } from "@/components/planning/DrawerSection";
+import { timeLabelHHMM } from "@/utils/time.format";
+
+/* -------------------------------- helpers -------------------------------- */
 
 function formatDateFRLong(iso: string) {
   const d = new Date(iso + "T00:00:00");
@@ -33,310 +45,312 @@ type CoverageVariant = "secondary" | "success" | "warning";
 function dayCoverageVariant(day: PosteDayVm | null): CoverageVariant {
   if (!day) return "secondary";
   const { required, missing, isConfigured } = day.coverage;
-
-  if (!isConfigured) return "secondary";
-  if (required === 0) return "secondary";
+  if (!isConfigured || required === 0) return "secondary";
   return missing === 0 ? "success" : "warning";
 }
 
-function dayCoverageLabel(day: PosteDayVm | null) {
-  if (!day) return "Couverture";
-  const { required, missing, isConfigured } = day.coverage;
-
-  if (!isConfigured) return "Couverture non configurée";
-  if (required === 0) return "Aucun besoin configuré";
-  if (missing === 0) return "Couverture complète";
-  return "Couverture incomplète";
-}
-
 function dayCoverageRatio(day: PosteDayVm | null) {
-  if (!day) return "—";
-  const { required, assigned, isConfigured } = day.coverage;
-
-  if (!isConfigured) return "—";
+  if (!day || !day.coverage.isConfigured) return "—";
+  const { required, assigned } = day.coverage;
   return required > 0 ? `${assigned}/${required}` : "0/0";
 }
 
-function sortTranchesForCoverage<
-  T extends {
-    tranche: { heure_debut: string; nom: string };
-    agents: any[];
-    coverage?: {
-      required: number;
-      assigned: number;
-      delta: number;
-      isConfigured: boolean;
-    };
+/* -------------------------------- draft -------------------------------- */
+
+type Draft = Record<number, number[]>; // trancheId -> agentIds
+
+function buildDraftFromDay(day: PosteDayVm): Draft {
+  const d: Draft = {};
+  for (const t of day.tranches ?? []) {
+    d[t.tranche.id] = t.agents.map((a) => a.id);
   }
->(tranches: T[]) {
-  return [...tranches].sort((a, b) => {
-    // 1) Priorité: sous-couverture (missing > 0) en haut
-    const aReq = a.coverage?.required ?? 0;
-    const bReq = b.coverage?.required ?? 0;
-
-    const aAssigned = a.coverage?.assigned ?? (a.agents?.length ?? 0);
-    const bAssigned = b.coverage?.assigned ?? (b.agents?.length ?? 0);
-
-    const aMissing = Math.max(0, aReq - aAssigned);
-    const bMissing = Math.max(0, bReq - bAssigned);
-
-    const aIsConfigured = a.coverage?.isConfigured ?? false;
-    const bIsConfigured = b.coverage?.isConfigured ?? false;
-
-    // Configuré + manque => d'abord
-    const aPriority = aIsConfigured && aReq > 0 && aMissing > 0;
-    const bPriority = bIsConfigured && bReq > 0 && bMissing > 0;
-    if (aPriority !== bPriority) return aPriority ? -1 : 1;
-
-    // Puis non configuré en bas (optionnel mais souvent plus lisible)
-    if (aIsConfigured !== bIsConfigured) return aIsConfigured ? -1 : 1;
-
-    // 2) Ensuite: manque le plus important en premier
-    if (aMissing !== bMissing) return bMissing - aMissing;
-
-    // 3) Ensuite: heure de début
-    const ha = (a.tranche.heure_debut ?? "").slice(0, 8);
-    const hb = (b.tranche.heure_debut ?? "").slice(0, 8);
-    if (ha !== hb) return ha.localeCompare(hb);
-
-    // 4) Ensuite: nom
-    return (a.tranche.nom ?? "").localeCompare(b.tranche.nom ?? "", "fr");
-  });
+  return d;
 }
+
+function buildBodyFromDraft(draft: Draft): PostePlanningDayPutBody {
+  return {
+    tranches: Object.entries(draft).map(([trancheId, agentIds]) => ({
+      tranche_id: Number(trancheId),
+      agent_ids: agentIds,
+    })),
+    cleanup_empty_agent_days: true,
+  };
+}
+
+function isSameDraft(a: Draft, b: Draft) {
+  const ak = Object.keys(a);
+  const bk = Object.keys(b);
+  if (ak.length !== bk.length) return false;
+
+  for (const k of ak) {
+    const av = [...(a[+k] ?? [])].sort();
+    const bv = [...(b[+k] ?? [])].sort();
+    if (av.length !== bv.length) return false;
+    for (let i = 0; i < av.length; i++) {
+      if (av[i] !== bv[i]) return false;
+    }
+  }
+  return true;
+}
+
+/* -------------------------------- component -------------------------------- */
 
 export function PosteDaySheet({
   open,
-  onOpenChange,
+  onClose,
   day,
   poste,
+  availableAgents,
+  onSaveDay,
+  onDeleteDay,
+  isSaving = false,
+  isDeleting = false,
 }: {
   open: boolean;
-  onOpenChange: (open: boolean) => void;
+  onClose: () => void;
   day: PosteDayVm | null;
   poste: Poste;
+
+  availableAgents: Agent[];
+  onSaveDay: (args: {
+    dayDate: string;
+    day_type: string;
+    description: string | null;
+    body: PostePlanningDayPutBody;
+  }) => Promise<unknown>;
+  onDeleteDay: (dayDate: string) => Promise<unknown>;
+
+  isSaving?: boolean;
+  isDeleting?: boolean;
 }) {
-  const ratio = dayCoverageRatio(day);
-  const label = dayCoverageLabel(day);
+  const [isEditing, setIsEditing] = useState(false);
+  const [draft, setDraft] = useState<Draft>({});
+  const [initialDraft, setInitialDraft] = useState<Draft>({});
 
-  const coverageText = !day
-    ? "Couverture"
-    : !day.coverage.isConfigured
-      ? "Couverture non configurée"
-      : day.coverage.required === 0
-        ? "Aucun besoin configuré"
-        : `${label} • ${ratio} • manque ${day.coverage.missing}`;
+  useEffect(() => {
+    if (!open || !day) return;
 
-  const sortedTranches = useMemo(
-    () => (day?.tranches?.length ? sortTranchesForCoverage(day.tranches) : []),
-    [day?.tranches]
-  );
+    const d = buildDraftFromDay(day);
+    setDraft(d);
+    setInitialDraft(d);
+    setIsEditing(false);
+  }, [open, day?.day_date]);
+
+  const isDirty = day ? !isSameDraft(draft, initialDraft) : false;
+
+  const agentById = useMemo(() => {
+    const m = new Map<number, Agent>();
+    availableAgents.forEach((a) => m.set(a.id, a));
+    return m;
+  }, [availableAgents]);
+
+  const removeAgent = (trancheId: number, agentId: number) => {
+    setDraft((d) => ({
+      ...d,
+      [trancheId]: (d[trancheId] ?? []).filter((x) => x !== agentId),
+    }));
+  };
+
+  const addAgent = (trancheId: number, agentId: number) => {
+    setDraft((d) => ({
+      ...d,
+      [trancheId]: Array.from(new Set([...(d[trancheId] ?? []), agentId])),
+    }));
+  };
+
+  if (!open) return null;
 
   return (
     <PlanningSheetShell
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={(o) => {
+        if (!o) onClose();
+      }}
       headerVariant="sticky"
       contentClassName="w-full p-0 sm:max-w-lg"
-      rootClassName="bg-background"
       bodyClassName="p-4"
       title={
-        <span className="flex min-w-0 items-center gap-2">
+        <span className="flex items-center gap-2">
           <span className="truncate">
             {day ? formatDateFRLong(day.day_date) : "Jour"}
           </span>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Badge
-                variant={dayCoverageVariant(day)}
-                className="shrink-0 tabular-nums"
-                tabIndex={0}
-                aria-label={coverageText}
-                title={label}
-              >
-                {ratio}
-              </Badge>
-            </TooltipTrigger>
-
-            <TooltipContent className="max-w-[280px]">
-              {!day ? (
-                <div className="text-xs text-muted-foreground">
-                  Aucun jour sélectionné.
-                </div>
-              ) : !day.coverage.isConfigured ? (
-                <div className="space-y-1 text-xs">
-                  <div className="font-medium">Couverture</div>
-                  <div className="text-muted-foreground">
-                    Aucune règle de couverture n’est configurée pour ce jour.
-                  </div>
-                </div>
-              ) : day.coverage.required === 0 ? (
-                <div className="space-y-1 text-xs">
-                  <div className="font-medium">Couverture</div>
-                  <div className="text-muted-foreground">
-                    Aucun besoin configuré.
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-1 text-xs">
-                  <div className="font-medium">Couverture</div>
-                  <div className="flex items-center justify-between gap-2 text-muted-foreground">
-                    <span>Besoin</span>
-                    <span className="tabular-nums">{day.coverage.required}</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-2 text-muted-foreground">
-                    <span>Affectés</span>
-                    <span className="tabular-nums">{day.coverage.assigned}</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-2 text-muted-foreground">
-                    <span>Manque</span>
-                    <span className="tabular-nums">{day.coverage.missing}</span>
-                  </div>
-                </div>
-              )}
-            </TooltipContent>
-          </Tooltip>
+          <Badge variant={dayCoverageVariant(day)}>
+            {dayCoverageRatio(day)}
+          </Badge>
         </span>
       }
-      description={<span className="truncate">{poste.nom} • Détail des tranches</span>}
+      description={<span>{poste.nom}</span>}
     >
-      <div className="space-y-4">
-        {!day ? (
-          <EmptyBox>Aucun jour sélectionné.</EmptyBox>
-        ) : (
-          <>
-            {day.description ? (
-              <div className="rounded-xl border border-border bg-card p-3 text-sm text-muted-foreground">
-                {day.description}
-              </div>
-            ) : null}
+      {!day ? (
+        <EmptyBox>Aucun jour sélectionné.</EmptyBox>
+      ) : (
+        <div className="space-y-4">
+          {/* Actions */}
+          <div className="flex justify-between gap-2">
+            {isEditing ? (
+              <div className="flex gap-2">
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setDraft(initialDraft);
+                    setIsEditing(false);
+                  }}
+                  disabled={isSaving || isDeleting}
+                >
+                  Annuler
+                </Button>
 
-            {day.is_off_shift ? (
-              <div className="rounded-xl border border-border bg-muted/40 p-3 text-sm text-foreground">
-                Poste indiqué comme “OFF” ce jour.
+                <Button
+                  disabled={!isDirty || isSaving || isDeleting}
+                  onClick={async () => {
+                    await onSaveDay({
+                      dayDate: day.day_date,
+                      day_type: day.day_type,
+                      description: day.description ?? null,
+                      body: buildBodyFromDraft(draft),
+                    });
+                    setInitialDraft(draft);
+                    setIsEditing(false);
+                  }}
+                >
+                  {isSaving ? "Enregistrement…" : "Enregistrer"}
+                </Button>
               </div>
-            ) : null}
+            ) : (
+              <Button
+                onClick={() => setIsEditing(true)}
+                disabled={isSaving || isDeleting}
+              >
+                Modifier
+              </Button>
+            )}
 
-            <DrawerSection
-              variant="surface"
-              title="Tranches"
-              subtitle="Détail des affectations par tranche."
-              className="border-border bg-card"
+            <Button
+              variant="destructive"
+              disabled={isDeleting || isSaving}
+              onClick={async () => {
+                await onDeleteDay(day.day_date);
+                onClose();
+              }}
             >
-              {sortedTranches.length ? (
-                <div className="space-y-2">
-                  {sortedTranches.map((t) => {
-                    const assigned = t.agents.length;
+              {isDeleting ? "Suppression…" : "Supprimer"}
+            </Button>
+          </div>
 
-                    const required = t.coverage?.required ?? 0;
-                    const isConfigured = t.coverage?.isConfigured ?? false;
+          <DrawerSection title="Tranches">
+            {day.tranches.length === 0 ? (
+              <EmptyBox>Aucune tranche</EmptyBox>
+            ) : (
+              <div className="space-y-2">
+                {day.tranches.map((t) => {
+                  const trancheId = t.tranche.id;
+                  const agentIds = isEditing
+                    ? draft[trancheId] ?? []
+                    : t.agents.map((a) => a.id);
 
-                    const missing =
-                      isConfigured && required > 0
-                        ? Math.max(0, required - assigned)
-                        : 0;
+                  const selectableAgents = availableAgents.filter(
+                    (a) => !agentIds.includes(a.id)
+                  );
 
-                    const trancheBadgeVariant: CoverageVariant =
-                      !isConfigured
-                        ? "secondary"
-                        : required === 0
-                          ? "secondary"
-                          : missing === 0
-                            ? "success"
-                            : "warning";
+                  const selectId = `add-agent-${day.day_date}-${trancheId}`;
 
-                    const trancheBadgeText = !isConfigured
-                      ? "Non configuré"
-                      : required === 0
-                        ? "0 requis"
-                        : `${assigned}/${required}`;
-
-                    const trancheTooltip = !isConfigured
-                      ? "Couverture non configurée pour cette tranche."
-                      : required === 0
-                        ? "Aucun besoin configuré pour cette tranche."
-                        : missing === 0
-                          ? `Couverture OK (${assigned}/${required}).`
-                          : `Sous-couverture : ${assigned}/${required} (manque ${missing}).`;
-
-                    return (
-                      <div
-                        key={t.tranche.id}
-                        className="rounded-xl border border-border bg-background p-3"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="truncate text-sm font-semibold text-foreground">
-                              {t.tranche.nom}
-                            </div>
-                            <div className="text-xs tabular-nums text-muted-foreground">
-                              {timeLabelHHMM(t.tranche.heure_debut)}–
-                              {timeLabelHHMM(t.tranche.heure_fin)}
-                            </div>
+                  return (
+                    <div key={trancheId} className="rounded-xl border p-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold">
+                            {t.tranche.nom}
                           </div>
-
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Badge
-                                variant={trancheBadgeVariant}
-                                className="shrink-0 tabular-nums"
-                                tabIndex={0}
-                                aria-label={trancheTooltip}
-                              >
-                                {trancheBadgeText}
-                              </Badge>
-                            </TooltipTrigger>
-                            <TooltipContent>{trancheTooltip}</TooltipContent>
-                          </Tooltip>
+                          <div className="text-xs text-muted-foreground tabular-nums">
+                            {timeLabelHHMM(t.tranche.heure_debut)}–
+                            {timeLabelHHMM(t.tranche.heure_fin)}
+                          </div>
                         </div>
+                      </div>
 
-                        {assigned > 0 ? (
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            {t.agents.map((a) => {
-                              const matricule = a.code_personnel
-                                ? `Matricule: ${a.code_personnel}`
-                                : null;
-
-                              return (
-                                <Tooltip key={a.id}>
-                                  <TooltipTrigger asChild>
-                                    <Badge
-                                      variant="outline"
-                                      tabIndex={0}
-                                      className="rounded-full px-2 py-1 text-xs font-normal focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                      aria-label={
-                                        matricule
-                                          ? `${a.prenom} ${a.nom}. ${matricule}`
-                                          : `${a.prenom} ${a.nom}`
-                                      }
-                                    >
-                                      {a.prenom} {a.nom}
-                                    </Badge>
-                                  </TooltipTrigger>
-
-                                  {matricule ? (
-                                    <TooltipContent>{matricule}</TooltipContent>
-                                  ) : null}
-                                </Tooltip>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          <div className="mt-3 text-sm text-muted-foreground">
+                      {/* Agents */}
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {agentIds.length === 0 ? (
+                          <span className="text-sm text-muted-foreground">
                             Aucun agent affecté.
-                          </div>
+                          </span>
+                        ) : (
+                          agentIds.map((id) => {
+                            const a = agentById.get(id);
+                            const label = a ? `${a.prenom} ${a.nom}` : `#${id}`;
+
+                            return (
+                              <Badge
+                                key={id}
+                                variant="outline"
+                                className="rounded-full px-2 py-1 text-xs font-normal"
+                              >
+                                <span className="mr-1">{label}</span>
+
+                                {isEditing ? (
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-5 w-5 rounded-full"
+                                    onClick={() => removeAgent(trancheId, id)}
+                                    aria-label={`Retirer ${label}`}
+                                  >
+                                    <X className="h-3.5 w-3.5" />
+                                  </Button>
+                                ) : null}
+                              </Badge>
+                            );
+                          })
                         )}
                       </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <EmptyBox>Aucune tranche pour ce jour.</EmptyBox>
-              )}
-            </DrawerSection>
-          </>
-        )}
-      </div>
+
+                      {/* Add agent (shadcn Select) */}
+                      {isEditing ? (
+                        <div className="mt-3 space-y-2">
+                          <Label htmlFor={selectId} className="text-xs">
+                            Ajouter un agent
+                          </Label>
+
+                          <Select
+                            onValueChange={(v) => {
+                              const id = Number(v);
+                              if (!Number.isFinite(id)) return;
+                              addAgent(trancheId, id);
+                            }}
+                            disabled={
+                              isSaving || isDeleting || selectableAgents.length === 0
+                            }
+                          >
+                            <SelectTrigger id={selectId} className="w-full">
+                              <SelectValue
+                                placeholder={
+                                  selectableAgents.length
+                                    ? "Sélectionner un agent…"
+                                    : "Aucun agent disponible"
+                                }
+                              />
+                            </SelectTrigger>
+
+                            <SelectContent>
+                              {selectableAgents.map((a) => (
+                                <SelectItem key={a.id} value={String(a.id)}>
+                                  {a.prenom} {a.nom}
+                                  {a.code_personnel ? ` (${a.code_personnel})` : ""}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </DrawerSection>
+        </div>
+      )}
     </PlanningSheetShell>
   );
 }

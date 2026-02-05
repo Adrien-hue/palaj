@@ -2,11 +2,13 @@
 
 import { useMemo } from "react";
 
-import type { PostePlanningVm, PosteDayVm } from "@/features/planning-poste/vm/postePlanning.vm";
-import { PlanningGridBase } from "@/components/planning/PlanningGridBase";
+import type {
+  PostePlanningVm,
+  PosteDayVm,
+} from "@/features/planning-poste/vm/postePlanning.vm";
 
+import { PlanningGridBase } from "@/components/planning/PlanningGridBase";
 import { PosteDayCell } from "./PosteDayCell";
-import { PosteDaySheet } from "./PosteDaySheet";
 
 type PostePlanningGridProps =
   | {
@@ -14,9 +16,13 @@ type PostePlanningGridProps =
       anchorMonth: string; // ISO YYYY-MM-DD (any day in month)
       planning: PostePlanningVm;
 
-      // optional passthroughs to base
+      selectedDate: string | null;
+      onSelectedDateChange: (date: string | null) => void;
+
       height?: number | string;
       weekStartsOn?: 0 | 1;
+
+      closeOnEscape?: boolean;
     }
   | {
       mode: "range";
@@ -24,10 +30,14 @@ type PostePlanningGridProps =
       endDate: string; // ISO YYYY-MM-DD
       planning: PostePlanningVm;
 
-      // optional passthroughs to base
+      selectedDate: string | null;
+      onSelectedDateChange: (date: string | null) => void;
+
       height?: number | string;
       weekStartsOn?: 0 | 1;
       alignToWeeks?: boolean;
+
+      closeOnEscape?: boolean;
     };
 
 export function PostePlanningGrid(props: PostePlanningGridProps) {
@@ -52,26 +62,23 @@ export function PostePlanningGrid(props: PostePlanningGridProps) {
       maxHeight={props.height}
       getDay={(iso) => byDate.get(iso)}
       getDayDate={(day) => day.day_date}
+      selectedDate={props.selectedDate}
+      onSelectedDateChange={props.onSelectedDateChange}
       renderCell={({ day, isOutsideMonth, isSelected, isInSelectedWeek, onSelect }) => (
         <PosteDayCell
           day={day}
           isOutsideMonth={isOutsideMonth}
           isSelected={isSelected}
           isInSelectedWeek={isInSelectedWeek}
-          onSelect={onSelect}
-        />
-      )}
-      renderDetails={({ open, selectedDay, close }) => (
-        <PosteDaySheet
-          open={open}
-          onOpenChange={(o) => {
-            if (!o) close();
+          onSelect={() => {
+            onSelect();
+
+            props.onSelectedDateChange(day ? day.day_date : null);
           }}
-          day={selectedDay}
-          poste={planning.poste}
         />
       )}
-      closeOnEscape
+      renderDetails={() => null}
+      closeOnEscape={props.closeOnEscape}
       gridLabel="Planning poste"
     />
   );
