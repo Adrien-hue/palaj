@@ -9,6 +9,7 @@ from core.application.services import (
     PlanningDayAssembler,
     PostePlanningFactory,
     PostePlanningDayAssembler,
+    PostePlanningDayService,
     TeamPlanningFactory,
     PosteCoverageRequirementService,
     PosteService,
@@ -101,7 +102,17 @@ planning_day_assembler = PlanningDayAssembler(
     tranche_repo=tranche_repo,
 )
 
-poste_planning_day_assembler = PostePlanningDayAssembler()
+poste_planning_day_assembler = PostePlanningDayAssembler(
+    tranche_repo=tranche_repo,
+    agent_repo=agent_repo,
+    agent_day_repo=agent_day_repo
+)
+
+poste_planning_day_service = PostePlanningDayService(
+    tranche_repo=tranche_repo,
+    agent_day_repo=agent_day_repo,
+    agent_day_assignment_repo=agent_day_assignment_repo
+)
 
 agent_planning_factory = AgentPlanningFactory(
     agent_service=agent_service,
@@ -110,10 +121,7 @@ agent_planning_factory = AgentPlanningFactory(
 
 poste_planning_factory = PostePlanningFactory(
     poste_repo=poste_repo,
-    tranche_repo=tranche_repo,
-    agent_repo=agent_repo,
-    agent_day_repo=agent_day_repo,
-    day_assembler=poste_planning_day_assembler
+    planning_day_assembler=poste_planning_day_assembler
 )
 
 team_planning_factory = TeamPlanningFactory(
@@ -135,6 +143,8 @@ __all__ = [
     "agent_planning_validator_service",
     "agent_planning_factory",
     "poste_planning_factory",
+    "poste_planning_day_assembler",
+    "poste_planning_day_service",
     "team_planning_factory",
     "agent_team_service",
     "team_service",

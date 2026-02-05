@@ -16,6 +16,8 @@ from backend.app.bootstrap.container import (
     planning_day_assembler,
     poste_coverage_requirement_service,
     poste_planning_factory,
+    poste_planning_day_assembler,
+    poste_planning_day_service,
     poste_service,
     qualification_service,
     regime_service,
@@ -31,6 +33,8 @@ from core.application.services import (
     AgentPlanningValidatorService,
     PlanningDayAssembler,
     PostePlanningFactory,
+    PostePlanningDayAssembler,
+    PostePlanningDayService,
     PosteCoverageRequirementService,
     PosteService,
     QualificationService,
@@ -69,6 +73,12 @@ def get_planning_day_assembler() -> PlanningDayAssembler:
 
 def get_poste_planning_factory() -> PostePlanningFactory:
     return poste_planning_factory
+
+def get_poste_planning_day_assembler() -> PostePlanningDayAssembler:
+    return poste_planning_day_assembler
+
+def get_poste_planning_day_service() -> PostePlanningDayService:
+    return poste_planning_day_service
 
 def get_poste_service() -> PosteService:
     return poste_service

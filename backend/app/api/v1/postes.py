@@ -1,14 +1,14 @@
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from backend.app.api.deps import get_poste_coverage_requirement_service, get_poste_planning_factory, get_poste_service, get_tranche_service
+from backend.app.api.deps import get_poste_coverage_requirement_service, get_poste_planning_day_assembler, get_poste_planning_day_service, get_poste_planning_factory, get_poste_service, get_tranche_service
 from backend.app.dto.common.pagination import build_page, Page, PaginationParams, pagination_params
 from backend.app.dto.poste_coverage_day import PosteCoverageDayDTO
 from backend.app.dto.poste_coverage_requirement import (
     PosteCoverageDTO,
     PosteCoveragePutDTO
 )
-from backend.app.dto.poste_planning import PostePlanningResponseDTO
+from backend.app.dto.poste_planning import PostePlanningDayEditRequest, PostePlanningResponseDTO, PostePlanningDayDTO
 from backend.app.dto.postes import (
     PosteDTO, 
     PosteDetailDTO,
@@ -17,7 +17,7 @@ from backend.app.dto.postes import (
 )
 from backend.app.mappers.poste_coverage_day import to_poste_coverage_day_dto
 from backend.app.mappers.poste_coverage_requirement import poste_coverage_dto_to_entity, to_poste_coverage_dto
-from backend.app.mappers.poste_planning import to_poste_planning_response
+from backend.app.mappers.poste_planning import to_poste_planning_response, to_poste_planning_day_dto
 from backend.app.mappers.postes import to_poste_dto, to_poste_detail_dto
 from backend.app.dto.tranches import (
     TrancheDTO
@@ -25,6 +25,8 @@ from backend.app.dto.tranches import (
 from backend.app.mappers.tranches import to_tranche_dto
 from core.application.services import PosteService, TrancheService
 from core.application.services.exceptions import NotFoundError
+from core.application.services.planning.poste_planning_day_assembler import PostePlanningDayAssembler
+from core.application.services.planning.poste_planning_day_service import PostePlanningDayService, PostePlanningTrancheAgents
 from core.application.services.planning.poste_planning_factory import PostePlanningFactory
 from core.application.services.poste_coverage_requirement_service import PosteCoverageRequirementService
 
@@ -108,6 +110,24 @@ def put_poste_coverage(
     tranches = tranche_service.list_by_poste_id(poste_id)
     return to_poste_coverage_dto(poste_id, tranches, saved)
 
+@router.patch("/{poste_id}", response_model=PosteDTO)
+def update_poste(
+    poste_id: int,
+    payload: PosteUpdateDTO,
+    poste_service: PosteService = Depends(get_poste_service),
+) -> PosteDTO:
+    changes = payload.model_dump(exclude_unset=True)
+    if not changes:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    poste = poste_service.update(poste_id, **changes)
+    if poste is None:
+        raise HTTPException(status_code=404, detail="Poste not found")
+
+    return to_poste_dto(poste)
+
+# Planning-related endpoints
+
 @router.get("/{poste_id}/planning", response_model=PostePlanningResponseDTO)
 def get_poste_planning(
     poste_id: int,
@@ -141,18 +161,46 @@ def get_poste_planning_coverage(
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail={"code": e.code, "details": e.details})
 
-@router.patch("/{poste_id}", response_model=PosteDTO)
-def update_poste(
+@router.put("/{poste_id}/planning/days/{day_date}", response_model=PostePlanningDayDTO)
+def rewrite_poste_day(
     poste_id: int,
-    payload: PosteUpdateDTO,
-    poste_service: PosteService = Depends(get_poste_service),
-) -> PosteDTO:
-    changes = payload.model_dump(exclude_unset=True)
-    if not changes:
-        raise HTTPException(status_code=400, detail="No fields to update")
+    day_date: date,
+    payload: PostePlanningDayEditRequest,
+    svc: PostePlanningDayService = Depends(get_poste_planning_day_service),
+    assembler: PostePlanningDayAssembler = Depends(get_poste_planning_day_assembler),
+):
+    try:
+        svc.rewrite_poste_day(
+            poste_id=poste_id,
+            day_date=day_date,
+            tranches_payload=[
+                PostePlanningTrancheAgents(tranche_id=t.tranche_id, agent_ids=t.agent_ids)
+                for t in payload.tranches
+            ],
+            cleanup_empty_agent_days=payload.cleanup_empty_agent_days,
+        )
 
-    poste = poste_service.update(poste_id, **changes)
-    if poste is None:
-        raise HTTPException(status_code=404, detail="Poste not found")
+        poste_planning_day = assembler.build_one_for_poste(poste_id=poste_id, day_date=day_date)
 
-    return to_poste_dto(poste)
+        return to_poste_planning_day_dto(poste_planning_day)
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/{poste_id}/planning/days/{day_date}")
+def delete_poste_day(
+    poste_id: int,
+    day_date: date,
+    cleanup_empty_agent_days: bool = True,
+    svc: PostePlanningDayService = Depends(get_poste_planning_day_service),
+):
+    try:
+        svc.delete_poste_day(
+            poste_id=poste_id,
+            day_date=day_date,
+            cleanup_empty_agent_days=cleanup_empty_agent_days,
+        )
+        return {"status": "ok"}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
