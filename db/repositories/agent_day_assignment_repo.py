@@ -1,9 +1,12 @@
+from datetime import date
 from sqlite3 import IntegrityError
-from sqlalchemy import exists
+from typing import List
+from sqlalchemy import exists, select
 
 from db import db
 
 from db.models import AgentDayAssignment as AgentDayAssignmentModel
+from db.models import AgentDay as AgentDayModel
 from core.domain.entities import AgentDayAssignment as AgentDayAssignmentEntity
 from db.sql_repository import SQLRepository
 from core.adapters.entity_mapper import EntityMapper
@@ -35,6 +38,29 @@ class AgentDayAssignmentRepository(SQLRepository[AgentDayAssignmentModel, AgentD
             deleted = (
                 session.query(self.model_class)
                 .filter(self.model_class.agent_day_id == agent_day_id)
+                .delete(synchronize_session=False)
+            )
+            return bool(deleted)
+        
+    def delete_by_date_and_tranche_ids(self, day_date: date, tranche_ids: List[int]) -> bool:
+        """
+        Supprime tous les assignments sur une date donnée pour un ensemble de tranche_ids.
+        Implémentation compatible SQLAlchemy: pas de join() sur un bulk delete.
+        """
+        if not tranche_ids:
+            return False
+
+        with self.db.session_scope() as session:
+            agent_day_ids_sq = (
+                select(AgentDayModel.id)
+                .where(AgentDayModel.day_date == day_date)
+                .subquery()
+            )
+
+            deleted = (
+                session.query(AgentDayAssignmentModel)
+                .filter(AgentDayAssignmentModel.agent_day_id.in_(select(agent_day_ids_sq.c.id)))
+                .filter(AgentDayAssignmentModel.tranche_id.in_(tranche_ids))
                 .delete(synchronize_session=False)
             )
             return bool(deleted)

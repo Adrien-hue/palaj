@@ -48,6 +48,22 @@ class AgentDayRepository(SQLRepository[AgentDayModel, AgentDayEntity]):
                 return False
             session.delete(model)
             return True
+        
+    def delete_empty_days_by_date(self, day_date: date) -> bool:
+        """
+        Supprime les AgentDay de la date donnée qui n'ont aucun assignment.
+        Utile après un rewrite poste/jour.
+        """
+        with self.db.session_scope() as session:
+            deleted = (
+                session.query(AgentDayModel)
+                .filter(AgentDayModel.day_date == day_date)
+                .filter(
+                    ~exists().where(AgentDayAssignmentModel.agent_day_id == AgentDayModel.id)
+                )
+                .delete(synchronize_session=False)
+            )
+            return bool(deleted)
 
     def exists_for_agent(self, agent_id: int) -> bool:
         """
@@ -140,6 +156,15 @@ class AgentDayRepository(SQLRepository[AgentDayModel, AgentDayEntity]):
 
             return [self._model_to_entity(m) for m in models]
 
+    def list_by_poste_and_day(self, poste_id: int, day_date: date) -> List[AgentDayEntity]:
+        """
+        Wrapper convenience: read AgentDays for a single day for a poste.
+        """
+        return self.list_by_poste_and_range(
+            poste_id=poste_id,
+            start_date=day_date,
+            end_date=day_date,
+        )
         
     def list_by_poste_and_range(
         self,
@@ -158,18 +183,19 @@ class AgentDayRepository(SQLRepository[AgentDayModel, AgentDayEntity]):
             agent_day_ids_sq = (
                 select(AgentDayAssignmentModel.agent_day_id)
                 .join(TrancheModel, TrancheModel.id == AgentDayAssignmentModel.tranche_id)
-                .where(TrancheModel.poste_id == poste_id)
+                .join(AgentDayModel, AgentDayModel.id == AgentDayAssignmentModel.agent_day_id)
+                .where(
+                    TrancheModel.poste_id == poste_id,
+                    AgentDayModel.day_date >= start_date,
+                    AgentDayModel.day_date <= end_date,
+                )
                 .distinct()
-                .scalar_subquery()
+                .subquery()
             )
 
             models = (
                 session.query(AgentDayModel)
-                .filter(
-                    AgentDayModel.id.in_(agent_day_ids_sq),
-                    AgentDayModel.day_date >= start_date,
-                    AgentDayModel.day_date <= end_date,
-                )
+                .filter(AgentDayModel.id.in_(select(agent_day_ids_sq.c.agent_day_id)))
                 .options(selectinload(AgentDayModel.assignments))
                 .order_by(AgentDayModel.day_date.asc(), AgentDayModel.agent_id.asc())
                 .all()
@@ -177,7 +203,7 @@ class AgentDayRepository(SQLRepository[AgentDayModel, AgentDayEntity]):
 
             return [self._model_to_entity(m) for m in models]
         
-    def update(self, entity: AgentDayEntity) -> AgentDayEntity:
+    def update(self, entity: AgentDayEntity) -> Optional[AgentDayEntity]:
         model = EntityMapper.entity_to_model(entity, self.model_class)
         with self.db.session_scope() as session:
             merged = session.merge(model)

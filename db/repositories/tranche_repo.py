@@ -77,3 +77,17 @@ class TrancheRepository(SQLRepository[TrancheModel, TrancheEntity]):
                 e for m in models
                 if (e := EntityMapper.model_to_entity(m, TrancheEntity)) is not None
             ]
+        
+    def list_ids_by_poste(self, poste_id: int) -> List[int]:
+        """
+        Retourne la liste des IDs de tranches associées à un poste.
+        """
+        with self.db.session_scope() as session:
+            rows = (
+                session.query(TrancheModel.id)
+                .filter(TrancheModel.poste_id == poste_id)
+                .order_by(TrancheModel.heure_debut.asc())
+                .all()
+            )
+            # rows = [(1,), (2,), ...]
+            return [r[0] for r in rows]
