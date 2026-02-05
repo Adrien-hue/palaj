@@ -33,6 +33,14 @@ export async function listAgents(params: ListParams = {page: 1, page_size: 20}) 
   return apiFetch<ListResponse<Agent>>(`/agents${qs ? `?${qs}` : ""}`);
 }
 
+export async function listAllAgents(
+  params: ListParams = { page: 1, page_size: 200 }
+): Promise<Agent[]> {
+  const res = await listAgents(params);
+  return res.items;
+}
+
+
 export async function removeAgent(id: number) {
   return apiFetch<void>(`/agents/${id}`, { method: "DELETE" });
 }
