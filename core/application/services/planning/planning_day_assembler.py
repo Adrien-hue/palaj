@@ -152,3 +152,8 @@ class PlanningDayAssembler:
             by_agent[aid] = sorted(by_agent[aid], key=lambda day: day.day_date)
             by_agent[aid] = _densify_days(by_agent[aid], start_date, end_date)
         return by_agent
+    
+    def build_for_agents_day(self, agent_ids: List[int], day_date: date) -> Dict[int, PlanningDay]:
+        by_agent = self.build_for_agents(agent_ids, day_date, day_date)
+
+        return {aid: days[0] for aid, days in by_agent.items()}
