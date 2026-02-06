@@ -14,7 +14,6 @@ import { PosteDaySheet } from "@/features/planning-poste/components/PosteDayShee
 
 import { usePostePlanning } from "@/features/planning-poste/hooks/usePostePlanning";
 import { usePosteCoverage } from "@/features/planning-poste/hooks/usePosteCoverage";
-import { useAgents } from "@/features/agents/hooks/useAgents";
 import { usePostePlanningActions } from "@/features/planning-poste/hooks/usePostePlanningActions";
 
 import { buildPostePlanningVm } from "@/features/planning-poste/vm/postePlanning.vm.builder";
@@ -22,6 +21,7 @@ import { buildPostePlanningVm } from "@/features/planning-poste/vm/postePlanning
 import { Card, CardContent } from "@/components/ui/card";
 import { formatDateFR, toISODate } from "@/utils/date.format";
 import { buildPosteCoverageConfigVm } from "../vm/posteCoverageConfig.vm.builder";
+import { useQualifiedAgents } from "../hooks/useQualifiedAgents";
 
 type PosteListItem = { id: number; nom: string };
 
@@ -34,10 +34,10 @@ export function PostePlanningClient({
   initialAnchor: string; // YYYY-MM-01
   postes: PosteListItem[];
 }) {
-  const agents = useAgents();
-
   const [posteId, setPosteId] = React.useState<number | null>(initialPosteId);
-
+  
+  const qualifiedAgents = useQualifiedAgents(posteId);
+  
   const [period, setPeriod] = React.useState<PlanningPeriod>(() => {
     const base = startOfMonth(new Date(initialAnchor + "T00:00:00"));
     return { kind: "month", month: base };
@@ -229,7 +229,8 @@ export function PostePlanningClient({
           onClose={closeSheet}
           day={selectedDayVm}
           poste={planning.data.poste}
-          availableAgents={agents.data ?? []}
+          availableAgents={qualifiedAgents.agents ?? []}
+          isAgentsLoading={qualifiedAgents.isLoading}
           isSaving={actions.isSaving}
           isDeleting={actions.isDeleting}
           onSaveDay={actions.saveDay}

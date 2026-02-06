@@ -103,6 +103,7 @@ export function PosteDaySheet({
   day,
   poste,
   availableAgents,
+  isAgentsLoading = false,
   onSaveDay,
   onDeleteDay,
   isSaving = false,
@@ -114,6 +115,7 @@ export function PosteDaySheet({
   poste: Poste;
 
   availableAgents: Agent[];
+  isAgentsLoading?: boolean;
   onSaveDay: (args: {
     dayDate: string;
     day_type: string;
@@ -290,9 +292,9 @@ export function PosteDaySheet({
                         ? `Couverture OK (${assigned}/${required}).`
                         : `Sous-couverture : ${assigned}/${required} (manque ${missing}).`;
 
-                  const selectableAgents = availableAgents.filter(
-                    (a) => !agentIds.includes(a.id),
-                  );
+                  const selectableAgents = isAgentsLoading
+                    ? []
+                    : availableAgents.filter((a) => !agentIds.includes(a.id));
 
                   const selectId = `add-agent-${day.day_date}-${trancheId}`;
 
@@ -399,6 +401,7 @@ export function PosteDaySheet({
                             disabled={
                               isSaving ||
                               isDeleting ||
+                              isAgentsLoading ||
                               selectableAgents.length === 0
                             }
                             label="Ajouter un agent"
@@ -409,6 +412,12 @@ export function PosteDaySheet({
                             }
                             emptyLabel="Aucun agent correspondant"
                           />
+                        </div>
+                      ) : null}
+
+                      {isEditing && isAgentsLoading ? (
+                        <div className="mt-2 text-xs text-muted-foreground">
+                          Chargement des agents qualifiés…
                         </div>
                       ) : null}
                     </div>
