@@ -4,9 +4,10 @@ import { cn } from "@/lib/utils";
 export type DayType =
   | "working"
   | "rest"
-  | "absence"
+  | "absent"
   | "unknown"
   | "zcot"
+  | "leave"
   | (string & {});
 
 export function dayTypeLabel(dayType: string) {
@@ -16,6 +17,8 @@ export function dayTypeLabel(dayType: string) {
     ? "ZCOT"
     : dayType === "rest"
     ? "Repos"
+    : dayType === "leave"
+    ? "Congés"
     : dayType === "absent"
     ? "ABS."
     : dayType === "unknown"
@@ -28,8 +31,9 @@ export function dayTypeLabel(dayType: string) {
 export function dayTypeDotClass(dayType: string) {
   if (dayType === "working") return "bg-emerald-500";
   if (dayType === "zcot") return "bg-teal-500";
-  if (dayType === "absent") return "bg-amber-500";
+  if (dayType === "absent") return "bg-orange-500";
   if (dayType === "rest") return "bg-muted-foreground/40";
+  if (dayType === "leave") return "bg-sky-500";
   return "bg-muted-foreground/40";
 }
 

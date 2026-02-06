@@ -17,11 +17,19 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 
+import { DayTypeBadge } from "@/components/planning/DayTypeBadge";
+import type {
+  AgentSelectStatus,
+  AgentSelectStatusById,
+} from "./agentSelect.types";
+
 type Props = {
   onChange: (v: number | null) => void;
 
   agents: Agent[];
   disabled?: boolean;
+
+  statusByAgentId?: AgentSelectStatusById;
 
   /** UI */
   label?: string | null;
@@ -34,6 +42,16 @@ type Props = {
   clearLabel?: string;
 };
 
+function isWorkingStatus(
+  s: AgentSelectStatus | undefined,
+): s is {
+  dayType: "working";
+  trancheLabel?: string;
+  trancheColor?: string | null;
+} {
+  return !!s && s.dayType === "working";
+}
+
 function norm(s: string) {
   return s
     .toLowerCase()
@@ -41,10 +59,13 @@ function norm(s: string) {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
+type PreparedAgent = Agent & { __hay: string; __sort: string };
+
 export function AgentSelect({
   onChange,
   agents,
   disabled,
+  statusByAgentId,
 
   label = "Ajouter un agent",
   className,
@@ -59,26 +80,28 @@ export function AgentSelect({
   const [q, setQ] = useState("");
   const [internalValue, setInternalValue] = useState<string>("");
 
-  const sortedAgents = useMemo(() => {
-    const base = agents.slice();
+  const prepared = useMemo<PreparedAgent[]>(() => {
+    const base = agents.map((a) => {
+      const sortKey = `${a.nom ?? ""} ${a.prenom ?? ""}`.trim().toLowerCase();
+      const hay = norm(
+        `${a.prenom ?? ""} ${a.nom ?? ""} ${a.code_personnel ?? ""}`.trim(),
+      );
+      return Object.assign(a, { __hay: hay, __sort: sortKey });
+    });
+
     base.sort((a, b) => {
       if (a.actif !== b.actif) return a.actif ? -1 : 1;
-      const an = `${a.nom} ${a.prenom}`.toLowerCase();
-      const bn = `${b.nom} ${b.prenom}`.toLowerCase();
-      return an.localeCompare(bn, "fr");
+      return a.__sort.localeCompare(b.__sort, "fr");
     });
+
     return base;
   }, [agents]);
 
   const filtered = useMemo(() => {
     const query = norm(q.trim());
-    if (!query) return sortedAgents;
-
-    return sortedAgents.filter((a) => {
-      const hay = norm(`${a.prenom} ${a.nom} ${a.code_personnel ?? ""}`.trim());
-      return hay.includes(query);
-    });
-  }, [sortedAgents, q]);
+    if (!query) return prepared;
+    return prepared.filter((a) => a.__hay.includes(query));
+  }, [prepared, q]);
 
   const isEmpty = filtered.length === 0;
 
@@ -102,7 +125,7 @@ export function AgentSelect({
             return;
           }
           onChange(Number(v));
-          setInternalValue(""); // reset visuel
+          setInternalValue("");
         }}
         disabled={disabled}
       >
@@ -129,22 +152,49 @@ export function AgentSelect({
               <SelectGroup>
                 <SelectLabel className="text-xs">Agents</SelectLabel>
 
-                {filtered.map((a) => (
-                  <SelectItem key={a.id} value={String(a.id)}>
-                    <div className="flex w-full items-center justify-between gap-2">
-                      <span className="min-w-0 flex-1 truncate">
-                        {a.prenom} {a.nom}
-                        {a.code_personnel ? ` (${a.code_personnel})` : ""}
-                      </span>
+                {filtered.map((a) => {
+                  const status = statusByAgentId?.get(a.id);
 
-                      {!a.actif ? (
-                        <span className="shrink-0 rounded-full border px-2 py-0.5 text-[10px] text-muted-foreground">
-                          Inactif
+                  const statusChip =
+                    isWorkingStatus(status) && status.trancheLabel ? (
+                      <span className="inline-flex max-w-[160px] items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
+                        <span
+                          className="h-2 w-2 shrink-0 rounded-full border"
+                          style={{
+                            backgroundColor:
+                              status.trancheColor ?? "transparent",
+                          }}
+                          aria-hidden="true"
+                        />
+                        <span className="min-w-0 truncate">
+                          {status.trancheLabel}
                         </span>
-                      ) : null}
-                    </div>
-                  </SelectItem>
-                ))}
+                      </span>
+                    ) : status ? (
+                      <DayTypeBadge dayType={status.dayType} />
+                    ) : null;
+
+                  return (
+                    <SelectItem key={a.id} value={String(a.id)}>
+                      <div className="flex w-full items-center justify-between gap-2">
+                        <span className="min-w-0 flex-1 truncate">
+                          {a.prenom} {a.nom}
+                          {a.code_personnel ? ` (${a.code_personnel})` : ""}
+                        </span>
+
+                        <div className="flex shrink-0 items-center gap-2">
+                          {statusChip}
+
+                          {!a.actif ? (
+                            <span className="shrink-0 rounded-full border px-2 py-0.5 text-[10px] text-muted-foreground">
+                              Inactif
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                    </SelectItem>
+                  );
+                })}
               </SelectGroup>
             )}
 
