@@ -4,11 +4,11 @@ from backend.app.api.deps import get_agent_day_service, get_agent_service, get_a
 from backend.app.dto.agents import AgentCreateDTO, AgentDTO, AgentDetailDTO, AgentUpdateDTO
 from backend.app.dto.common.pagination import build_page, Page, PaginationParams, pagination_params
 from backend.app.dto.planning import AgentPlanningResponseDTO
-from backend.app.dto.planning_day import AgentPlanningDayBulkPutResponseDTO, PlanningDayDTO, PlanningDayPutDTO, AgentPlanningDayBulkPutDTO, BulkFailedItem
+from backend.app.dto.planning_day import AgentPlanningDayBulkPutResponseDTO, PlanningDayDTO, PlanningDayPutDTO, AgentPlanningDayBulkPutDTO, BulkFailedItem, AgentsPlanningDayRequestDTO, AgentsPlanningDaysBatchResponseDTO
 from backend.app.mappers.agents_light import to_agent_dto
 from backend.app.mappers.agents import to_agent_detail_dto
 from backend.app.mappers.planning import to_agent_planning_response
-from backend.app.mappers.planning_day import to_planning_day_dto
+from backend.app.mappers.planning_day import to_agent_planning_day_dto, to_planning_day_dto
 
 from core.application.services import (
     AgentDayService,
@@ -78,6 +78,32 @@ def update_agent(agent_id: int, payload: AgentUpdateDTO, agent_service: AgentSer
     return to_agent_dto(agent)
 
 # Planning-related endpoints
+
+@router.post(
+    "/planning/days/batch",
+    response_model=AgentsPlanningDaysBatchResponseDTO,
+    status_code=status.HTTP_200_OK,
+)
+def get_planning_days_for_agents(
+    payload: AgentsPlanningDayRequestDTO,
+    planning_day_assembler: PlanningDayAssembler = Depends(get_planning_day_assembler),
+):
+    by_agent = planning_day_assembler.build_for_agents_day(
+        agent_ids=payload.agent_ids,
+        day_date=payload.day_date,
+    )
+
+    # garder l'ordre d'entrée
+    items = [
+        to_agent_planning_day_dto(aid, by_agent[aid])
+        for aid in payload.agent_ids
+        if aid in by_agent
+    ]
+
+    return AgentsPlanningDaysBatchResponseDTO(
+        day_date=payload.day_date,
+        items=items,
+    )
 
 @router.delete("/{agent_id}/planning/days/{day_date}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_agent_planning_day(
