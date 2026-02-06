@@ -15,20 +15,13 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Label } from "@/components/ui/label";
-
 import { PlanningSheetShell } from "@/components/planning/PlanningSheetShell";
 import { DrawerSection, EmptyBox } from "@/components/planning/DrawerSection";
 import { timeLabelHHMM } from "@/utils/time.format";
 import { cn } from "@/lib/utils";
+
 import { AgentSelect } from "@/features/agents/components/AgentSelect";
+import { useAgentDayStatusesBatch } from "@/features/planning-poste/hooks/useAgentDayStatusesBatch";
 
 /* -------------------------------- helpers -------------------------------- */
 
@@ -116,6 +109,7 @@ export function PosteDaySheet({
 
   availableAgents: Agent[];
   isAgentsLoading?: boolean;
+
   onSaveDay: (args: {
     dayDate: string;
     day_type: string;
@@ -161,6 +155,19 @@ export function PosteDaySheet({
       [trancheId]: Array.from(new Set([...(d[trancheId] ?? []), agentId])),
     }));
   };
+
+  // ✅ statuses : fetch uniquement en édition, une seule fois, sur tous les agents qualifiés
+  const statusAgentIds = useMemo(() => {
+    if (!isEditing) return [];
+    return availableAgents.map((a) => a.id);
+  }, [isEditing, availableAgents]);
+
+  const statuses = useAgentDayStatusesBatch({
+    dayDate: isEditing ? (day?.day_date ?? null) : null,
+    agentIds: statusAgentIds,
+  });
+
+  const isStatusLoading = statuses.isLoading;
 
   if (!open) return null;
 
@@ -213,6 +220,9 @@ export function PosteDaySheet({
                       description: day.description ?? null,
                       body: buildBodyFromDraft(draft),
                     });
+
+                    await statuses.refresh();
+
                     setInitialDraft(draft);
                     setIsEditing(false);
                   }}
@@ -234,6 +244,9 @@ export function PosteDaySheet({
               disabled={isDeleting || isSaving}
               onClick={async () => {
                 await onDeleteDay(day.day_date);
+
+                await statuses.refresh();
+
                 onClose();
               }}
             >
@@ -249,12 +262,12 @@ export function PosteDaySheet({
                 {day.tranches.map((t) => {
                   const trancheId = t.tranche.id;
                   const trancheColor = t.tranche.color ?? null;
+
                   const agentIds = isEditing
                     ? (draft[trancheId] ?? [])
                     : t.agents.map((a) => a.id);
 
                   const assigned = agentIds.length;
-
                   const required = t.coverage?.required ?? 0;
                   const isConfigured = t.coverage?.isConfigured ?? false;
 
@@ -292,11 +305,26 @@ export function PosteDaySheet({
                         ? `Couverture OK (${assigned}/${required}).`
                         : `Sous-couverture : ${assigned}/${required} (manque ${missing}).`;
 
-                  const selectableAgents = isAgentsLoading
-                    ? []
-                    : availableAgents.filter((a) => !agentIds.includes(a.id));
+                  const selectableAgents =
+                    isEditing && !(isAgentsLoading || isStatusLoading)
+                      ? availableAgents.filter((a) => !agentIds.includes(a.id))
+                      : [];
 
-                  const selectId = `add-agent-${day.day_date}-${trancheId}`;
+                  const selectDisabled =
+                    isSaving ||
+                    isDeleting ||
+                    !isEditing ||
+                    isAgentsLoading ||
+                    isStatusLoading ||
+                    selectableAgents.length === 0;
+
+                  const selectPlaceholder = isAgentsLoading
+                    ? "Chargement des agents…"
+                    : isStatusLoading
+                      ? "Chargement des statuts…"
+                      : selectableAgents.length
+                        ? "Sélectionner un agent…"
+                        : "Aucun agent disponible";
 
                   return (
                     <div
@@ -313,10 +341,10 @@ export function PosteDaySheet({
                           aria-hidden
                         />
                       ) : null}
+
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            {/* color dot */}
                             <span
                               className="h-2.5 w-2.5 shrink-0 rounded-full border border-border"
                               style={
@@ -326,7 +354,6 @@ export function PosteDaySheet({
                               }
                               aria-hidden
                             />
-
                             <div className="truncate text-sm font-semibold">
                               {t.tranche.nom}
                             </div>
@@ -390,6 +417,7 @@ export function PosteDaySheet({
                         )}
                       </div>
 
+                      {/* Add agent */}
                       {isEditing ? (
                         <div className="mt-3 space-y-2">
                           <AgentSelect
@@ -398,19 +426,15 @@ export function PosteDaySheet({
                               addAgent(trancheId, id);
                             }}
                             agents={selectableAgents}
-                            disabled={
-                              isSaving ||
-                              isDeleting ||
-                              isAgentsLoading ||
-                              selectableAgents.length === 0
-                            }
+                            statusByAgentId={statuses.statusByAgentId}
+                            disabled={selectDisabled}
                             label="Ajouter un agent"
-                            placeholder={
-                              selectableAgents.length
-                                ? "Sélectionner un agent…"
-                                : "Aucun agent disponible"
+                            placeholder={selectPlaceholder}
+                            emptyLabel={
+                              isAgentsLoading || isStatusLoading
+                                ? "Chargement…"
+                                : "Aucun agent correspondant"
                             }
-                            emptyLabel="Aucun agent correspondant"
                           />
                         </div>
                       ) : null}

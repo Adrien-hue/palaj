@@ -1,6 +1,6 @@
 // src/services/agent-planning.service.ts
 import { apiFetch } from "@/lib/api";
-import type { AgentDay, AgentDayPutDTO, AgentPlanningDayBulkPutDTO, AgentPlanningDayBulkPutResponseDTO } from "@/types";
+import type { AgentDay, AgentDayPutDTO, AgentPlanningDayBulkPutDTO, AgentPlanningDayBulkPutResponseDTO, AgentPlanningDayBatchBody, AgentPlanningDayBatchResponse } from "@/types";
 
 export async function putAgentDayPlanning(
   agentId: number,
@@ -39,5 +39,12 @@ export async function bulkUpsertAgentPlanningDays(
       headers: { "Content-Type": "application/json" },
       body: payload,
     },
+  );
+}
+
+export async function postAgentPlanningDayBatch(body: AgentPlanningDayBatchBody) {
+  return apiFetch<AgentPlanningDayBatchResponse>(
+    `/agents/planning/days/batch`,
+    { method: "POST", body }
   );
 }

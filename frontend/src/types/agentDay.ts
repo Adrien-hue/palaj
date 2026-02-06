@@ -31,3 +31,18 @@ export type AgentPlanningDayBulkPutResponseDTO = {
   updated: AgentDay[];
   failed: BulkFailedItem[];
 };
+
+export type AgentPlanningDayBatchBody = {
+  day_date: string;
+  agent_ids: number[];
+};
+
+export type AgentPlanningDayBatchItem = {
+  agent_id: number;
+  planning_day: AgentDay;
+};
+
+export type AgentPlanningDayBatchResponse = {
+  day_date: string;
+  items: AgentPlanningDayBatchItem[];
+};
