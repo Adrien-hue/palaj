@@ -10,35 +10,38 @@ import type {
 import { PlanningGridBase } from "@/components/planning/PlanningGridBase";
 import { PosteDayCell } from "./PosteDayCell";
 
+type Common = {
+  planning: PostePlanningVm;
+
+  selectedDate?: string | null;
+  onSelectedDateChange?: (date: string | null) => void;
+
+  multiSelect?: boolean;
+  multiSelectedDates?: Set<string>;
+  onMultiSelectDay?: (
+    day: PosteDayVm,
+    e: React.MouseEvent<HTMLButtonElement>
+  ) => void;
+
+  onDayClick?: (day: PosteDayVm) => void;
+
+  height?: number | string;
+  weekStartsOn?: 0 | 1;
+  closeOnEscape?: boolean;
+};
+
+
 type PostePlanningGridProps =
-  | {
+  | (Common & {
       mode: "month";
       anchorMonth: string; // ISO YYYY-MM-DD (any day in month)
-      planning: PostePlanningVm;
-
-      selectedDate: string | null;
-      onSelectedDateChange: (date: string | null) => void;
-
-      height?: number | string;
-      weekStartsOn?: 0 | 1;
-
-      closeOnEscape?: boolean;
-    }
-  | {
+    })
+  | (Common & {
       mode: "range";
       startDate: string; // ISO YYYY-MM-DD
       endDate: string; // ISO YYYY-MM-DD
-      planning: PostePlanningVm;
-
-      selectedDate: string | null;
-      onSelectedDateChange: (date: string | null) => void;
-
-      height?: number | string;
-      weekStartsOn?: 0 | 1;
       alignToWeeks?: boolean;
-
-      closeOnEscape?: boolean;
-    };
+    });
 
 export function PostePlanningGrid(props: PostePlanningGridProps) {
   const { planning } = props;
@@ -47,6 +50,8 @@ export function PostePlanningGrid(props: PostePlanningGridProps) {
     () => new Map(planning.days.map((d) => [d.day_date, d] as const)),
     [planning.days]
   );
+
+  const isMulti = !!props.multiSelect;
 
   return (
     <PlanningGridBase<PosteDayVm>
@@ -64,22 +69,38 @@ export function PostePlanningGrid(props: PostePlanningGridProps) {
       getDayDate={(day) => day.day_date}
       selectedDate={props.selectedDate}
       onSelectedDateChange={props.onSelectedDateChange}
-      renderCell={({ day, isOutsideMonth, isSelected, isInSelectedWeek, onSelect }) => (
-        <PosteDayCell
-          day={day}
-          isOutsideMonth={isOutsideMonth}
-          isSelected={isSelected}
-          isInSelectedWeek={isInSelectedWeek}
-          onSelect={() => {
-            onSelect();
-
-            props.onSelectedDateChange(day ? day.day_date : null);
-          }}
-        />
-      )}
-      renderDetails={() => null}
       closeOnEscape={props.closeOnEscape}
       gridLabel="Planning poste"
+      renderCell={({ day, isOutsideMonth, isSelected, isInSelectedWeek, onSelect }) => {
+        const dayDate = day?.day_date ?? null;
+
+        const isMultiSelected =
+          !!dayDate && (props.multiSelectedDates?.has(dayDate) ?? false);
+
+        return (
+          <PosteDayCell
+            day={day}
+            isOutsideMonth={isOutsideMonth}
+            isSelected={isSelected}
+            isInSelectedWeek={isInSelectedWeek}
+            multiSelect={isMulti}
+            isMultiSelected={isMultiSelected}
+            onSelect={(e) => {
+              if (isMulti) {
+                if (day && props.onMultiSelectDay) {
+                  props.onMultiSelectDay(day, e);
+                }
+                return;
+              }
+
+              onSelect();
+
+              if (day && props.onDayClick) props.onDayClick(day);
+            }}
+          />
+        );
+      }}
+      renderDetails={() => null}
     />
   );
 }

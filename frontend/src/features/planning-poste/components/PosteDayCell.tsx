@@ -20,9 +20,7 @@ function coverageVariant(day: PosteDayVm): CoverageVariant {
   const { required, missing, isConfigured } = day.coverage;
 
   if (!isConfigured) return "secondary";
-
   if (required === 0) return "secondary";
-
   return missing === 0 ? "success" : "warning";
 }
 
@@ -47,6 +45,8 @@ export function PosteDayCell({
   isSelected,
   isInSelectedWeek,
   isOutsideRange,
+  multiSelect = false,
+  isMultiSelected = false,
   onSelect,
 }: {
   day: PosteDayVm;
@@ -54,7 +54,12 @@ export function PosteDayCell({
   isSelected: boolean;
   isInSelectedWeek: boolean;
   isOutsideRange?: boolean;
-  onSelect: () => void;
+
+  /** multi-select */
+  multiSelect?: boolean;
+  isMultiSelected?: boolean;
+
+  onSelect: (e: React.MouseEvent<HTMLButtonElement>) => void;
 }) {
   const { required, assigned, missing, isConfigured } = day.coverage;
 
@@ -71,8 +76,13 @@ export function PosteDayCell({
         ? `Jour ${dayNumber(day.day_date)}, couverture complète (${assigned} sur ${required})`
         : `Jour ${dayNumber(day.day_date)}, sous-couverture (${assigned} sur ${required}, manque ${missing})`;
 
-  const isCoveragePartial =
-    isConfigured && required > 0 && missing > 0;
+  const isCoveragePartial = isConfigured && required > 0 && missing > 0;
+
+  // Visuel multi-selection
+  const multiSelectedRing =
+    isMultiSelected && !isSelected
+      ? "ring-2 ring-primary ring-offset-2 ring-offset-background"
+      : null;
 
   return (
     <Tooltip>
@@ -86,9 +96,17 @@ export function PosteDayCell({
             isOutsideRange={isOutsideRange}
             isInSelectedWeek={isInSelectedWeek}
             className={cn(
+              // multi-select highlight
+              multiSelectedRing,
+
+              // sous-couverture : conserver ton style, mais ne pas écraser une sélection
               isCoveragePartial &&
                 !isSelected &&
+                !isMultiSelected &&
                 "border-amber-500/40 bg-amber-500/5 hover:bg-amber-500/10",
+
+              // en mode multi, on rend le hover plus explicite
+              multiSelect && !isSelected && "hover:bg-muted/40",
             )}
           >
             <div className="flex items-start justify-between gap-2">
