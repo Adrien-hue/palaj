@@ -2,6 +2,7 @@ from datetime import date
 from typing import List, Optional
 from pydantic import BaseModel, Field, field_validator
 
+from backend.app.dto.agents import AgentDTO
 from backend.app.dto.tranches import TrancheDTO
 from core.domain.enums.day_type import DayType
 
@@ -11,6 +12,23 @@ class PlanningDayDTO(BaseModel):
     description: Optional[str] = None
     is_off_shift: bool = False
     tranches: List[TrancheDTO] = Field(default_factory=list)
+
+class AgentsPlanningDayRequestDTO(BaseModel):
+    day_date: date
+    agent_ids: List[int] = Field(min_length=1)
+
+class AgentPlanningDayDTO(BaseModel):
+    agent_id: int
+    planning_day: Optional[PlanningDayDTO] = None
+
+class AgentsPlanningDaysBatchResponseDTO(BaseModel):
+    day_date: date
+    items: List[AgentPlanningDayDTO]
+
+class AgentsPlanningDayResponseDTO(BaseModel):
+    day_date: date
+    items: List[AgentPlanningDayDTO]
+
 
 class PlanningDayPutDTO(BaseModel):
     day_type: DayType
