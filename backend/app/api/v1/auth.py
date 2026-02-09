@@ -7,27 +7,12 @@ from backend.app.dto.common.common import ActionResponse
 from backend.app.security.cookies import set_auth_cookies, clear_auth_cookies
 from backend.app.settings import settings
 
-from backend.app.api.deps_auth import get_auth_service, get_user_auth_service
+from backend.app.api.deps_auth import get_auth_service
+from backend.app.api.deps_current_user import current_user
 from core.application.services.auth_service import AuthService, AuthError
-from core.application.services.user_auth_service import UserAuthService, UserAuthError
 from db.models import User
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-
-
-def current_user(
-    request: Request,
-    user_auth: UserAuthService = Depends(get_user_auth_service),
-) -> User:
-    token = request.cookies.get(settings.access_cookie_name)
-    if not token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
-
-    try:
-        return user_auth.get_current_user(token)
-    except UserAuthError as e:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))
-
 
 @router.post("/login", response_model=ActionResponse)
 def login(
@@ -81,7 +66,8 @@ def logout(
     auth: AuthService = Depends(get_auth_service),
 ):
     refresh_token = request.cookies.get(settings.refresh_cookie_name)
-    auth.logout(refresh_token)
+    if refresh_token:
+        auth.logout(refresh_token)
 
     clear_auth_cookies(response)
     return ActionResponse()
