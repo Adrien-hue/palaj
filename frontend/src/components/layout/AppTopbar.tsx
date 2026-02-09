@@ -1,8 +1,9 @@
 "use client";
 
+import * as React from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { ArrowUpRight } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { ArrowUpRight, LogOut, User } from "lucide-react";
 
 import { APP_TOP_NAV, AppNavItem } from "@/navigation/appNav";
 import { PalajBrand } from "@/components/layout/PalajBrand";
@@ -15,7 +16,17 @@ import {
   NavigationMenuLink,
   NavigationMenuList,
 } from "@/components/ui/navigation-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+
+import { logout, logoutAll } from "@/services/auth.service";
 
 function isNavActive(pathname: string, item: AppNavItem) {
   if (item.isActive) return item.isActive(pathname);
@@ -57,8 +68,29 @@ function TopNav() {
 }
 
 export function AppTopbar() {
-  // (garde si tu en as besoin plus tard)
+  // garde si tu en as besoin plus tard
   usePathname();
+
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  async function handleLogout(all: boolean) {
+    try {
+      if (all) await logoutAll();
+      else await logout();
+
+      router.replace("/login");
+      router.refresh();
+    } catch {
+      const next = `${window.location.pathname}${window.location.search}`;
+      const url = `/login?reason=expired&next=${encodeURIComponent(
+        searchParams.get("next") ?? next
+      )}`;
+
+      router.replace(url);
+      router.refresh();
+    }
+  }
 
   return (
     <header className="sticky top-0 z-50 border-b bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -88,6 +120,29 @@ export function AppTopbar() {
               Admin <ArrowUpRight className="ml-2 h-4 w-4" />
             </Link>
           </Button>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" aria-label="Menu utilisateur">
+                <User className="h-5 w-5" />
+              </Button>
+            </DropdownMenuTrigger>
+
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuLabel>Compte</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+
+              <DropdownMenuItem onClick={() => handleLogout(false)}>
+                <LogOut className="mr-2 h-4 w-4" />
+                Se déconnecter
+              </DropdownMenuItem>
+
+              <DropdownMenuItem onClick={() => handleLogout(true)}>
+                <LogOut className="mr-2 h-4 w-4" />
+                Se déconnecter partout
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
     </header>
