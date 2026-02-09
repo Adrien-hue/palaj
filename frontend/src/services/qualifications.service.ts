@@ -1,15 +1,17 @@
 import { apiFetch } from "@/lib/api";
+import { backendPath } from "@/lib/backendPath";
+
 import type { CreateQualificationBody, Qualification, SearchQualificationsParams, UpdateQualificationBody } from "@/types";
 
 export async function createQualification(body: CreateQualificationBody) {
-    return apiFetch<Qualification>("/qualifications", {
+    return apiFetch<Qualification>(backendPath(`/qualifications`), {
         method: "POST",
         body: body,
     });
 }
 
 export async function deleteQualification(agentId: number, posteId: number) {
-    return apiFetch<Qualification>(`/qualifications/${agentId}/${posteId}`, {
+    return apiFetch<Qualification>(backendPath(`/qualifications/${agentId}/${posteId}`), {
         method: "DELETE",
     });
 }
@@ -24,7 +26,7 @@ export async function searchQualifications(params?: SearchQualificationsParams) 
     }
 
     const qs = search.toString();
-    return apiFetch<Qualification[]>(`/qualifications?${qs}`);
+    return apiFetch<Qualification[]>(backendPath(`/qualifications?${qs}`));
 }
 
 export async function updateQualification(
@@ -32,7 +34,7 @@ export async function updateQualification(
     posteId: number,
     payload: UpdateQualificationBody
 ) {
-    return apiFetch<Qualification>(`/qualifications/${agentId}/${posteId}`, {
+    return apiFetch<Qualification>(backendPath(`/qualifications/${agentId}/${posteId}`), {
         method: "PATCH",
         body: payload,
     });

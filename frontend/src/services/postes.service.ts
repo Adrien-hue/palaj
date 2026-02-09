@@ -1,13 +1,15 @@
 import { apiFetch } from "@/lib/api";
+import { backendPath } from "@/lib/backendPath";
+
 import type { ListParams, ListResponse } from "@/types/api";
 import type { CreatePosteBody, PatchPosteBody, Poste, PosteDetail } from "@/types";
 
 export async function createPoste(body: CreatePosteBody) {
-  return apiFetch<Poste>("/postes", { method: "POST", body });
+  return apiFetch<Poste>(backendPath(`/postes`), { method: "POST", body });
 }
 
 export async function getPoste(id: number) {
-  return apiFetch<PosteDetail>(`/postes/${id}`);
+  return apiFetch<PosteDetail>(backendPath(`/postes/${id}`));
 }
 
 export async function listPostes(params: ListParams = {page: 1, page_size: 20}) {
@@ -17,13 +19,13 @@ export async function listPostes(params: ListParams = {page: 1, page_size: 20}) 
   if (params.page_size != null) search.set("page_size", String(params.page_size));
 
   const qs = search.toString();
-  return apiFetch<ListResponse<Poste>>(`/postes${qs ? `?${qs}` : ""}`);
+  return apiFetch<ListResponse<Poste>>(backendPath(`/postes${qs ? `?${qs}` : ""}`));
 }
 
 export async function patchPoste(id: number, body: PatchPosteBody) {
-  return apiFetch<Poste>(`/postes/${id}`, { method: "PATCH", body });
+  return apiFetch<Poste>(backendPath(`/postes/${id}`), { method: "PATCH", body });
 }
 
 export async function removePoste(id: number) {
-  return apiFetch<void>(`/postes/${id}`, { method: "DELETE" });
+  return apiFetch<void>(backendPath(`/postes/${id}`), { method: "DELETE" });
 }

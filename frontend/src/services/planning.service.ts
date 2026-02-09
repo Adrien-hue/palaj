@@ -1,4 +1,5 @@
 import { apiFetch } from "@/lib/api";
+import { backendPath } from "@/lib/backendPath";
 
 import type { AgentPlanning, PostePlanning, TeamPlanning } from "@/types";
 
@@ -7,7 +8,7 @@ export async function getAgentPlanning(
   params: {
     startDate: string; // YYYY-MM-DD
     endDate: string; // YYYY-MM-DD
-  }
+  },
 ) {
   const searchParams = new URLSearchParams();
 
@@ -16,29 +17,33 @@ export async function getAgentPlanning(
 
   const qs = searchParams.toString();
 
-  return apiFetch<AgentPlanning>(`agents/${agentId}/planning?${qs}`);
+  return apiFetch<AgentPlanning>(
+    backendPath(`/agents/${agentId}/planning?${qs}`),
+  );
 }
 
 export async function getPostePlanning(
   posteId: number,
-  params: { startDate: string; endDate: string }
+  params: { startDate: string; endDate: string },
 ) {
   const search = new URLSearchParams();
   search.set("start_date", params.startDate);
   search.set("end_date", params.endDate);
 
-  return apiFetch<PostePlanning>(`/postes/${posteId}/planning?${search.toString()}`);
+  return apiFetch<PostePlanning>(
+    backendPath(`/postes/${posteId}/planning?${search.toString()}`),
+  );
 }
 
 export async function getTeamPlanning(
   teamId: number,
-  params: { startDate: string; endDate: string }
+  params: { startDate: string; endDate: string },
 ) {
   const search = new URLSearchParams();
   search.set("start_date", params.startDate);
   search.set("end_date", params.endDate);
 
   return apiFetch<TeamPlanning>(
-    `/teams/${teamId}/planning?${search.toString()}`
+    backendPath(`/teams/${teamId}/planning?${search.toString()}`),
   );
 }

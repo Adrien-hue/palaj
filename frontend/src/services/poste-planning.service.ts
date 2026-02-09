@@ -1,5 +1,6 @@
-// src/services/poste-planning.service.ts
 import { apiFetch } from "@/lib/api";
+import { backendPath } from "@/lib/backendPath";
+
 import type { PostePlanningDay, PostePlanningDayPutBody } from "@/types";
 
 export async function putPostePlanningDay(
@@ -8,7 +9,7 @@ export async function putPostePlanningDay(
   body: PostePlanningDayPutBody
 ) {
   return apiFetch<PostePlanningDay>(
-    `/postes/${posteId}/planning/days/${dayDate}`,
+    backendPath(`/postes/${posteId}/planning/days/${dayDate}`),
     {
       method: "PUT",
       body,
@@ -21,7 +22,7 @@ export async function deletePostePlanningDay(
   dayDate: string
 ) {
   return apiFetch<void>(
-    `/postes/${posteId}/planning/days/${dayDate}`,
+    backendPath(`/postes/${posteId}/planning/days/${dayDate}`),
     {
       method: "DELETE",
     }

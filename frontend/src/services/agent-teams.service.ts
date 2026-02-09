@@ -1,4 +1,6 @@
 import { apiFetch } from "@/lib/api";
+import { backendPath } from "@/lib/backendPath";
+
 import type { AgentTeam } from "@/types";
 
 export async function searchAgentTeams(params: {
@@ -10,13 +12,13 @@ export async function searchAgentTeams(params: {
   if (params.team_id != null) search.set("team_id", String(params.team_id));
 
   const qs = search.toString();
-  return apiFetch<AgentTeam[]>(`/agent-teams${qs ? `?${qs}` : ""}`);
+  return apiFetch<AgentTeam[]>(backendPath(`/agent-teams${qs ? `?${qs}` : ""}`));
 }
 
 export async function addAgentToTeam(agentId: number, teamId: number): Promise<void> {
-  await apiFetch(`/agent-teams/${agentId}/${teamId}`, { method: "POST" });
+  await apiFetch(backendPath(`/agent-teams/${agentId}/${teamId}`), { method: "POST" });
 }
 
 export async function removeAgentFromTeam(agentId: number, teamId: number): Promise<void> {
-  await apiFetch(`/agent-teams/${agentId}/${teamId}`, { method: "DELETE" });
+  await apiFetch(backendPath(`/agent-teams/${agentId}/${teamId}`), { method: "DELETE" });
 }
