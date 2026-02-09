@@ -1,4 +1,4 @@
-import { apiFetch } from "@/lib/api";
+import { apiFetch } from "@/lib/api/universal";
 import { backendPath } from "@/lib/backendPath";
 import type { ListParams, ListResponse } from "@/types/api";
 import type { Agent, AgentDetails, CreateAgentBody, PatchAgentBody } from "@/types";
