@@ -1,11 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 
 from backend.app.api.deps import get_qualification_service
+from backend.app.api.http_exceptions import bad_request, conflict, not_found
 from backend.app.dto.qualifications import QualificationDTO, QualificationCreateDTO, QualificationUpdateDTO
 from backend.app.mappers.qualifications import to_qualification_dto
 from core.application.services.qualification_service import QualificationService
 
 router = APIRouter(prefix="/qualifications", tags=["Qualifications"])
+
 
 @router.post("/", response_model=QualificationDTO, status_code=status.HTTP_201_CREATED)
 def create_qualification(
@@ -16,7 +18,8 @@ def create_qualification(
         q = service.create(**payload.model_dump())
         return to_qualification_dto(q)
     except ValueError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+        conflict(str(e))
+
 
 @router.delete("/{agent_id}/{poste_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_qualification(
@@ -26,8 +29,9 @@ def delete_qualification(
 ):
     ok = service.delete(agent_id=agent_id, poste_id=poste_id)
     if not ok:
-        raise HTTPException(status_code=404, detail="Qualification not found")
+        not_found("Qualification not found")
     return None
+
 
 @router.patch("/{agent_id}/{poste_id}", response_model=QualificationDTO)
 def update_qualification(
@@ -38,17 +42,14 @@ def update_qualification(
 ):
     changes = payload.model_dump(exclude_unset=True)
     if not changes:
-        raise HTTPException(status_code=400, detail="No fields to update")
+        bad_request("No fields to update")
 
-    q = service.update(
-        agent_id=agent_id,
-        poste_id=poste_id,
-        **changes,
-    )
+    q = service.update(agent_id=agent_id, poste_id=poste_id, **changes)
     if q is None:
-        raise HTTPException(status_code=404, detail="Qualification not found")
+        not_found("Qualification not found")
 
     return to_qualification_dto(q)
+
 
 @router.get("/", response_model=list[QualificationDTO])
 def search_qualifications(
