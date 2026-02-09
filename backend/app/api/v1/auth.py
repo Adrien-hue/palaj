@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from backend.app.dto.auth import LoginRequest, MeResponse
+from backend.app.dto.common.common import ActionResponse 
 from backend.app.security.cookies import set_auth_cookies, clear_auth_cookies
 from backend.app.settings import settings
 
@@ -28,7 +29,7 @@ def current_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))
 
 
-@router.post("/login")
+@router.post("/login", response_model=ActionResponse)
 def login(
     payload: LoginRequest,
     request: Request,
@@ -46,10 +47,10 @@ def login(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))
 
     set_auth_cookies(response, access_token=pair.access_token, refresh_token=pair.refresh_token)
-    return {"status": "ok"}
+    return ActionResponse()
 
 
-@router.post("/refresh")
+@router.post("/refresh", response_model=ActionResponse)
 def refresh(
     request: Request,
     response: Response,
@@ -70,10 +71,10 @@ def refresh(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))
 
     set_auth_cookies(response, access_token=pair.access_token, refresh_token=pair.refresh_token)
-    return {"status": "ok"}
+    return ActionResponse()
 
 
-@router.post("/logout")
+@router.post("/logout", response_model=ActionResponse)
 def logout(
     request: Request,
     response: Response,
@@ -83,10 +84,10 @@ def logout(
     auth.logout(refresh_token)
 
     clear_auth_cookies(response)
-    return {"status": "ok"}
+    return ActionResponse()
 
 
-@router.post("/logout-all")
+@router.post("/logout-all", response_model=ActionResponse)
 def logout_all(
     request: Request,
     response: Response,
@@ -95,7 +96,7 @@ def logout_all(
 ):
     auth.logout_all(user.id)
     clear_auth_cookies(response)
-    return {"status": "ok"}
+    return ActionResponse()
 
 
 @router.get("/me", response_model=MeResponse)
