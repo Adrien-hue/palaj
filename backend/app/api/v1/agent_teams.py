@@ -1,13 +1,13 @@
-from typing import List
-
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 
 from backend.app.api.deps import get_agent_team_service
+from backend.app.api.http_exceptions import conflict, not_found
 from backend.app.mappers.agent_teams import to_agent_team_dto
 from core.application.services.teams.agent_team_service import AgentTeamService
 from core.application.services.exceptions import NotFoundError
 
-router = APIRouter(prefix="/agent-teams", tags=["Agent Teams"])
+router = APIRouter(prefix="/agent-teams", tags=["Agent teams"])
+
 
 @router.post("/{agent_id}/{team_id}", status_code=status.HTTP_201_CREATED)
 def add_agent_team(
@@ -19,9 +19,12 @@ def add_agent_team(
         service.create(agent_id=agent_id, team_id=team_id)
         return None
     except NotFoundError as e:
-        raise HTTPException(status_code=404, detail=e.code)
+        # si e.code est un message du style "TEAM_NOT_FOUND" c'est OK,
+        # sinon tu peux mettre un detail plus user-friendly
+        not_found(e.code)
     except ValueError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+        conflict(str(e))
+
 
 @router.delete("/{agent_id}/{team_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_agent_team(
@@ -31,8 +34,9 @@ def delete_agent_team(
 ):
     ok = service.delete(agent_id=agent_id, team_id=team_id)
     if not ok:
-        raise HTTPException(status_code=404, detail="Membership not found")
+        not_found("Membership not found")
     return None
+
 
 @router.get("/")
 def search_agent_teams(
