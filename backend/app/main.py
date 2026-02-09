@@ -11,7 +11,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title=settings.app_name, debug=settings.debug)
 
-    origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+    origins = settings.cors_origins
 
     app.add_middleware(
         CORSMiddleware,
