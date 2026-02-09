@@ -7,6 +7,7 @@ from .agent import Agent
 from .poste_coverage_requirement import PosteCoverageRequirement
 from .poste import Poste
 from .qualification import Qualification
+from .refresh_token import RefreshToken
 from .regime import Regime
 from .team import Team
 from .tranche import Tranche
