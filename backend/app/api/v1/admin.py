@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends
 
-from backend.app.api.deps import require_role
+from backend.app.api.deps_authorization import require_role
+from db.models import User
 
 router = APIRouter(
     prefix="/admin",
@@ -9,7 +10,7 @@ router = APIRouter(
 
 
 @router.get("/ping")
-def admin_ping(_: object = Depends(require_role("admin"))):
+def admin_ping(_: User = Depends(require_role("admin"))):
     """
     Endpoint de test RBAC.
     Accessible uniquement aux utilisateurs avec le rôle 'admin'.
