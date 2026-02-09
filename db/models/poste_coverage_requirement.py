@@ -1,15 +1,15 @@
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, ForeignKeyConstraint, Index, UniqueConstraint, CheckConstraint
+from sqlalchemy import (
+    ForeignKey, ForeignKeyConstraint, Index, UniqueConstraint, CheckConstraint
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
 
 if TYPE_CHECKING:
-    from core.domain.entities import (
-        Poste,
-        Tranche,
-    )
+    from .poste import Poste
+    from .tranche import Tranche
 
 
 class PosteCoverageRequirement(Base):
@@ -23,10 +23,8 @@ class PosteCoverageRequirement(Base):
         index=True,
     )
 
-    # 0 = lundi, 6 = dimanche
     weekday: Mapped[int] = mapped_column(nullable=False)
 
-    # FK composite déclarée via __table_args__ (voir plus bas)
     tranche_id: Mapped[int] = mapped_column(nullable=False, index=True)
 
     required_count: Mapped[int] = mapped_column(nullable=False, default=1)
@@ -34,34 +32,23 @@ class PosteCoverageRequirement(Base):
     poste: Mapped["Poste"] = relationship(
         "Poste",
         back_populates="coverage_requirements",
+        overlaps="tranche",
     )
 
     tranche: Mapped["Tranche"] = relationship(
         "Tranche",
         back_populates="coverage_requirements",
+        overlaps="poste,coverage_requirements",
     )
 
     __table_args__ = (
-        # Garantit que la tranche référencée appartient bien au poste
         ForeignKeyConstraint(
             ["poste_id", "tranche_id"],
             ["tranches.poste_id", "tranches.id"],
             name="fk_pcr_poste_tranche",
             ondelete="CASCADE",
         ),
-        CheckConstraint(
-            "weekday >= 0 AND weekday <= 6",
-            name="ck_poste_coverage_weekday_range",
-        ),
-        UniqueConstraint(
-            "poste_id",
-            "weekday",
-            "tranche_id",
-            name="uq_poste_weekday_tranche",
-        ),
-        Index(
-            "ix_poste_coverage_poste_weekday",
-            "poste_id",
-            "weekday",
-        ),
+        CheckConstraint("weekday >= 0 AND weekday <= 6", name="ck_poste_coverage_weekday_range"),
+        UniqueConstraint("poste_id", "weekday", "tranche_id", name="uq_poste_weekday_tranche"),
+        Index("ix_poste_coverage_poste_weekday", "poste_id", "weekday"),
     )

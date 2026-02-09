@@ -32,6 +32,7 @@ class Tranche(Base):
     coverage_requirements: Mapped[list["PosteCoverageRequirement"]] = relationship(
         "PosteCoverageRequirement",
         back_populates="tranche",
+        overlaps="tranche,poste,coverage_requirements",
         cascade="all, delete-orphan",
     )
 
