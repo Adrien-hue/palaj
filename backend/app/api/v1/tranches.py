@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from datetime import time
+from fastapi import APIRouter, Depends, status
 
 from backend.app.api.deps import get_tranche_service
-from backend.app.dto.common.pagination import build_page, Page, PaginationParams, pagination_params
-from backend.app.dto.tranches import TrancheDTO, TrancheCreateDTO, TrancheUpdateDTO
+from backend.app.api.http_exceptions import bad_request, conflict, not_found
+from backend.app.dto.common.pagination import Page, PaginationParams, build_page, pagination_params
+from backend.app.dto.tranches import TrancheCreateDTO, TrancheDTO, TrancheUpdateDTO
 from backend.app.mappers.tranches import to_tranche_dto
 from core.application.services import TrancheService
 
@@ -14,7 +14,7 @@ router = APIRouter(prefix="/tranches", tags=["Tranches"])
 def get_tranche(tranche_id: int, tranche_service: TrancheService = Depends(get_tranche_service)) -> TrancheDTO:
     tranche = tranche_service.get_by_id(tranche_id)
     if tranche is None:
-        raise HTTPException(status_code=404, detail="Tranche not found")
+        not_found("Tranche not found")
     return to_tranche_dto(tranche)
 
 
@@ -34,8 +34,7 @@ def create_tranche(payload: TrancheCreateDTO, tranche_service: TrancheService = 
         tranche = tranche_service.create(**payload.model_dump())
         return to_tranche_dto(tranche)
     except ValueError as e:
-        # ex: poste not found, tranche overlap rules, duplicate name, etc.
-        raise HTTPException(status_code=409, detail=str(e))
+        conflict(str(e))
 
 
 @router.patch("/{tranche_id}", response_model=TrancheDTO)
@@ -46,15 +45,15 @@ def update_tranche(
 ) -> TrancheDTO:
     changes = payload.model_dump(exclude_unset=True)
     if not changes:
-        raise HTTPException(status_code=400, detail="No fields to update")
+        bad_request("No fields to update")
 
     try:
         tranche = tranche_service.update(tranche_id, **changes)
         if tranche is None:
-            raise HTTPException(status_code=404, detail="Tranche not found")
+            not_found("Tranche not found")
         return to_tranche_dto(tranche)
     except ValueError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+        conflict(str(e))
 
 
 @router.delete("/{tranche_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -62,7 +61,7 @@ def delete_tranche(tranche_id: int, tranche_service: TrancheService = Depends(ge
     try:
         ok = tranche_service.delete(tranche_id)
         if not ok:
-            raise HTTPException(status_code=404, detail="Tranche not found")
+            not_found("Tranche not found")
         return None
     except ValueError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+        conflict(str(e))
