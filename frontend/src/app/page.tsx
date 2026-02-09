@@ -2,5 +2,5 @@
 import { redirect } from "next/navigation";
 
 export default function RootPage() {
-  redirect("/app/planning/agents");
+  redirect("/app");
 }
