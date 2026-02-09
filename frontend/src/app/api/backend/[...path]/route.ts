@@ -3,17 +3,37 @@ import { cookies } from "next/headers";
 import { relaySetCookies } from "@/lib/relaySetCookies";
 
 const BACKEND_URL = process.env.BACKEND_URL!;
+if (!BACKEND_URL) throw new Error("Missing BACKEND_URL in env");
 
-async function handler(req: Request, ctx: { params: { path: string[] } }) {
+type Params = { path?: string[] };
+type Ctx = { params: Params } | { params: Promise<Params> };
+
+function buildCookieHeader(cookieStore: Awaited<ReturnType<typeof cookies>>) {
+  // cookieStore.getAll() => [{name,value}, ...]
+  const all = cookieStore.getAll();
+  if (!all.length) return "";
+  return all.map((c) => `${c.name}=${c.value}`).join("; ");
+}
+
+async function handler(req: Request, ctx: Ctx) {
   const url = new URL(req.url);
-  const target = `${BACKEND_URL}/${ctx.params.path.join("/")}${url.search}`;
+
+  // unwrap params (Next may provide params as Promise)
+  const params = "then" in (ctx as any).params ? await (ctx as any).params : (ctx as any).params;
+  const pathParts = Array.isArray(params?.path) ? params.path : [];
+
+  // unwrap cookies (Next dynamic API may be async)
+  const cookieStore = await cookies();
+  const cookieHeader = buildCookieHeader(cookieStore);
+
+  const target = `${BACKEND_URL}/${pathParts.join("/")}${url.search}`;
 
   const upstream = await fetch(target, {
     method: req.method,
     headers: {
-      Cookie: cookies().toString(),
-      "Content-Type": req.headers.get("content-type") ?? "application/json",
+      ...(cookieHeader ? { Cookie: cookieHeader } : {}),
       Accept: req.headers.get("accept") ?? "application/json",
+      "Content-Type": req.headers.get("content-type") ?? "application/json",
     },
     body: ["GET", "HEAD"].includes(req.method) ? undefined : await req.text(),
   });
