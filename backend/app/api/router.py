@@ -1,4 +1,6 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+
+from backend.app.api.deps_current_user import current_user
 
 from backend.app.api.v1.health import router as health_router
 from backend.app.api.v1.admin import router as admin_router
@@ -13,14 +15,19 @@ from backend.app.api.v1.tranches import router as tranches_router
 from backend.app.api.v1.rh import router as rh_router
 
 api_router = APIRouter()
+
+# Public
 api_router.include_router(health_router)
-api_router.include_router(admin_router)
-api_router.include_router(agents_router)
-api_router.include_router(agent_teams_router)
 api_router.include_router(auth_router)
-api_router.include_router(postes_router)
-api_router.include_router(qualifications_router)
-api_router.include_router(regimes_router)
-api_router.include_router(teams_router)
-api_router.include_router(tranches_router)
-api_router.include_router(rh_router)
+
+# Protected
+protected = [Depends(current_user)]
+api_router.include_router(admin_router, dependencies=protected)
+api_router.include_router(agents_router, dependencies=protected)
+api_router.include_router(agent_teams_router, dependencies=protected)
+api_router.include_router(postes_router, dependencies=protected)
+api_router.include_router(qualifications_router, dependencies=protected)
+api_router.include_router(regimes_router, dependencies=protected)
+api_router.include_router(teams_router, dependencies=protected)
+api_router.include_router(tranches_router, dependencies=protected)
+api_router.include_router(rh_router, dependencies=protected)
