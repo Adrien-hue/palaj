@@ -25,6 +25,9 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
+import { TeamBulkEditSheet } from "./TeamBulkEditSheet";
+import type { TeamPlanningBulkItem } from "@/types/teamPlanning";
+
 type CellKey = `${number}__${string}`;
 const cellKey = (agentId: number, dayDateISO: string) =>
   `${agentId}__${dayDateISO}` as CellKey;
@@ -101,9 +104,9 @@ export function TeamPlanningClient({
   const [selectedAgentId, setSelectedAgentId] = React.useState<number | null>(
     null,
   );
-  const [selectedDayDateISO, setSelectedDayDateISO] = React.useState<
-    string | null
-  >(null);
+  const [selectedDayDateISO, setSelectedDayDateISO] = React.useState<string | null>(
+    null,
+  );
 
   // -----
   // Multi-select state
@@ -122,6 +125,7 @@ export function TeamPlanningClient({
   }, []);
 
   const exitMultiSelect = React.useCallback(() => {
+    setBulkOpen(false);
     setMultiSelect(false);
     clearSelection();
   }, [clearSelection]);
@@ -130,7 +134,7 @@ export function TeamPlanningClient({
     setMultiSelect((v) => {
       const next = !v;
       if (next) {
-        // en entrant en mode multi, on ferme le sheet et on reset la sélection
+        // entering multi: close single sheet and reset selection
         setSheetOpen(false);
         setSelectedAgentId(null);
         setSelectedDayDateISO(null);
@@ -151,10 +155,8 @@ export function TeamPlanningClient({
 
   // Ordered days for shift-range
   const orderedDays = React.useMemo(() => {
-    return (planningVm?.days ?? [])
-      .slice()
-      .sort((a, b) => a.localeCompare(b));
-  }, [planningVm]);
+    return (planningVm?.days ?? []).slice().sort((a, b) => a.localeCompare(b));
+  }, [planningVm?.days]);
 
   // Main click handler for matrix cells
   const handleCellClick = React.useCallback(
@@ -204,6 +206,30 @@ export function TeamPlanningClient({
     },
     [multiSelect, anchorKey, orderedDays],
   );
+
+  // -----
+  // Bulk sheet
+  // -----
+  const [bulkOpen, setBulkOpen] = React.useState(false);
+
+  const bulkItems: TeamPlanningBulkItem[] = React.useMemo(() => {
+    const map = new Map<number, Set<string>>();
+
+    for (const k of selectedKeys) {
+      const { agentId, dayDateISO } = parseCellKey(k);
+      if (!map.has(agentId)) map.set(agentId, new Set());
+      map.get(agentId)!.add(dayDateISO);
+    }
+
+    return Array.from(map.entries())
+      .sort(([a], [b]) => a - b)
+      .map(([agent_id, dates]) => ({
+        agent_id,
+        day_dates: Array.from(dates).sort((a, b) => a.localeCompare(b)),
+      }));
+  }, [selectedKeys]);
+
+  const canOpenBulk = bulkItems.length > 0;
 
   return (
     <div className="space-y-4">
@@ -262,7 +288,9 @@ export function TeamPlanningClient({
               <div className="flex items-center gap-2 text-sm">
                 <span className="font-medium">
                   {selectedCount}{" "}
-                  {selectedCount > 1 ? "cellules sélectionnées" : "cellule sélectionnée"}
+                  {selectedCount > 1
+                    ? "cellules sélectionnées"
+                    : "cellule sélectionnée"}
                 </span>
                 {selectedCount === 0 ? (
                   <span className="text-muted-foreground">
@@ -283,11 +311,8 @@ export function TeamPlanningClient({
 
                 <Button
                   type="button"
-                  onClick={() => {
-                    // TODO: ouvrir TeamBulkEditSheet
-                    // on s'en occupe juste après 🙂
-                  }}
-                  disabled={selectedCount === 0}
+                  onClick={() => setBulkOpen(true)}
+                  disabled={!canOpenBulk}
                 >
                   Éditer
                 </Button>
@@ -344,6 +369,20 @@ export function TeamPlanningClient({
           await mutate();
         }}
       />
+
+      {/* Sheet (bulk edit) */}
+      {teamId !== null ? (
+        <TeamBulkEditSheet
+          open={bulkOpen}
+          onClose={() => setBulkOpen(false)}
+          teamId={teamId}
+          items={bulkItems}
+          onApplied={async () => {
+            clearSelection();
+            await mutate();
+          }}
+        />
+      ) : null}
     </div>
   );
 }
