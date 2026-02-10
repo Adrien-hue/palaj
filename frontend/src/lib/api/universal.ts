@@ -64,7 +64,7 @@ async function apiFetchClient<T>(path: string, options: FetchOptions = {}): Prom
 
   // 401 -> refresh -> retry once (client only)
   if (res.status === 401 && options.retry !== false) {
-    const refresh = await fetch(buildUrl("/auth/refresh"), {
+    const refresh = await fetch("/api/auth/refresh", {
       method: "POST",
       credentials: "include",
       headers: { Accept: "application/json" },

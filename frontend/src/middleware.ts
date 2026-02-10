@@ -1,57 +1,86 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-const PUBLIC_PATHS = [
-  "/login",
-  "/favicon.ico",
-  "/robots.txt",
-  "/sitemap.xml",
-];
+const ACCESS_COOKIE = "palaj_at";
+const REFRESH_COOKIE = "palaj_rt";
+
+const PUBLIC_PATHS = ["/login", "/favicon.ico", "/robots.txt", "/sitemap.xml"];
 
 function isPublicPath(pathname: string) {
-  // Autorise toutes les routes publiques exactes
   if (PUBLIC_PATHS.includes(pathname)) return true;
-
-  // Autorise les assets statiques usuels (si tu en as)
   if (pathname.startsWith("/_next/")) return true;
-  if (pathname.startsWith("/api/")) return true; // IMPORTANT: ne pas bloquer tes route handlers Next
-  if (pathname.startsWith("/public/")) return true; // optionnel, selon ton setup
-
-  // Autorise les fichiers statiques par extension (images/fonts)
-  if (/\.(png|jpg|jpeg|gif|webp|svg|ico|css|js|map|woff2?|ttf|eot)$/.test(pathname)) {
-    return true;
-  }
-
+  if (pathname.startsWith("/api/")) return true;
+  if (pathname.startsWith("/public/")) return true;
+  if (/\.(png|jpg|jpeg|gif|webp|svg|ico|css|js|map|woff2?|ttf|eot)$/.test(pathname)) return true;
   return false;
 }
 
-export function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl;
-
-  // Laisse passer ce qui est public / infra
-  if (isPublicPath(pathname)) {
-    return NextResponse.next();
-  }
-
-  // Token d’accès en cookie httpOnly (posé par le backend)
-  const hasAccessToken = req.cookies.has("palaj_at");
-
-  if (hasAccessToken) {
-    return NextResponse.next();
-  }
-
-  // Sinon => redirect login + retour à la page demandée
+function buildLoginRedirect(req: NextRequest) {
   const loginUrl = req.nextUrl.clone();
   loginUrl.pathname = "/login";
-  loginUrl.searchParams.set("next", pathname + req.nextUrl.search);
-
+  loginUrl.searchParams.set("reason", "expired");
+  loginUrl.searchParams.set("next", req.nextUrl.pathname + req.nextUrl.search);
   return NextResponse.redirect(loginUrl);
 }
 
-// Applique le middleware partout sauf ce qu'on exclut via matcher.
+function relaySetCookieHeaders(upstream: Response, downstream: NextResponse) {
+  const anyHeaders = upstream.headers as any;
+  const setCookies: string[] =
+    typeof anyHeaders.getSetCookie === "function"
+      ? anyHeaders.getSetCookie()
+      : upstream.headers.get("set-cookie")
+        ? [upstream.headers.get("set-cookie") as string]
+        : [];
+
+  for (const sc of setCookies) {
+    if (sc) downstream.headers.append("set-cookie", sc);
+  }
+}
+
+export async function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl;
+
+  if (isPublicPath(pathname)) return NextResponse.next();
+
+  if (req.cookies.has(ACCESS_COOKIE)) return NextResponse.next();
+
+  if (req.nextUrl.searchParams.get("__rf") === "1") {
+    return buildLoginRedirect(req);
+  }
+
+  if (!req.cookies.has(REFRESH_COOKIE)) {
+    return buildLoginRedirect(req);
+  }
+
+  const refreshUrl = req.nextUrl.clone();
+  refreshUrl.pathname = "/api/auth/refresh";
+  refreshUrl.search = "";
+
+  const cookieHeader = req.cookies
+    .getAll()
+    .map((c) => `${c.name}=${c.value}`)
+    .join("; ");
+
+  const upstream = await fetch(refreshUrl, {
+    method: "POST",
+    headers: {
+      ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+      Accept: "application/json",
+    },
+  });
+
+  if (!upstream.ok) {
+    return buildLoginRedirect(req);
+  }
+
+  const retryUrl = req.nextUrl.clone();
+  retryUrl.searchParams.set("__rf", "1");
+
+  const res = NextResponse.redirect(retryUrl, { status: 307 });
+  relaySetCookieHeaders(upstream, res);
+  return res;
+}
+
 export const config = {
-  matcher: [
-    // Tout, sauf _next static, images, favicon etc. (on filtre aussi via isPublicPath)
-    "/((?!_next).*)",
-  ],
+  matcher: ["/((?!_next).*)"],
 };
