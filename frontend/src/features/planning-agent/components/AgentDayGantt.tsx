@@ -4,15 +4,14 @@ import { useMemo } from "react";
 import type { ShiftSegmentVm } from "@/features/planning-agent/vm/agentPlanning.vm";
 import { timeToMinutes } from "@/utils/time.format";
 import { DayTimeline } from "@/components/planning/timeline/DayTimeline";
+import { usePosteNamesById } from "@/features/postes/hooks/usePosteNamesById";
 
 export function AgentDayGantt({
   segments,
-  posteNameById,
   dayStart = "00:00:00",
   dayEnd = "23:59:00",
 }: {
   segments: ShiftSegmentVm[];
-  posteNameById: Map<number, string>;
   dayStart?: string;
   dayEnd?: string;
 }) {
@@ -21,7 +20,7 @@ export function AgentDayGantt({
       startMin: timeToMinutes(dayStart),
       endMin: timeToMinutes(dayEnd),
     }),
-    [dayStart, dayEnd],
+    [dayStart, dayEnd]
   );
 
   const input = useMemo(
@@ -31,8 +30,12 @@ export function AgentDayGantt({
         startMin: timeToMinutes(s.start),
         endMin: timeToMinutes(s.end),
       })),
-    [segments],
+    [segments]
   );
+
+  // ✅ ids postes depuis les segments
+  const posteIds = useMemo(() => segments.map((s) => s.posteId), [segments]);
+  const { posteNameById } = usePosteNamesById(posteIds);
 
   return (
     <DayTimeline
