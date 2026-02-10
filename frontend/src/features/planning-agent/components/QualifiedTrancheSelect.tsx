@@ -4,6 +4,7 @@ import { useEffect, useMemo, useId, useRef } from "react";
 import type { Tranche } from "@/types";
 import { useQualifiedTranches } from "@/features/planning-agent/hooks/useQualifiedTranches";
 import { useCoveredTrancheIds } from "@/features/planning-agent/hooks/useCoveredTrancheIds";
+import { usePosteNamesById } from "@/features/postes/hooks/usePosteNamesById";
 
 import {
   Select,
@@ -22,7 +23,6 @@ type Props = {
   agentId: number;
   value: number | null;
   onChange: (v: number | null) => void;
-  posteNameById: Map<number, string>;
   disabled?: boolean;
 
   dateISO: string | null;
@@ -42,7 +42,6 @@ export function QualifiedTrancheSelect({
   agentId,
   value,
   onChange,
-  posteNameById,
   disabled,
   dateISO,
   refreshKey,
@@ -57,7 +56,14 @@ export function QualifiedTrancheSelect({
 }: Props) {
   const id = useId();
 
-  const { tranches, isLoading, error, posteIds } = useQualifiedTranches(agentId);
+  const { tranches, isLoading, error, posteIds } =
+    useQualifiedTranches(agentId);
+
+  const {
+    posteNameById,
+    isLoading: loadingPostes,
+    error: postesError,
+  } = usePosteNamesById(posteIds);
 
   const {
     coveredTrancheIds,
@@ -65,10 +71,8 @@ export function QualifiedTrancheSelect({
     refreshCoverage,
   } = useCoveredTrancheIds({ dateISO, posteIds });
 
-  // clé stable dérivée des posteIds
   const posteIdsKey = useMemo(() => posteIds.join(","), [posteIds]);
 
-  // ne refresh que si refreshKey a réellement changé
   const lastAppliedRefreshKey = useRef<number | undefined>(undefined);
 
   useEffect(() => {
@@ -80,7 +84,7 @@ export function QualifiedTrancheSelect({
     lastAppliedRefreshKey.current = refreshKey;
 
     refreshCoverage();
-  }, [refreshKey, dateISO, posteIdsKey, posteIds.length, refreshCoverage]);
+  }, [refreshKey, dateISO, posteIdsKey, refreshCoverage]);
 
   const grouped = useMemo(() => {
     const map = new Map<number, Tranche[]>();
@@ -97,11 +101,13 @@ export function QualifiedTrancheSelect({
     return [...map.entries()].sort(([a], [b]) => a - b);
   }, [tranches]);
 
-  // Force remount du menu quand la couverture change / refresh
   const contentKey = `${refreshKey ?? 0}-${coveredTrancheIds.size}`;
 
   const stringValue = value === null ? undefined : String(value);
-  const isDisabled = disabled || isLoading || loadingCoverage;
+
+  const isDisabled = disabled || isLoading || loadingCoverage || loadingPostes;
+
+  const hasError = Boolean(error || postesError);
 
   return (
     <div className={cn("space-y-1", className)}>
@@ -122,26 +128,28 @@ export function QualifiedTrancheSelect({
         <SelectTrigger id={id} className="w-full">
           <SelectValue
             placeholder={
-              isLoading || loadingCoverage ? loadingLabel : placeholder
+              isLoading || loadingCoverage || loadingPostes
+                ? loadingLabel
+                : placeholder
             }
           />
         </SelectTrigger>
 
         <SelectContent key={contentKey}>
           <ScrollArea className="h-72">
-            {error ? (
+            {hasError ? (
               <div className="px-2 py-2 text-sm text-destructive">
                 {errorLabel}
               </div>
             ) : null}
 
-            {!isLoading && !error && grouped.length === 0 ? (
+            {!isLoading && !hasError && grouped.length === 0 ? (
               <div className="px-2 py-2 text-sm text-muted-foreground">
                 {emptyLabel}
               </div>
             ) : null}
 
-            {!isLoading && !error
+            {!isLoading && !hasError
               ? grouped.map(([posteId, trs]) => {
                   const posteName =
                     posteNameById.get(posteId) ?? `Poste #${posteId}`;
@@ -159,7 +167,7 @@ export function QualifiedTrancheSelect({
                             value={String(t.id)}
                             className={cn(
                               "flex items-center",
-                              isCovered && "opacity-70"
+                              isCovered && "opacity-70",
                             )}
                           >
                             <div className="flex w-full items-center gap-2">
@@ -189,7 +197,7 @@ export function QualifiedTrancheSelect({
                 })
               : null}
 
-            {!isLoading ? (
+            {!isLoading && !loadingCoverage && !loadingPostes ? (
               <SelectGroup>
                 <SelectLabel className="text-xs">Actions</SelectLabel>
                 <SelectItem value="__clear__">Aucune (vider)</SelectItem>
