@@ -46,13 +46,26 @@ function makeApiError(res: Response, body: { bodyText?: string; bodyJson?: unkno
   });
 }
 
+function normalizeMethod(options: FetchOptions, hasBody: boolean, path: string): string {
+  const method = (options.method ?? (hasBody ? "POST" : "GET")).toUpperCase();
+
+  // Guard: browsers disallow GET/HEAD with body
+  if (hasBody && (method === "GET" || method === "HEAD")) {
+    throw new Error(`apiFetch: ${method} cannot be used with a body for ${path}`);
+  }
+
+  return method;
+}
+
 // --- CLIENT IMPLEMENTATION ---
 async function apiFetchClient<T>(path: string, options: FetchOptions = {}): Promise<T> {
   const url = buildUrl(path);
   const hasBody = options.body !== undefined;
+  const method = normalizeMethod(options, hasBody, path);
 
   const res = await fetch(url, {
     ...options,
+    method,
     headers: {
       Accept: "application/json",
       ...(hasBody ? { "Content-Type": "application/json" } : {}),
@@ -99,6 +112,7 @@ async function apiFetchClient<T>(path: string, options: FetchOptions = {}): Prom
 async function apiFetchServer<T>(path: string, options: FetchOptions = {}): Promise<T> {
   const url = buildUrl(path);
   const hasBody = options.body !== undefined;
+  const method = normalizeMethod(options, hasBody, path);
 
   // Import dynamique -> jamais bundlé côté client
   const { cookies } = await import("next/headers");
@@ -111,6 +125,7 @@ async function apiFetchServer<T>(path: string, options: FetchOptions = {}): Prom
 
   const res = await fetch(url, {
     ...options,
+    method,
     headers: {
       Accept: "application/json",
       ...(hasBody ? { "Content-Type": "application/json" } : {}),
