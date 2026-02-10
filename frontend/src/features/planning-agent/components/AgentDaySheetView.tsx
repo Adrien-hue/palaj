@@ -26,6 +26,22 @@ export type AgentDaySheetSavePayload = {
   tranche_id: number | null;
 };
 
+type Props = {
+  open: boolean;
+  onClose: () => void;
+  day: AgentDayVm | null;
+  agentId: number;
+  onSave: (payload: AgentDaySheetSavePayload) => Promise<void>;
+  onDelete: (dayDate: string) => Promise<void>;
+
+  // ✅ états réseau / UI
+  loading?: boolean;
+  validating?: boolean;
+  busy?: boolean;
+  loadError?: string | null;
+  actionError?: string | null;
+};
+
 export function AgentDaySheetView({
   open,
   onClose,
@@ -33,14 +49,13 @@ export function AgentDaySheetView({
   agentId,
   onSave,
   onDelete,
-}: {
-  open: boolean;
-  onClose: () => void;
-  day: AgentDayVm | null;
-  agentId: number;
-  onSave: (payload: AgentDaySheetSavePayload) => Promise<void>;
-  onDelete: (dayDate: string) => Promise<void>;
-}) {
+
+  loading = false,
+  validating = false,
+  busy = false,
+  loadError = null,
+  actionError = null,
+}: Props) {
   const dateLabel = day ? formatDateFR(day.day_date) : "Jour";
   const [coverageRefreshKey, setCoverageRefreshKey] = useState(0);
 
@@ -64,6 +79,8 @@ export function AgentDaySheetView({
 
   const isWorking = dayType === "working";
   const canSave = !!day && (!isWorking || trancheId !== null);
+
+  const uiDisabled = busy || loading; // loading bloque tout ; validating = info
 
   function handleCancel() {
     if (!day) return;
@@ -100,7 +117,8 @@ export function AgentDaySheetView({
       const first = day.segments[0];
       const start = first.start.slice(0, 5);
       const end = first.end.slice(0, 5);
-      const poste = posteNameById.get(first.posteId) ?? `Poste #${first.posteId}`;
+      const poste =
+        posteNameById.get(first.posteId) ?? `Poste #${first.posteId}`;
       return (
         <span className="truncate text-xs text-muted-foreground">
           {poste} • {start}–{end}
@@ -144,20 +162,52 @@ export function AgentDaySheetView({
     >
       <div className="space-y-4">
         {day ? (
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={handleCancel}>
-              Annuler
-            </Button>
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleCancel}
+                disabled={uiDisabled}
+              >
+                Annuler
+              </Button>
 
-            <Button size="sm" onClick={handleSave} disabled={!canSave}>
-              Enregistrer
-            </Button>
+              <Button
+                size="sm"
+                onClick={handleSave}
+                disabled={uiDisabled || !canSave}
+              >
+                Enregistrer
+              </Button>
 
-            <div className="flex-1" />
+              <div className="flex-1" />
 
-            <Button variant="destructive" size="sm" onClick={handleDelete}>
-              Supprimer
-            </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleDelete}
+                disabled={uiDisabled}
+              >
+                Supprimer
+              </Button>
+            </div>
+
+            {loading ? (
+              <p className="text-xs text-muted-foreground">Chargement…</p>
+            ) : validating ? (
+              <p className="text-xs text-muted-foreground">Mise à jour…</p>
+            ) : null}
+
+            {loadError ? (
+              <p className="text-xs text-destructive">
+                Impossible de charger le planning. {loadError}
+              </p>
+            ) : null}
+
+            {actionError ? (
+              <p className="text-xs text-destructive">{actionError}</p>
+            ) : null}
           </div>
         ) : null}
 
@@ -166,7 +216,12 @@ export function AgentDaySheetView({
             <EmptyBox>Aucun jour sélectionné.</EmptyBox>
           ) : (
             <>
-              <DayTypeSelect value={dayType} onValueChange={setDayType} />
+              {/* si DayTypeSelect supporte disabled, passe-le ; sinon bloque via wrapper plus tard */}
+              <DayTypeSelect
+                value={dayType}
+                onValueChange={setDayType}
+                disabled={uiDisabled}
+              />
 
               {isWorking ? (
                 <div className="space-y-2">
@@ -177,6 +232,7 @@ export function AgentDaySheetView({
                     onChange={setTrancheId}
                     label="Tranche"
                     refreshKey={coverageRefreshKey}
+                    disabled={uiDisabled}
                   />
 
                   {trancheId === null ? (
@@ -199,6 +255,7 @@ export function AgentDaySheetView({
                   placeholder="Optionnel"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
+                  disabled={uiDisabled}
                 />
               </div>
             </>
@@ -218,11 +275,7 @@ export function AgentDaySheetView({
 
           <div className="rounded-xl border bg-card p-3">
             {day ? (
-              <AgentDayGantt
-                segments={day.segments}
-                dayStart="00:00:00"
-                dayEnd="23:59:00"
-              />
+              <AgentDayGantt segments={day.segments} dayStart="00:00:00" dayEnd="23:59:00" />
             ) : (
               <EmptyBox>Aucun jour sélectionné.</EmptyBox>
             )}

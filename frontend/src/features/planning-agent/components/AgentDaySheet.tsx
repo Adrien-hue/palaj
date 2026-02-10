@@ -29,8 +29,7 @@ export function AgentDaySheet({
   const { data, isLoading, isValidating, error, mutate } = useAgentPlanning(
     enabled
       ? { agentId, startDate: dayDateISO!, endDate: dayDateISO! }
-      : // fallback pour éviter un fetch non désiré si ton hook ne supporte pas "enabled"
-        { agentId, startDate: "1970-01-01", endDate: "1970-01-01" },
+      : { agentId, startDate: "1970-01-01", endDate: "1970-01-01" }
   );
 
   const planningVm = React.useMemo(() => {
@@ -40,29 +39,58 @@ export function AgentDaySheet({
 
   const day: AgentDayVm | null = React.useMemo(() => {
     if (!planningVm || !dayDateISO) return null;
-    // range 1 jour => day[0]
     return planningVm.days[0] ?? null;
   }, [planningVm, dayDateISO]);
 
   const { saveDay, removeDay } = useAgentPlanningEdit(agentId, planningKey);
 
-  async function handleSave(payload: AgentDaySheetSavePayload) {
-    await saveDay({
-      dayDate: payload.dayDate,
-      day_type: payload.day_type,
-      description: payload.description,
-      tranche_id: payload.tranche_id,
-    });
+  const [isSaving, setIsSaving] = React.useState(false);
+  const [isDeleting, setIsDeleting] = React.useState(false);
+  const [actionError, setActionError] = React.useState<string | null>(null);
 
-    if (mutate) await mutate();
+  async function handleSave(payload: AgentDaySheetSavePayload) {
+    try {
+      setActionError(null);
+      setIsSaving(true);
+
+      await saveDay({
+        dayDate: payload.dayDate,
+        day_type: payload.day_type,
+        description: payload.description,
+        tranche_id: payload.tranche_id,
+      });
+
+      if (mutate) await mutate();
+    } catch (e) {
+      setActionError(
+        e instanceof Error ? e.message : "Erreur lors de l’enregistrement"
+      );
+      throw e;
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   async function handleDelete(dayDate: string) {
-    await removeDay(dayDate);
+    try {
+      setActionError(null);
+      setIsDeleting(true);
 
-    if (mutate) await mutate();
-    onClose();
+      await removeDay(dayDate);
+
+      if (mutate) await mutate();
+      onClose();
+    } catch (e) {
+      setActionError(
+        e instanceof Error ? e.message : "Erreur lors de la suppression"
+      );
+      throw e;
+    } finally {
+      setIsDeleting(false);
+    }
   }
+
+  const busy = isSaving || isDeleting;
 
   return (
     <AgentDaySheetView
@@ -72,6 +100,11 @@ export function AgentDaySheet({
       agentId={agentId}
       onSave={handleSave}
       onDelete={handleDelete}
+      loading={isLoading}
+      validating={isValidating}
+      loadError={error?.message ?? null}
+      actionError={actionError}
+      busy={busy}
     />
   );
 }
