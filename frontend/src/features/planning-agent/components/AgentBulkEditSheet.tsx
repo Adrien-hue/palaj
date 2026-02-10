@@ -22,7 +22,6 @@ export function AgentBulkEditSheet(props: {
   planningKey: AgentPlanningKey | null;
 
   selectedDates: string[];
-  posteNameById: Map<number, string>;
 
   onApplied?: () => void;
 }) {
@@ -32,7 +31,6 @@ export function AgentBulkEditSheet(props: {
     agentId,
     planningKey,
     selectedDates,
-    posteNameById,
     onApplied,
   } = props;
 
@@ -135,7 +133,6 @@ export function AgentBulkEditSheet(props: {
             agentId={agentId}
             value={trancheId}
             onChange={setTrancheId}
-            posteNameById={posteNameById}
             disabled={submitting}
             dateISO={null}
             label="Tranche"
