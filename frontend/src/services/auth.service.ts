@@ -1,4 +1,4 @@
-import { apiFetch } from "@/lib/api";
+import { apiFetch } from "@/lib/api/universal";
 import type { ActionResponse } from "@/types/common";
 
 export function logout() {
