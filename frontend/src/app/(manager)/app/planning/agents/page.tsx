@@ -10,7 +10,7 @@ type PageProps = {
 export default async function AgentsPlanningPage({ searchParams }: PageProps) {
   const sp = await searchParams;
 
-  const [agentsList, postesList] = await Promise.all([listAgents(), listPostes()]);
+  const [agentsList] = await Promise.all([listAgents()]);
 
   const todayISO = new Date().toISOString().slice(0, 10);
   const initialAnchor = monthAnchorISO(sp.anchor ?? sp.date ?? todayISO);
@@ -20,7 +20,6 @@ export default async function AgentsPlanningPage({ searchParams }: PageProps) {
       initialAgentId={null}
       initialAnchor={initialAnchor}
       agents={agentsList.items}
-      postes={postesList.items}
     />
   );
 }

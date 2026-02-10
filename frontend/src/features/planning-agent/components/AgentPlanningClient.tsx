@@ -41,12 +41,10 @@ export function AgentPlanningClient({
   initialAgentId = null,
   initialAnchor,
   agents,
-  postes,
 }: {
   initialAgentId?: number | null;
   initialAnchor: string;
   agents: AgentListItem[];
-  postes: { id: number; nom: string }[];
 }) {
   const [agentId, setAgentId] = React.useState<number | null>(initialAgentId);
 
@@ -80,11 +78,6 @@ export function AgentPlanningClient({
     startDate: range.start,
     endDate: range.end,
   });
-
-  const posteNameById = React.useMemo(
-    () => new Map<number, string>(postes.map((p) => [p.id, p.nom])),
-    [postes],
-  );
 
   const planningVm = React.useMemo(() => {
     if (!data) return null;
@@ -358,8 +351,7 @@ export function AgentPlanningClient({
         <AgentDaySheet
           open={sheetOpen}
           onClose={() => setSheetOpen(false)}
-          selectedDay={selectedDay}
-          posteNameById={posteNameById}
+          dayDateISO={selectedDayDate}
           agentId={agentId}
           planningKey={planningKey}
         />
@@ -372,7 +364,6 @@ export function AgentPlanningClient({
           agentId={agentId}
           planningKey={planningKey}
           selectedDates={selectedDatesSorted}
-          posteNameById={posteNameById}
           onApplied={() => {
             // après succès: on clear la sélection et on reste en mode multi (ou pas)
             clearMultiSelection();

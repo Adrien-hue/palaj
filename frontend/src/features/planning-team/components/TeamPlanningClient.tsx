@@ -15,7 +15,7 @@ import { shiftPlanningPeriod } from "@/features/planning-common/period/period.ut
 
 import { TeamHeaderSelect } from "@/features/planning-team/components/TeamHeaderSelect";
 import { TeamPlanningMatrix } from "@/features/planning-team/components/TeamPlanningMatrix";
-import { TeamDaySheet } from "@/features/planning-team/components/TeamDaySheet";
+import { AgentDaySheet } from "@/features/planning-agent/components/AgentDaySheet";
 
 import { Card, CardContent } from "@/components/ui/card";
 import { formatDateFR, toISODate } from "@/utils/date.format";
@@ -82,12 +82,12 @@ export function TeamPlanningClient({
 
   // Sheet state
   const [sheetOpen, setSheetOpen] = React.useState(false);
-  const [selectedAgent, setSelectedAgent] = React.useState<Agent | null>(null);
-  const [selectedDay, setSelectedDay] = React.useState<AgentDay | null>(null);
+  const [selectedAgentId, setSelectedAgentId] = React.useState<number | null>(null);
+  const [selectedDayDateISO, setSelectedDayDateISO] = React.useState<string | null>(null);
 
   const openSheet = React.useCallback((agent: Agent, day: AgentDay) => {
-    setSelectedAgent(agent);
-    setSelectedDay(day);
+    setSelectedAgentId(agent.id);
+    setSelectedDayDateISO(day.day_date);
     setSheetOpen(true);
   }, []);
 
@@ -146,11 +146,12 @@ export function TeamPlanningClient({
       )}
 
       {/* Sheet */}
-      <TeamDaySheet
+      <AgentDaySheet
         open={sheetOpen}
-        onOpenChange={setSheetOpen}
-        agent={selectedAgent}
-        day={selectedDay}
+        onClose={() => setSheetOpen(false)}
+        agentId={selectedAgentId ?? 0}
+        dayDateISO={selectedDayDateISO}
+        planningKey={null}
       />
     </div>
   );
