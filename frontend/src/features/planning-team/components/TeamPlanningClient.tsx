@@ -20,6 +20,20 @@ import { AgentDaySheet } from "@/features/planning-agent/components/AgentDayShee
 import { Card, CardContent } from "@/components/ui/card";
 import { formatDateFR, toISODate } from "@/utils/date.format";
 
+import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+
+type CellKey = `${number}__${string}`;
+const cellKey = (agentId: number, dayDateISO: string) =>
+  `${agentId}__${dayDateISO}` as CellKey;
+
+function parseCellKey(key: CellKey): { agentId: number; dayDateISO: string } {
+  const [a, d] = key.split("__");
+  return { agentId: Number(a), dayDateISO: d };
+}
+
 export function TeamPlanningClient({
   initialTeamId = null,
   initialAnchor, // YYYY-MM-01 (ou YYYY-MM-DD, on normalise)
@@ -80,22 +94,116 @@ export function TeamPlanningClient({
             ? "Mise à jour…"
             : subtitle;
 
-  // Sheet state
+  // -----
+  // Sheet state (single edit)
+  // -----
   const [sheetOpen, setSheetOpen] = React.useState(false);
-  const [selectedAgentId, setSelectedAgentId] = React.useState<number | null>(null);
-  const [selectedDayDateISO, setSelectedDayDateISO] = React.useState<string | null>(null);
+  const [selectedAgentId, setSelectedAgentId] = React.useState<number | null>(
+    null,
+  );
+  const [selectedDayDateISO, setSelectedDayDateISO] = React.useState<
+    string | null
+  >(null);
 
-  const openSheet = React.useCallback((agent: Agent, day: AgentDay) => {
-    setSelectedAgentId(agent.id);
-    setSelectedDayDateISO(day.day_date);
-    setSheetOpen(true);
+  // -----
+  // Multi-select state
+  // -----
+  const [multiSelect, setMultiSelect] = React.useState(false);
+  const [selectedKeys, setSelectedKeys] = React.useState<Set<CellKey>>(
+    () => new Set(),
+  );
+  const [anchorKey, setAnchorKey] = React.useState<CellKey | null>(null);
+
+  const selectedCount = selectedKeys.size;
+
+  const clearSelection = React.useCallback(() => {
+    setSelectedKeys(new Set());
+    setAnchorKey(null);
   }, []);
 
+  const exitMultiSelect = React.useCallback(() => {
+    setMultiSelect(false);
+    clearSelection();
+  }, [clearSelection]);
+
+  const toggleMultiSelect = React.useCallback(() => {
+    setMultiSelect((v) => {
+      const next = !v;
+      if (next) {
+        // en entrant en mode multi, on ferme le sheet et on reset la sélection
+        setSheetOpen(false);
+        setSelectedAgentId(null);
+        setSelectedDayDateISO(null);
+        clearSelection();
+      }
+      return next;
+    });
+  }, [clearSelection]);
+
+  // Reset on team/period change
   React.useEffect(() => {
     setSheetOpen(false);
     setSelectedAgentId(null);
     setSelectedDayDateISO(null);
-  }, [teamId, range.start, range.end]);
+    setMultiSelect(false);
+    clearSelection();
+  }, [teamId, range.start, range.end, clearSelection]);
+
+  // Ordered days for shift-range
+  const orderedDays = React.useMemo(() => {
+    return (planningVm?.days ?? [])
+      .slice()
+      .sort((a, b) => a.localeCompare(b));
+  }, [planningVm]);
+
+  // Main click handler for matrix cells
+  const handleCellClick = React.useCallback(
+    (agent: Agent, day: AgentDay, e: React.MouseEvent) => {
+      if (!multiSelect) {
+        setSelectedAgentId(agent.id);
+        setSelectedDayDateISO(day.day_date);
+        setSheetOpen(true);
+        return;
+      }
+
+      e.preventDefault();
+
+      const key = cellKey(agent.id, day.day_date);
+
+      setSelectedKeys((prev) => {
+        const next = new Set(prev);
+
+        // SHIFT range selection: only within same agent row
+        if (e.shiftKey && anchorKey) {
+          const a = parseCellKey(anchorKey);
+
+          if (a.agentId === agent.id) {
+            const startIdx = orderedDays.indexOf(a.dayDateISO);
+            const endIdx = orderedDays.indexOf(day.day_date);
+
+            if (startIdx !== -1 && endIdx !== -1) {
+              const [s, t] =
+                startIdx < endIdx ? [startIdx, endIdx] : [endIdx, startIdx];
+
+              for (let i = s; i <= t; i++) {
+                next.add(cellKey(agent.id, orderedDays[i]));
+              }
+              return next;
+            }
+          }
+        }
+
+        // Toggle current cell
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+
+        return next;
+      });
+
+      setAnchorKey((prev) => (e.shiftKey ? prev ?? key : key));
+    },
+    [multiSelect, anchorKey, orderedDays],
+  );
 
   return (
     <div className="space-y-4">
@@ -109,15 +217,89 @@ export function TeamPlanningClient({
         }
         subtitle={headerSubtitle}
         rightSlot={
-          <PlanningPeriodControls
-            value={period}
-            onChange={setPeriod}
-            onPrev={() => setPeriod((p) => shiftPlanningPeriod(p, -1))}
-            onNext={() => setPeriod((p) => shiftPlanningPeriod(p, 1))}
-            disabled={teamId !== null && isLoading}
-          />
+          <div className="flex items-center gap-4">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="flex items-center gap-2 cursor-pointer">
+                  <Switch
+                    id="multi-select"
+                    checked={multiSelect}
+                    onCheckedChange={toggleMultiSelect}
+                    disabled={teamId !== null && isLoading}
+                  />
+                  <Label htmlFor="multi-select">Sélection multiple</Label>
+                </div>
+              </TooltipTrigger>
+
+              <TooltipContent side="bottom" align="start">
+                <p className="text-sm">
+                  Sélectionnez plusieurs cellules pour appliquer un statut,
+                  <br />
+                  une tranche et un commentaire en une seule fois.
+                  <br />
+                  <span className="text-muted-foreground">
+                    Astuce : Shift pour une plage (même agent).
+                  </span>
+                </p>
+              </TooltipContent>
+            </Tooltip>
+
+            <PlanningPeriodControls
+              value={period}
+              onChange={setPeriod}
+              onPrev={() => setPeriod((p) => shiftPlanningPeriod(p, -1))}
+              onNext={() => setPeriod((p) => shiftPlanningPeriod(p, 1))}
+              disabled={teamId !== null && isLoading}
+            />
+          </div>
         }
       />
+
+      {multiSelect ? (
+        <div className="sticky top-0 z-10">
+          <div className="rounded-xl border bg-card/95 p-3 shadow-sm backdrop-blur">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-2 text-sm">
+                <span className="font-medium">
+                  {selectedCount}{" "}
+                  {selectedCount > 1 ? "cellules sélectionnées" : "cellule sélectionnée"}
+                </span>
+                {selectedCount === 0 ? (
+                  <span className="text-muted-foreground">
+                    — cliquez pour sélectionner, Shift pour une plage (même agent)
+                  </span>
+                ) : null}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={clearSelection}
+                  disabled={selectedCount === 0}
+                >
+                  Tout désélectionner
+                </Button>
+
+                <Button
+                  type="button"
+                  onClick={() => {
+                    // TODO: ouvrir TeamBulkEditSheet
+                    // on s'en occupe juste après 🙂
+                  }}
+                  disabled={selectedCount === 0}
+                >
+                  Éditer
+                </Button>
+
+                <Button type="button" variant="ghost" onClick={exitMultiSelect}>
+                  Quitter
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {teamId === null ? (
         <Card>
@@ -141,7 +323,8 @@ export function TeamPlanningClient({
         <TeamPlanningMatrix
           days={planningVm.days}
           rows={planningVm.rows}
-          onCellClick={openSheet}
+          onCellClick={handleCellClick}
+          selectedKeys={selectedKeys}
         />
       ) : (
         <Card>
@@ -151,7 +334,7 @@ export function TeamPlanningClient({
         </Card>
       )}
 
-      {/* Sheet */}
+      {/* Sheet (single edit) */}
       <AgentDaySheet
         open={sheetOpen}
         onClose={() => setSheetOpen(false)}
