@@ -13,10 +13,11 @@ type Props = {
   rows: TeamAgentPlanning[];
   emptyLabel?: string;
 
-  onCellClick: (agent: Agent, day: AgentDay) => void;
+  onCellClick: (agent: Agent, day: AgentDay, e: React.MouseEvent) => void;
 
-  selected?: { agentId: number; dayDate: string } | null;
+  selectedKeys?: ReadonlySet<string>;
 };
+
 
 const AGENT_COL_W = 260;
 const DAY_COL_W = 80;
@@ -38,7 +39,7 @@ export function TeamPlanningMatrix({
   rows,
   emptyLabel = "Aucun agent dans cette équipe.",
   onCellClick,
-  selected = null,
+  selectedKeys,
 }: Props) {
   if (days.length === 0) return null;
 
@@ -171,10 +172,8 @@ export function TeamPlanningMatrix({
 
               {row.days.map((day, idx) => {
                 const flags = colFlags[idx];
-                const isSelected =
-                  selected != null &&
-                  selected.agentId === row.agent.id &&
-                  selected.dayDate === day.day_date;
+                const key = `${row.agent.id}__${day.day_date}` as const;
+                const isSelected = selectedKeys?.has(key) ?? false;
 
                 return (
                   <TeamDayCell
@@ -184,7 +183,7 @@ export function TeamPlanningMatrix({
                     isWeekStart={flags.weekStart}
                     isWeekend={flags.weekend}
                     isColToday={flags.today}
-                    onClick={() => onCellClick(row.agent, day)}
+                    onClick={(e) => onCellClick(row.agent, day, e)}
                   />
                 );
               })}

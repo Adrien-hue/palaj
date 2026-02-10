@@ -130,7 +130,7 @@ export function TeamDayCell({
   isWeekend?: boolean;
   isColToday?: boolean;
   selected?: boolean;
-  onClick?: () => void;
+  onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void;
 }) {
   const t = day.day_type;
 
@@ -150,7 +150,8 @@ export function TeamDayCell({
         isWeekend && "bg-muted/20",
 
         isColToday && !selected && "bg-accent/25 ring-1 ring-inset ring-ring/30",
-        selected && "bg-accent/40 ring-2 ring-ring z-20",
+        selected &&
+          "bg-primary/10 ring-2 ring-inset ring-primary",
 
         "hover:bg-muted/30",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
