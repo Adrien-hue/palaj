@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { mutate } from "swr";
 
 import { PlanningSheetShell } from "@/components/planning/PlanningSheetShell";
 import { DayTypeSelect } from "@/components/planning/DayTypeSelect";
@@ -9,9 +8,9 @@ import { QualifiedTrancheSelect } from "@/features/planning-agent/components/Qua
 
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
 import { Textarea } from "@/components/ui/textarea";
 
-import type { AgentPlanningKey } from "@/features/planning-agent/hooks/agentPlanning.key";
 import { bulkUpsertAgentPlanningDays } from "@/services/agent-planning.service";
 
 export function AgentBulkEditSheet(props: {
@@ -19,20 +18,11 @@ export function AgentBulkEditSheet(props: {
   onClose: () => void;
 
   agentId: number;
-  planningKey: AgentPlanningKey | null;
-
   selectedDates: string[];
 
-  onApplied?: () => void;
+  onApplied?: () => void | Promise<void>;
 }) {
-  const {
-    open,
-    onClose,
-    agentId,
-    planningKey,
-    selectedDates,
-    onApplied,
-  } = props;
+  const { open, onClose, agentId, selectedDates, onApplied } = props;
 
   const formId = "agent-bulk-edit-form";
 
@@ -58,7 +48,9 @@ export function AgentBulkEditSheet(props: {
   }, [dayType]);
 
   const canSubmit =
-    selectedCount > 0 && dayType.length > 0 && (!isWorking || trancheId !== null);
+    selectedCount > 0 &&
+    dayType.length > 0 &&
+    (!isWorking || trancheId !== null);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -75,18 +67,56 @@ export function AgentBulkEditSheet(props: {
         tranche_id: isWorking ? trancheId : null,
       });
 
-      if (planningKey) await mutate(planningKey);
+      const updatedCount = res.updated?.length ?? 0;
+      const failedCount = res.failed?.length ?? 0;
+      const total = selectedDates.length;
 
-      if (res.failed?.length) {
-        setErrors(res.failed.map((f) => ({ day_date: f.day_date, message: f.message })));
+      if (failedCount) {
+        setErrors(
+          res.failed.map((f) => ({ day_date: f.day_date, message: f.message })),
+        );
+      }
+
+      if (updatedCount > 0 && failedCount === 0) {
+        toast.success("Mises à jour appliquées", {
+          description: `${updatedCount} ${updatedCount > 1 ? "jours" : "jour"} mis à jour`,
+        });
+
+        await onApplied?.();
+        onClose();
         return;
       }
 
-      onApplied?.();
-      onClose();
+      if (updatedCount > 0 && failedCount > 0) {
+        const sample = res.failed
+          .slice(0, 2)
+          .map((f) => `${f.day_date}: ${f.code}`)
+          .join(" • ");
+        toast.warning("Mises à jour partielles", {
+          description: `${updatedCount}/${total} appliqués — ${failedCount} échec(s)${sample ? ` (${sample})` : ""}`,
+        });
+
+        return;
+      }
+
+      if (updatedCount === 0 && failedCount > 0) {
+        const sampleMsg = res.failed[0]?.message;
+        toast.error("Aucune mise à jour appliquée", {
+          description: sampleMsg ?? `${failedCount} échec(s)`,
+        });
+
+        return;
+      }
+
+      toast.message("Aucune modification", {
+        description: "Aucun jour n’a été mis à jour.",
+      });
     } catch (err) {
       setErrors([
-        { day_date: "", message: err instanceof Error ? err.message : "Erreur inconnue" },
+        {
+          day_date: "",
+          message: err instanceof Error ? err.message : "Erreur inconnue",
+        },
       ]);
     } finally {
       setSubmitting(false);
@@ -112,7 +142,12 @@ export function AgentBulkEditSheet(props: {
       bodyClassName="p-4"
       footer={
         <>
-          <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onClose}
+            disabled={submitting}
+          >
             Annuler
           </Button>
           <Button
@@ -145,16 +180,21 @@ export function AgentBulkEditSheet(props: {
             placeholder="Ajouter un commentaire…"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
+            disabled={submitting}
           />
         </div>
 
         {errors.length ? (
           <div className="rounded-lg border p-3">
-            <div className="text-sm font-medium">Certaines mises à jour ont échoué</div>
+            <div className="text-sm font-medium">
+              Certaines mises à jour ont échoué
+            </div>
             <div className="mt-2 space-y-1 text-sm text-muted-foreground">
               {errors.slice(0, 8).map((e, i) => (
                 <div key={i}>
-                  {e.day_date ? <span className="font-medium">{e.day_date} :</span> : null}{" "}
+                  {e.day_date ? (
+                    <span className="font-medium">{e.day_date} :</span>
+                  ) : null}{" "}
                   {e.message}
                 </div>
               ))}
