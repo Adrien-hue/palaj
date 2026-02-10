@@ -58,7 +58,7 @@ export function TeamPlanningClient({
   }, [range.start, range.end, range.isRange]);
 
   // Data
-  const { data, error, isLoading, isValidating } = useTeamPlanning({
+  const { data, error, isLoading, isValidating, mutate } = useTeamPlanning({
     teamId,
     startDate: range.start,
     endDate: range.end,
@@ -90,6 +90,12 @@ export function TeamPlanningClient({
     setSelectedDayDateISO(day.day_date);
     setSheetOpen(true);
   }, []);
+
+  React.useEffect(() => {
+    setSheetOpen(false);
+    setSelectedAgentId(null);
+    setSelectedDayDateISO(null);
+  }, [teamId, range.start, range.end]);
 
   return (
     <div className="space-y-4">
@@ -151,7 +157,9 @@ export function TeamPlanningClient({
         onClose={() => setSheetOpen(false)}
         agentId={selectedAgentId ?? 0}
         dayDateISO={selectedDayDateISO}
-        planningKey={null}
+        onChanged={async () => {
+          await mutate();
+        }}
       />
     </div>
   );
