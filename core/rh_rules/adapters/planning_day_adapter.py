@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from typing import Iterable, Optional
 
+from core.domain.enums.day_type import DayType
 from core.domain.models.planning_day import PlanningDay
 from core.rh_rules.contexts.rh_context import RhContext
 from core.rh_rules.models.rh_day import RhDay
@@ -30,11 +31,14 @@ def rh_day_from_planning_day(agent_id: int, pd: PlanningDay) -> RhDay:
             )
         )
 
+    forfait = 8 * 60 if pd.day_type == DayType.ZCOT else None
+
     return RhDay(
         agent_id=agent_id,
         day_date=pd.day_date,
         day_type=pd.day_type,
         intervals=intervals,
+        forfait_minutes=forfait,
     )
 
 

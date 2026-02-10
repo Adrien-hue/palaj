@@ -12,6 +12,7 @@ class RhDay:
     day_date: date
     day_type: DayType
     intervals: List[RhInterval]
+    forfait_minutes: int | None = None
 
     def is_working(self) -> bool:
         return self.day_type in (DayType.WORKING, DayType.ZCOT)
