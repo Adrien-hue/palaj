@@ -26,7 +26,6 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { formatDateFR, toISODate } from "@/utils/date.format";
 
-import type { AgentPlanningKey } from "@/features/planning-agent/hooks/agentPlanning.key";
 import { AgentBulkEditSheet } from "./AgentBulkEditSheet";
 
 type AgentListItem = {
@@ -73,7 +72,7 @@ export function AgentPlanningClient({
       : "Planning mensuel";
   }, [range.start, range.end, range.isRange]);
 
-  const { data, error, isLoading, isValidating } = useAgentPlanning({
+  const { data, error, isLoading, isValidating, mutate } = useAgentPlanning({
     agentId,
     startDate: range.start,
     endDate: range.end,
@@ -83,11 +82,6 @@ export function AgentPlanningClient({
     if (!data) return null;
     return buildPlanningVm(data);
   }, [data]);
-
-  const planningKey = React.useMemo<AgentPlanningKey | null>(() => {
-    if (agentId === null) return null;
-    return ["agentPlanning", agentId, range.start, range.end] as const;
-  }, [agentId, range.start, range.end]);
 
   const [selectedDayDate, setSelectedDayDate] = React.useState<string | null>(
     null,
@@ -353,7 +347,9 @@ export function AgentPlanningClient({
           onClose={() => setSheetOpen(false)}
           dayDateISO={selectedDayDate}
           agentId={agentId}
-          planningKey={planningKey}
+          onChanged={async () => {
+            await mutate();
+          }}
         />
       ) : null}
 
@@ -362,12 +358,10 @@ export function AgentPlanningClient({
           open={bulkOpen}
           onClose={() => setBulkOpen(false)}
           agentId={agentId}
-          planningKey={planningKey}
           selectedDates={selectedDatesSorted}
-          onApplied={() => {
-            // après succès: on clear la sélection et on reste en mode multi (ou pas)
+          onApplied={async () => {
             clearMultiSelection();
-            // option: setMultiSelect(false);
+            await mutate();
           }}
         />
       ) : null}
