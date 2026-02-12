@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { startOfMonth, endOfMonth, set } from "date-fns";
+import { startOfMonth, endOfMonth } from "date-fns";
 
 import { buildPlanningVm } from "@/features/planning-agent/vm/agentPlanning.vm.builder";
 import { useAgentPlanning } from "@/features/planning-agent/hooks/useAgentPlanning";
@@ -14,6 +14,9 @@ import { shiftPlanningPeriod } from "@/features/planning-common/period/period.ut
 import { AgentHeaderSelect } from "@/features/planning-agent/components/AgentHeaderSelect";
 import { AgentPlanningGrid } from "@/features/planning-agent/components/AgentPlanningGrid";
 import { AgentDaySheet } from "@/features/planning-agent/components/AgentDaySheet";
+
+import { RhViolationsSheet } from "@/features/rh-validation/components/RhViolationsSheet";
+import { useRhValidationAgent } from "@/features/rh-validation/hooks/useRhValidation";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -90,16 +93,6 @@ export function AgentPlanningClient({
 
   const [multiSelect, setMultiSelect] = React.useState(false);
 
-  const toggleMultiSelect = React.useCallback(() => {
-    setMultiSelect((v) => {
-      const next = !v;
-      if (next) {
-        clearMultiSelection();
-      }
-      return next;
-    });
-  }, []);
-
   const [selectedDates, setSelectedDates] = React.useState<Set<string>>(
     () => new Set(),
   );
@@ -112,15 +105,18 @@ export function AgentPlanningClient({
     setAnchorDate(null);
   }, []);
 
+  const toggleMultiSelect = React.useCallback(() => {
+    setMultiSelect((v) => {
+      const next = !v;
+      if (next) clearMultiSelection();
+      return next;
+    });
+  }, [clearMultiSelection]);
+
   const exitMultiSelect = React.useCallback(() => {
     setMultiSelect(false);
     clearMultiSelection();
   }, [clearMultiSelection]);
-
-  const selectedDay = React.useMemo(() => {
-    if (!planningVm || !selectedDayDate) return null;
-    return planningVm.days.find((d) => d.day_date === selectedDayDate) ?? null;
-  }, [planningVm, selectedDayDate]);
 
   const handleMultiSelectDay = React.useCallback(
     (iso: string, e: React.MouseEvent<HTMLButtonElement>) => {
@@ -198,6 +194,48 @@ export function AgentPlanningClient({
     [selectedDates],
   );
 
+  const startDate = range.start; // "YYYY-MM-DD"
+  const endDate = range.end;
+
+  const rh = useRhValidationAgent({
+    agentId,
+    startDate,
+    endDate,
+    enabled: true,
+  });
+
+  const rhForSelectedDay = React.useMemo(() => {
+    if (!selectedDayDate) return [];
+    return rh.dayIndex?.[selectedDayDate] ?? [];
+  }, [rh.dayIndex, selectedDayDate]);
+
+  function monthStartISO(iso: string) {
+    // iso: "YYYY-MM-DD"
+    return iso.slice(0, 7) + "-01";
+  }
+
+  const jumpToDate = React.useCallback((iso: string) => {
+    const dayISO = iso.slice(0, 10);
+
+    if (period.kind === "month") {
+      const currentMonthISO = toISODate(startOfMonth(period.month)); // YYYY-MM-01
+      const targetMonthISO = monthStartISO(dayISO);
+
+      if (currentMonthISO !== targetMonthISO) {
+        setPeriod({ kind: "month", month: new Date(targetMonthISO + "T00:00:00") });
+      }
+    } else {
+      if (dayISO < range.start || dayISO > range.end) {
+        const targetMonthISO = monthStartISO(dayISO);
+        setPeriod({ kind: "month", month: new Date(targetMonthISO + "T00:00:00") });
+      }
+    }
+
+    setSelectedDayDate(dayISO);
+    setSheetOpen(true);
+  }, [period.kind, period, range.start, range.end, setPeriod, setSelectedDayDate, setSheetOpen]);
+
+
   return (
     <div className="space-y-4">
       <PlanningPageHeader
@@ -210,36 +248,49 @@ export function AgentPlanningClient({
         }
         subtitle={headerSubtitle}
         rightSlot={
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="flex items-center gap-2 cursor-pointer">
-                    <Switch
-                      id="multi-select"
-                      checked={multiSelect}
-                      onCheckedChange={toggleMultiSelect}
-                    />
-                    <Label htmlFor="multi-select">Sélection multiple</Label>
-                  </div>
-                </TooltipTrigger>
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="flex items-center gap-2 cursor-pointer">
+                      <Switch
+                        id="multi-select"
+                        checked={multiSelect}
+                        onCheckedChange={toggleMultiSelect}
+                      />
+                      <Label htmlFor="multi-select">Sélection multiple</Label>
+                    </div>
+                  </TooltipTrigger>
 
-                <TooltipContent side="bottom" align="start">
-                  <p className="text-sm">
-                    Sélectionnez plusieurs jours pour leur appliquer un statut,
-                    <br />
-                    une tranche et un commentaire en une seule fois.
-                  </p>
-                </TooltipContent>
-              </Tooltip>
+                  <TooltipContent side="bottom" align="start">
+                    <p className="text-sm">
+                      Sélectionnez plusieurs jours pour leur appliquer un
+                      statut,
+                      <br />
+                      une tranche et un commentaire en une seule fois.
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+
+              <PlanningPeriodControls
+                value={period}
+                onChange={setPeriod}
+                onPrev={() => setPeriod((p) => shiftPlanningPeriod(p, -1))}
+                onNext={() => setPeriod((p) => shiftPlanningPeriod(p, 1))}
+                disabled={agentId !== null && isLoading}
+              />
             </div>
 
-            <PlanningPeriodControls
-              value={period}
-              onChange={setPeriod}
-              onPrev={() => setPeriod((p) => shiftPlanningPeriod(p, -1))}
-              onNext={() => setPeriod((p) => shiftPlanningPeriod(p, 1))}
-              disabled={agentId !== null && isLoading}
+            <RhViolationsSheet
+              disabled={agentId === null}
+              startDate={startDate}
+              endDate={endDate}
+              violations={rh.violations}
+              counts={rh.counts}
+              loading={rh.isLoading || rh.isValidating}
+              onJumpToDate={(iso) => jumpToDate(iso)}
             />
           </div>
         }
@@ -309,6 +360,7 @@ export function AgentPlanningClient({
             startDate={range.start}
             endDate={range.end}
             planning={planningVm}
+            rhDayIndex={rh.dayIndex}
             multiSelect={multiSelect}
             multiSelectedDates={selectedDates}
             onMultiSelectDay={(day, e) => handleMultiSelectDay(day.day_date, e)}
@@ -323,6 +375,7 @@ export function AgentPlanningClient({
             mode="month"
             anchorMonth={anchorMonth}
             planning={planningVm}
+            rhDayIndex={rh.dayIndex}
             multiSelect={multiSelect}
             multiSelectedDates={selectedDates}
             onMultiSelectDay={(day, e) => handleMultiSelectDay(day.day_date, e)}
@@ -346,9 +399,11 @@ export function AgentPlanningClient({
           open={sheetOpen}
           onClose={() => setSheetOpen(false)}
           dayDateISO={selectedDayDate}
+          rhViolations={rhForSelectedDay}
           agentId={agentId}
           onChanged={async () => {
             await mutate();
+            await rh.refresh();
           }}
         />
       ) : null}
@@ -362,6 +417,7 @@ export function AgentPlanningClient({
           onApplied={async () => {
             clearMultiSelection();
             await mutate();
+            await rh.refresh();
           }}
         />
       ) : null}
