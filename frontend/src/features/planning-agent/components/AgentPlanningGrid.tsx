@@ -6,6 +6,9 @@ import { useMemo } from "react";
 import type { AgentPlanningVm, AgentDayVm } from "../vm/agentPlanning.vm";
 import { PlanningGridBase } from "@/components/planning/PlanningGridBase";
 
+import type { RhViolation } from "@/types/rhValidation";
+import type { RhDayIndex } from "@/features/rh-validation/utils/buildRhDayIndex";
+
 import { AgentDayCell } from "./AgentDayCell";
 
 type AgentPlanningGridProps =
@@ -17,8 +20,11 @@ type AgentPlanningGridProps =
 
       multiSelect?: boolean;
       multiSelectedDates?: ReadonlySet<string>;
-      onMultiSelectDay?: (day: AgentDayVm, e: ReactMouseEvent<HTMLButtonElement>) => void;
-
+      onMultiSelectDay?: (
+        day: AgentDayVm,
+        e: ReactMouseEvent<HTMLButtonElement>,
+      ) => void;
+      rhDayIndex?: RhDayIndex;
     }
   | {
       mode: "range";
@@ -29,15 +35,19 @@ type AgentPlanningGridProps =
 
       multiSelect?: boolean;
       multiSelectedDates?: ReadonlySet<string>;
-      onMultiSelectDay?: (day: AgentDayVm, e: ReactMouseEvent<HTMLButtonElement>) => void;
-
+      onMultiSelectDay?: (
+        day: AgentDayVm,
+        e: ReactMouseEvent<HTMLButtonElement>,
+      ) => void;
+      rhDayIndex?: RhDayIndex;
     };
 
 export function AgentPlanningGrid(props: AgentPlanningGridProps) {
   const { planning } = props;
 
   const byDate = useMemo(
-    () => new Map(planning.days.map((d) => [d.day_date, d] as const)),
+    () =>
+      new Map(planning.days.map((d) => [d.day_date.slice(0, 10), d] as const)),
     [planning.days],
   );
 
@@ -59,25 +69,30 @@ export function AgentPlanningGrid(props: AgentPlanningGridProps) {
         isInSelectedWeek,
         isOutsideRange,
         onSelect,
-      }) => (
-        <AgentDayCell
-          day={day}
-          isOutsideMonth={isOutsideMonth}
-          isOutsideRange={isOutsideRange}
-          isSelected={isSelected}
-          isInSelectedWeek={isInSelectedWeek}
-          isMultiSelected={props.multiSelectedDates?.has(day.day_date) ?? false}
-          onSelect={(e) => {
-            if (props.multiSelect) {
-              props.onMultiSelectDay?.(day, e);
-              return;
-            }
+      }) => {
+        const dayKey = day.day_date.slice(0, 10);
 
-            onSelect();
-            props.onDayClick?.(day);
-          }}
-        />
-      )}
+        return (
+          <AgentDayCell
+            day={day}
+            isOutsideMonth={isOutsideMonth}
+            isOutsideRange={isOutsideRange}
+            isSelected={isSelected}
+            isInSelectedWeek={isInSelectedWeek}
+            isMultiSelected={props.multiSelectedDates?.has(dayKey) ?? false}
+            rhViolations={props.rhDayIndex?.[dayKey] ?? []}
+            onSelect={(e) => {
+              if (props.multiSelect) {
+                props.onMultiSelectDay?.(day, e);
+                return;
+              }
+
+              onSelect();
+              props.onDayClick?.(day);
+            }}
+          />
+        );
+      }}
       renderDetails={() => null}
       closeOnEscape
       gridLabel="Planning agent"
