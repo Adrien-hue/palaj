@@ -1,4 +1,4 @@
-import { AgentDayVm } from "../vm/agentPlanning.vm";
+import type { AgentDayVm } from "../vm/agentPlanning.vm";
 import {
   buildTimeWindows,
   formatWindows,
@@ -7,6 +7,7 @@ import { AgentMiniGantt } from "./AgentMiniGantt";
 import { Badge } from "@/components/ui/badge";
 import { PlanningDayCellFrame } from "@/components/planning/PlanningDayCellFrame";
 import { DayTypeBadge, dayTypeLabel } from "@/components/planning/DayTypeBadge";
+import { AgentDayCellTooltip } from "./AgentDayCellTooltip";
 import { cn } from "@/lib/utils";
 
 import {
@@ -14,6 +15,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import type { RhViolation } from "@/types/rhValidation";
 
 function dayNumber(iso: string) {
   return String(Number(iso.slice(8, 10)));
@@ -53,6 +55,7 @@ export function AgentDayCell(props: {
   isInSelectedWeek: boolean;
   isOutsideRange?: boolean;
   isMultiSelected?: boolean;
+  rhViolations?: RhViolation[];
   onSelect: (e: React.MouseEvent<HTMLButtonElement>) => void;
 }) {
   const {
@@ -62,6 +65,7 @@ export function AgentDayCell(props: {
     isInSelectedWeek,
     isOutsideRange,
     isMultiSelected = false,
+    rhViolations,
     onSelect,
   } = props;
 
@@ -72,7 +76,6 @@ export function AgentDayCell(props: {
     day.day_type === "working" && !hasSegments ? "zcot" : day.day_type;
 
   const isWorkingDay = effectiveDayType === "working";
-  const isZcotDay = effectiveDayType === "zcot";
 
   // Build windows only for working days with segments
   const windows =
@@ -100,6 +103,15 @@ export function AgentDayCell(props: {
     ariaParts.push(`Horaires: ${timeText}`);
   const ariaLabel = ariaParts.join(", ");
 
+  // --- RH state for this day (tint background) ---
+  const rhHasError = (rhViolations?.some((v) => v.severity === "error")) ?? false;
+  const rhHasWarn = !rhHasError && ((rhViolations?.some((v) => v.severity === "warning")) ?? false);
+  const rhHasInfo =
+    !rhHasError && !rhHasWarn && ((rhViolations?.some((v) => v.severity === "info")) ?? false);
+
+  const tone =
+    rhHasError ? "danger" : rhHasWarn ? "warning" : rhHasInfo ? "info" : "none";
+
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -112,100 +124,83 @@ export function AgentDayCell(props: {
             isOutsideMonth={isOutsideMonth}
             isOutsideRange={isOutsideRange}
             isInSelectedWeek={isInSelectedWeek}
+            tone={tone}
           >
-            <div className="flex items-start justify-between gap-2">
-              <div
-                className={cn(
-                  "text-sm font-semibold tabular-nums",
-                  (isOutsideMonth || isOutsideRange) && "text-muted-foreground",
-                )}
-              >
-                {dayNumber(day.day_date)}
-              </div>
-              <DayTypeBadge dayType={effectiveDayType} />
-            </div>
-
-            {/* Secondary line: depends on day type */}
-            <div className="mt-1 flex items-center gap-2">
-              {isWorkingDay && hasSegments ? (
-                <>
-                  <Badge variant="secondary" className="tabular-nums">
-                    {primaryWindow
-                      ? `${primaryWindow.start.slice(0, 5)}–${primaryWindow.end.slice(0, 5)}`
-                      : "—"}
-                    {hasCarryToNext ? " →" : ""}
-                  </Badge>
-
-                  {isCarryOnlyDay ? (
-                    <Badge variant="outline" className="text-muted-foreground">
-                      ← Suite
-                    </Badge>
-                  ) : null}
-
-                  {extraWindowsCount > 0 ? (
-                    <Badge
-                      variant="outline"
-                      className="tabular-nums text-muted-foreground"
-                    >
-                      +{extraWindowsCount}
-                    </Badge>
-                  ) : null}
-                </>
-              ) : (
-                <div className="text-[12px] text-muted-foreground">
-                  {dayTypeLabel(effectiveDayType)}
+            <div className="relative">
+              <div className="relative">
+                <div className="flex items-start justify-between gap-2">
+                  <div
+                    className={cn(
+                      "text-sm font-semibold tabular-nums",
+                      (isOutsideMonth || isOutsideRange) &&
+                        "text-muted-foreground",
+                    )}
+                  >
+                    {dayNumber(day.day_date)}
+                  </div>
+                  <DayTypeBadge dayType={effectiveDayType} />
                 </div>
-              )}
-            </div>
 
-            {/* Timeline only for working days with segments */}
-            {isWorkingDay && hasSegments ? (
-              <div className="mt-2">
-                <AgentMiniGantt
-                  segments={day.segments}
-                  dayStart="00:00:00"
-                  dayEnd="24:00:00"
-                  maxLanes={2}
-                />
+                {/* Secondary line: depends on day type */}
+                <div className="mt-1 flex items-center gap-2">
+                  {isWorkingDay && hasSegments ? (
+                    <>
+                      <Badge variant="secondary" className="tabular-nums">
+                        {primaryWindow
+                          ? `${primaryWindow.start.slice(0, 5)}–${primaryWindow.end.slice(0, 5)}`
+                          : "—"}
+                        {hasCarryToNext ? " →" : ""}
+                      </Badge>
+
+                      {isCarryOnlyDay ? (
+                        <Badge
+                          variant="outline"
+                          className="text-muted-foreground"
+                        >
+                          ← Suite
+                        </Badge>
+                      ) : null}
+
+                      {extraWindowsCount > 0 ? (
+                        <Badge
+                          variant="outline"
+                          className="tabular-nums text-muted-foreground"
+                        >
+                          +{extraWindowsCount}
+                        </Badge>
+                      ) : null}
+                    </>
+                  ) : (
+                    <div className="text-[12px] text-muted-foreground">
+                      {dayTypeLabel(effectiveDayType)}
+                    </div>
+                  )}
+                </div>
+
+                {/* Timeline only for working days with segments */}
+                {isWorkingDay && hasSegments ? (
+                  <div className="mt-2">
+                    <AgentMiniGantt
+                      segments={day.segments}
+                      dayStart="00:00:00"
+                      dayEnd="24:00:00"
+                      maxLanes={2}
+                    />
+                  </div>
+                ) : null}
               </div>
-            ) : null}
+            </div>
           </PlanningDayCellFrame>
         </div>
       </TooltipTrigger>
 
-      <TooltipContent className="max-w-[260px]">
-        <div className="space-y-2">
-          <div className="text-xs font-medium">
-            {isWorkingDay && hasSegments ? "Horaires" : "Statut"}
-          </div>
-
-          {isWorkingDay && hasSegments ? (
-            <div className="space-y-1">
-              {windows.map((w, i) => {
-                const label = windowLabel(w, i, windows);
-                return (
-                  <div
-                    key={i}
-                    className="flex items-center justify-between gap-2 text-xs tabular-nums text-muted-foreground"
-                  >
-                    <span>
-                      {w.start.slice(0, 5)} – {w.end.slice(0, 5)}
-                    </span>
-                    {label ? (
-                      <span className="text-[11px] text-muted-foreground/80">
-                        {label}
-                      </span>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="text-xs text-muted-foreground">
-              {dayTypeLabel(effectiveDayType)}
-            </div>
-          )}
-        </div>
+      <TooltipContent className="max-w-[320px]">
+        <AgentDayCellTooltip
+          day={day}
+          windows={windows}
+          effectiveDayType={effectiveDayType}
+          rhViolations={rhViolations ?? []}
+        />
       </TooltipContent>
     </Tooltip>
   );
