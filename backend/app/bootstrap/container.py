@@ -1,9 +1,7 @@
 # backend/app/bootstrap/container.py
-from core.application.config.rh_rules_config import build_default_rh_engine
 
 from core.application.services import (
     AgentDayService,
-    AgentPlanningValidatorService,
     AgentService,
     AgentPlanningFactory,
     PlanningDayAssembler,
@@ -33,7 +31,6 @@ from db.repositories import (
     team_repo,
 )
 
-from backend.app.settings import settings
 
 # ---------------------------------------------------------
 # Repositories -> Services
@@ -87,14 +84,6 @@ agent_team_service = AgentTeamService(
 )
 
 # ---------------------------------------------------------
-# RH / Validation
-# ---------------------------------------------------------
-rh_rules_engine = build_default_rh_engine()
-agent_planning_validator_service = AgentPlanningValidatorService(
-    rh_rules_engine=rh_rules_engine
-)
-
-# ---------------------------------------------------------
 # Planning
 # ---------------------------------------------------------
 planning_day_assembler = PlanningDayAssembler(
@@ -138,9 +127,7 @@ __all__ = [
     "qualification_service",
     "regime_service",
     "tranche_service",
-    "rh_rules_engine",
     "planning_day_assembler",
-    "agent_planning_validator_service",
     "agent_planning_factory",
     "poste_planning_factory",
     "poste_planning_day_assembler",

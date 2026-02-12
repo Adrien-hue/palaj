@@ -1,14 +1,17 @@
 # backend/app/api/deps.py
 from collections.abc import Generator
+from typing import Annotated
 
+from fastapi.params import Depends, Query
 from sqlalchemy.orm import Session
 
+from core.application.config.rh_rules_config import RhEngineProfile, build_rh_engine
+from core.rh_rules.rh_rules_engine import RHRulesEngine
 from db import db
 
 from backend.app.bootstrap.container import (
     agent_day_service,
     agent_service,
-    agent_planning_validator_service,
     agent_planning_factory,
     agent_team_service,
     planning_day_assembler,
@@ -59,8 +62,23 @@ def get_agent_team_service() -> AgentTeamService:
 def get_agent_planning_factory() -> AgentPlanningFactory:
     return agent_planning_factory
 
-def get_agent_planning_validator_service() -> AgentPlanningValidatorService:
-    return agent_planning_validator_service
+def get_rh_profile(
+    profile: Annotated[RhEngineProfile, Query()] = RhEngineProfile.FULL
+) -> RhEngineProfile:
+    try:
+        return RhEngineProfile(profile)
+    except ValueError:
+        return RhEngineProfile.FULL
+
+def get_rh_rules_engine(
+    profile: Annotated[RhEngineProfile, Query()] = RhEngineProfile.FULL,
+) -> RHRulesEngine:
+    return build_rh_engine(profile.value)
+
+def get_agent_planning_validator_service(
+    engine: Annotated[RHRulesEngine, Depends(get_rh_rules_engine)],
+) -> AgentPlanningValidatorService:
+    return AgentPlanningValidatorService(rh_rules_engine=engine)
 
 def get_planning_day_assembler() -> PlanningDayAssembler:
     return planning_day_assembler
