@@ -2,6 +2,8 @@
 
 import * as React from "react";
 
+import { RhViolation } from "@/types";
+
 import { useAgentPlanning } from "@/features/planning-agent/hooks/useAgentPlanning";
 import { useAgentDayMutations } from "@/features/planning-agent/hooks/useAgentDayMutations";
 
@@ -19,12 +21,14 @@ export function AgentDaySheet({
   agentId,
   dayDateISO,
   onChanged,
+  rhViolations = [],
 }: {
   open: boolean;
   onClose: () => void;
   agentId: number;
   dayDateISO: string | null;
   onChanged?: () => void | Promise<void>;
+  rhViolations?: RhViolation[];
 }) {
   const enabled = open && !!dayDateISO;
 
@@ -111,6 +115,7 @@ export function AgentDaySheet({
       loadError={error?.message ?? null}
       actionError={actionError}
       busy={busy}
+      rhViolations={rhViolations}
     />
   );
 }

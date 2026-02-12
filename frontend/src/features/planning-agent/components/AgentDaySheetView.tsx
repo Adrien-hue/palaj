@@ -1,5 +1,6 @@
 "use client";
 
+import { RhViolation } from "@/types";
 import { useEffect, useMemo, useState } from "react";
 import type { AgentDayVm } from "../vm/agentPlanning.vm";
 import { formatDateFR } from "@/utils/date.format";
@@ -40,6 +41,7 @@ type Props = {
   busy?: boolean;
   loadError?: string | null;
   actionError?: string | null;
+  rhViolations?: RhViolation[];
 };
 
 export function AgentDaySheetView({
@@ -55,6 +57,7 @@ export function AgentDaySheetView({
   busy = false,
   loadError = null,
   actionError = null,
+  rhViolations = [],
 }: Props) {
   const dateLabel = day ? formatDateFR(day.day_date) : "Jour";
   const [coverageRefreshKey, setCoverageRefreshKey] = useState(0);
@@ -81,6 +84,40 @@ export function AgentDaySheetView({
   const canSave = !!day && (!isWorking || trancheId !== null);
 
   const uiDisabled = busy || loading; // loading bloque tout ; validating = info
+
+  const rhCounts = useMemo(() => {
+    let error = 0,
+      warning = 0,
+      info = 0;
+    for (const v of rhViolations) {
+      if (v.severity === "error") error++;
+      else if (v.severity === "warning") warning++;
+      else info++;
+    }
+    return { error, warning, info, total: rhViolations.length };
+  }, [rhViolations]);
+
+  const rhSorted = useMemo(() => {
+    const rank = (s: string) => (s === "error" ? 0 : s === "warning" ? 1 : 2);
+    return rhViolations
+      .slice()
+      .sort((a, b) => rank(a.severity) - rank(b.severity));
+  }, [rhViolations]);
+
+  const rhMain = useMemo(
+    () =>
+      rhSorted.filter(
+        (v) => v.severity === "error" || v.severity === "warning",
+      ),
+    [rhSorted],
+  );
+
+  const rhInfos = useMemo(
+    () => rhSorted.filter((v) => v.severity === "info"),
+    [rhSorted],
+  );
+
+  const [showInfos, setShowInfos] = useState(false);
 
   function handleCancel() {
     if (!day) return;
@@ -262,20 +299,166 @@ export function AgentDaySheetView({
           )}
         </div>
 
+        {day ? (
+          <div className="rounded-xl border bg-card p-3 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-sm font-semibold text-foreground">
+                Contrôle RH
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Badge
+                  variant={rhCounts.error > 0 ? "destructive" : "outline"}
+                  className="h-5 rounded-full px-2 py-0 text-[10px]"
+                >
+                  {rhCounts.error} erreur(s)
+                </Badge>
+                <Badge
+                  variant={rhCounts.warning > 0 ? "secondary" : "outline"}
+                  className="h-5 rounded-full px-2 py-0 text-[10px]"
+                >
+                  {rhCounts.warning} alerte(s)
+                </Badge>
+                <Badge
+                  variant="outline"
+                  className="h-5 rounded-full px-2 py-0 text-[10px]"
+                >
+                  {rhCounts.info} info(s)
+                </Badge>
+              </div>
+            </div>
+
+            {rhCounts.total === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                Aucune violation RH détectée pour ce jour.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {/* Errors + warnings par défaut */}
+                {rhMain.length > 0 ? (
+                  <div className="space-y-2">
+                    {rhMain.slice(0, 5).map((v, i) => (
+                      <div
+                        key={`${v.code}-${i}`}
+                        className="rounded-lg border p-2"
+                      >
+                        <div className="flex items-start gap-2">
+                          <Badge
+                            variant={
+                              v.severity === "error"
+                                ? "destructive"
+                                : "secondary"
+                            }
+                            className="h-5 rounded-full px-2 py-0 text-[10px]"
+                          >
+                            {v.severity.toUpperCase()}
+                          </Badge>
+
+                          <div className="min-w-0">
+                            <div className="text-sm leading-snug">
+                              {v.message}
+                            </div>
+                            <div className="text-[11px] text-muted-foreground">
+                              {(v.rule && v.rule.trim().length > 0
+                                ? v.rule
+                                : v.code) ?? ""}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+
+                    {rhMain.length > 5 ? (
+                      <p className="text-[11px] text-muted-foreground">
+                        +{rhMain.length - 5} autre(s) alerte(s) (voir “Contrôle
+                        RH” dans le header).
+                      </p>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Pas d’erreur/alerte RH bloquante sur ce jour.
+                  </p>
+                )}
+
+                {/* Infos (cachées par défaut) */}
+                {rhInfos.length > 0 ? (
+                  <div className="pt-1">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setShowInfos((v) => !v)}
+                      className="px-2"
+                    >
+                      {showInfos
+                        ? "Masquer les infos"
+                        : `Afficher les infos (${rhInfos.length})`}
+                    </Button>
+
+                    {showInfos ? (
+                      <div className="mt-2 space-y-2">
+                        {rhInfos.slice(0, 5).map((v, i) => (
+                          <div
+                            key={`${v.code}-info-${i}`}
+                            className="rounded-lg border p-2"
+                          >
+                            <div className="flex items-start gap-2">
+                              <Badge
+                                variant="outline"
+                                className="h-5 rounded-full px-2 py-0 text-[10px]"
+                              >
+                                INFO
+                              </Badge>
+
+                              <div className="min-w-0">
+                                <div className="text-sm leading-snug">
+                                  {v.message}
+                                </div>
+                                <div className="text-[11px] text-muted-foreground">
+                                  {(v.rule && v.rule.trim().length > 0
+                                    ? v.rule
+                                    : v.code) ?? ""}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+
+                        {rhInfos.length > 5 ? (
+                          <p className="text-[11px] text-muted-foreground">
+                            +{rhInfos.length - 5} autre(s) info(s) (voir
+                            “Contrôle RH” dans le header).
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            )}
+          </div>
+        ) : null}
+
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <div className="text-sm font-semibold text-foreground">Aperçu</div>
 
             {day && day.segments.length > 0 ? (
               <Badge variant="outline" className="tabular-nums">
-                {day.segments[0].start.slice(0, 5)}–{day.segments[0].end.slice(0, 5)}
+                {day.segments[0].start.slice(0, 5)}–
+                {day.segments[0].end.slice(0, 5)}
               </Badge>
             ) : null}
           </div>
 
           <div className="rounded-xl border bg-card p-3">
             {day ? (
-              <AgentDayGantt segments={day.segments} dayStart="00:00:00" dayEnd="23:59:00" />
+              <AgentDayGantt
+                segments={day.segments}
+                dayStart="00:00:00"
+                dayEnd="23:59:00"
+              />
             ) : (
               <EmptyBox>Aucun jour sélectionné.</EmptyBox>
             )}
