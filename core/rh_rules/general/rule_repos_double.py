@@ -7,6 +7,7 @@ from core.domain.enums.day_type import DayType
 from core.rh_rules.analyzers.gpt_analyzer import GptAnalyzer
 from core.rh_rules.base_rule import BaseRule, RuleScope
 from core.rh_rules.contexts.rh_context import RhContext
+from core.rh_rules.contracts.gpt_analyzer_protocol import GptAnalyzerProtocol
 from core.rh_rules.models.rh_violation import RhViolation
 from core.rh_rules.models.rule_result import RuleResult
 
@@ -24,7 +25,7 @@ class ReposDoubleRule(BaseRule):
     NB_JOURS_REPOS_MIN = 2
     GPT_TARGET_DAYS = 6
 
-    def __init__(self, analyzer: GptAnalyzer | None = None):
+    def __init__(self, analyzer: GptAnalyzerProtocol | None = None):
         self.gpt_service = analyzer or GptAnalyzer()
 
     def check(self, context: RhContext) -> RuleResult:
@@ -60,8 +61,7 @@ class ReposDoubleRule(BaseRule):
             if gpt.is_left_truncated:
                 continue
 
-            # Must be exactly 6 days
-            if gpt.nb_jours != self.GPT_TARGET_DAYS:
+            if gpt.nb_jours < self.GPT_TARGET_DAYS:
                 continue
 
             # Context must include at least the needed days after GPT end to judge
