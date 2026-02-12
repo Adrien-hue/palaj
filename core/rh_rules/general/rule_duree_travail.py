@@ -42,6 +42,10 @@ class DureeTravailRule(DayRule):
         is_night = bool(rh_day_is_nocturne(day))
         max_allowed = self.DUREE_MAX_NUIT_MIN if is_night else self.DUREE_MAX_MIN
 
+        start_dt = min((i.start for i in day.intervals), default=None)
+        end_dt = max((i.end for i in day.intervals), default=None)
+
+
         violations: List[RhViolation] = []
 
         if total_minutes < self.DUREE_MIN_MIN:
@@ -58,8 +62,8 @@ class DureeTravailRule(DayRule):
                     "total_minutes": total_minutes,
                     "min_minutes": self.DUREE_MIN_MIN,
                     "is_night": is_night,
-                    "start_dt": min(i.start for i in day.intervals),
-                    "end_dt": max(i.end for i in day.intervals),
+                    "start_dt": start_dt,
+                    "end_dt": end_dt,
                 },
             )
             violations.append(v)
@@ -78,8 +82,8 @@ class DureeTravailRule(DayRule):
                     "total_minutes": total_minutes,
                     "max_minutes": int(max_allowed),
                     "is_night": is_night,
-                    "start_dt": min(i.start for i in day.intervals),
-                    "end_dt": max(i.end for i in day.intervals),
+                    "start_dt": start_dt,
+                    "end_dt": end_dt,
                 },
             )
             violations.append(v)
