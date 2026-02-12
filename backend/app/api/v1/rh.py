@@ -1,11 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException
-from typing import List
+from fastapi import APIRouter, Depends, HTTPException, Query
+from typing import Annotated
 
 from backend.app.api.deps import get_agent_planning_factory, get_agent_planning_validator_service
 from backend.app.dto.rh import RHValidateAgentRequestDTO
 from backend.app.dto.rh_validation_result import RhValidationResultDTO
 from backend.app.mappers.rh_validation_result import rh_validation_result_to_dto
 
+from core.application.config.rh_rules_config import RhEngineProfile
 from core.application.services.planning.agent_planning_factory import AgentPlanningFactory
 from core.application.services.agent_planning_validator_service import AgentPlanningValidatorService
 
@@ -14,6 +15,7 @@ router = APIRouter(prefix="/rh", tags=["RH"])
 @router.post("/validate/agent", response_model=RhValidationResultDTO)
 def validate_agent(
     payload: RHValidateAgentRequestDTO,
+    profile: Annotated[RhEngineProfile, Query()] = RhEngineProfile.FULL,
     agent_planning_factory: AgentPlanningFactory = Depends(get_agent_planning_factory),
     validator: AgentPlanningValidatorService = Depends(get_agent_planning_validator_service),
 ) -> RhValidationResultDTO:
@@ -30,6 +32,7 @@ def validate_agent(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
+    # le validator injecté doit utiliser le profile de la requête
     result = validator.validate(planning)
 
     return rh_validation_result_to_dto(result)
