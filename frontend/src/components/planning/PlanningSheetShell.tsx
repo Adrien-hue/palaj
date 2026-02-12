@@ -67,9 +67,13 @@ export function PlanningSheetShell({
         <div className="min-w-0 flex-1">
           <SheetTitle>{title}</SheetTitle>
           {description ? (
-            <SheetDescription className="space-y-2">
-              {description}
-            </SheetDescription>
+            typeof description === "string" ? (
+              <SheetDescription>{description}</SheetDescription>
+            ) : (
+              <div className="space-y-2 text-sm text-muted-foreground">
+                {description}
+              </div>
+            )
           ) : null}
         </div>
 
