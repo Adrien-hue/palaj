@@ -43,7 +43,6 @@ PROFILE_RULES = {
         DureeTravailRule,
         GrandePeriodeTravailRule,
         QualificationIntegrityRule,
-        RegimeReposMensuelsRule,
         ReposDoubleRule,
         ReposQuotidienRule,
     ],
