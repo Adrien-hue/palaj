@@ -9,6 +9,7 @@ export * from "./postePlanning";
 export * from "./postes";
 export * from "./qualification";
 export * from "./regimes";
+export * from "./rhPosteValidation";
 export * from "./rhValidation";
 export * from "./team";
 export * from "./teamPlanning";
