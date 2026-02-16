@@ -14,3 +14,23 @@ export const rhValidationAgentKey = (
     endDate,
   ] as const;
 };
+
+
+export const rhValidationPosteSummaryKey = (
+  posteId: number | null,
+  startDate: string | null,
+  endDate: string | null,
+  profile: string | null,
+) => {
+  if (!posteId || !startDate || !endDate || !profile) return null;
+
+  return [
+    "rh-validation",
+    "poste",
+    "summary",
+    posteId,
+    startDate,
+    endDate,
+    profile,
+  ] as const;
+};

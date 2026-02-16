@@ -1,0 +1,1 @@
+export { useRhPosteSummary } from "./hooks/useRhPosteSummary";
