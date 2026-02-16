@@ -49,12 +49,13 @@ export function PlanningDayCellFrame({
 
   const toneBg =
     tone === "danger"
-      ? "bg-destructive/10 hover:bg-destructive/15"
+      ? "bg-destructive/10 hover:bg-destructive/15 border-destructive/35"
       : tone === "warning"
-        ? "bg-amber-500/10 hover:bg-amber-500/15"
+        ? "bg-amber-500/10 hover:bg-amber-500/15 border-amber-500/30"
         : tone === "info"
           ? "bg-muted/15 hover:bg-muted/20"
           : "";
+
 
   // Selection styling:
   // - pressed adds ring but keeps tone background
