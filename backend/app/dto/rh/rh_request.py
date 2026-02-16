@@ -5,3 +5,8 @@ class RHValidateAgentRequestDTO(BaseModel):
     agent_id: int
     date_debut: date
     date_fin: date
+
+class RHValidatePosteRequestDTO(BaseModel):
+    poste_id: int
+    date_debut: date
+    date_fin: date
