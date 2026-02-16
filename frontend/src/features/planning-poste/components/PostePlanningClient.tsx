@@ -10,7 +10,7 @@ import { shiftPlanningPeriod } from "@/features/planning-common/period/period.ut
 
 import { PosteHeaderSelect } from "@/features/planning-poste/components/PosteHeaderSelect";
 import { PostePlanningGrid } from "@/features/planning-poste/components/PostePlanningGrid";
-import { PosteDaySheet } from "@/features/planning-poste/components/PosteDaySheet";
+import { PosteDaySheet } from "@/features/planning-poste/components/poste-day-sheet/PosteDaySheet";
 import { PosteBulkEditSheet } from "@/features/planning-poste/components/PosteBulkEditSheet";
 
 import { usePostePlanning } from "@/features/planning-poste/hooks/usePostePlanning";
@@ -18,6 +18,9 @@ import { usePosteCoverage } from "@/features/planning-poste/hooks/usePosteCovera
 import { usePostePlanningActions } from "@/features/planning-poste/hooks/usePostePlanningActions";
 import { usePosteTranches } from "@/features/planning-poste/hooks/usePosteTranches";
 import { buildPostePlanningVm } from "@/features/planning-poste/vm/postePlanning.vm.builder";
+
+import { useRhPosteSummary } from "@/features/rh-validation";
+import { RhPosteSummarySheet } from "@/features/rh-validation/components/RhPosteSummarySheet";
 
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -254,6 +257,28 @@ export function PostePlanningClient({
 
   const poste = planning.data?.poste;
 
+  type RhProfile = "fast" | "full";
+
+  function readRhProfile(): RhProfile {
+    if (typeof window === "undefined") return "fast";
+    const v = window.localStorage.getItem("rh:poste:profile");
+    return v === "full" ? "full" : "fast";
+  }
+
+  const [rhProfile, setRhProfile] = React.useState<RhProfile>(() => readRhProfile());
+
+  React.useEffect(() => {
+    window.localStorage.setItem("rh:poste:profile", rhProfile);
+  }, [rhProfile]);
+
+  const rhSummary = useRhPosteSummary({
+    posteId,
+    startDate: range.start,
+    endDate: range.end,
+    profile: rhProfile,
+    enabled: posteId !== null,
+  });
+
   return (
     <div className="space-y-4">
       <PlanningPageHeader
@@ -266,33 +291,49 @@ export function PostePlanningClient({
         }
         subtitle={headerSubtitle}
         rightSlot={
-          <div className="flex items-center gap-4">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="flex items-center gap-2 cursor-pointer">
-                  <Switch
-                    id="poste-multi-select"
-                    checked={multiSelect}
-                    onCheckedChange={toggleMultiSelect}
-                  />
-                  <Label htmlFor="poste-multi-select">Sélection multiple</Label>
-                </div>
-              </TooltipTrigger>
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex items-center gap-4">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex items-center gap-2 cursor-pointer">
+                    <Switch
+                      id="poste-multi-select"
+                      checked={multiSelect}
+                      onCheckedChange={toggleMultiSelect}
+                    />
+                    <Label htmlFor="poste-multi-select">Sélection multiple</Label>
+                  </div>
+                </TooltipTrigger>
 
-              <TooltipContent side="bottom" align="start">
-                <p className="text-sm">
-                  Sélectionnez plusieurs jours pour modifier les affectations
-                  <br />
-                  en une seule fois.
-                </p>
-              </TooltipContent>
-            </Tooltip>
-            <PlanningPeriodControls
-              value={period}
-              onChange={setPeriod}
-              onPrev={() => setPeriod((p) => shiftPlanningPeriod(p, -1))}
-              onNext={() => setPeriod((p) => shiftPlanningPeriod(p, 1))}
-              disabled={posteId !== null && isLoading}
+                <TooltipContent side="bottom" align="start">
+                  <p className="text-sm">
+                    Sélectionnez plusieurs jours pour modifier les affectations
+                    <br />
+                    en une seule fois.
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+              <PlanningPeriodControls
+                value={period}
+                onChange={setPeriod}
+                onPrev={() => setPeriod((p) => shiftPlanningPeriod(p, -1))}
+                onNext={() => setPeriod((p) => shiftPlanningPeriod(p, 1))}
+                disabled={posteId !== null && isLoading}
+              />
+            </div>
+
+            <RhPosteSummarySheet
+              disabled={posteId === null}
+              startDate={range.start}
+              endDate={range.end}
+              days={rhSummary.data?.days}
+              eligibleAgentsCount={rhSummary.data?.eligible_agents_count}
+              profileLabel={rhProfile === "fast" ? "Rapide" : "Complet"}
+              loading={rhSummary.isLoading || rhSummary.isValidating}
+              onJumpToDate={(iso) => {
+                setSelectedDate(iso);
+                setSheetOpen(true);
+              }}
             />
           </div>
         }
@@ -359,6 +400,7 @@ export function PostePlanningClient({
       ) : canShowGrid ? (
         range.isRange ? (
           <PostePlanningGrid
+            rhSummaryByDate={rhSummary.vm?.byDate}
             mode="range"
             startDate={range.start}
             endDate={range.end}
@@ -374,6 +416,7 @@ export function PostePlanningClient({
           />
         ) : (
           <PostePlanningGrid
+            rhSummaryByDate={rhSummary.vm?.byDate}
             mode="month"
             anchorMonth={anchorMonth}
             planning={planningVm}
@@ -408,6 +451,9 @@ export function PostePlanningClient({
           isDeleting={actions.isDeleting}
           onSaveDay={actions.saveDay}
           onDeleteDay={actions.deleteDay}
+          rhProfile={rhProfile}
+          rangeStart={range.start}
+          rangeEnd={range.end}
         />
       ) : null}
 
