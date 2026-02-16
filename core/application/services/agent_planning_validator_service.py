@@ -1,6 +1,9 @@
 # core/application/services/agent_planning_validator_service.py
 from __future__ import annotations
 
+from datetime import date
+from typing import Optional
+
 from core.domain.models.agent_planning import AgentPlanning
 from core.rh_rules.adapters.planning_day_adapter import rh_context_from_planning_days
 from core.rh_rules.models.rule_result import RuleResult
@@ -17,11 +20,17 @@ class AgentPlanningValidatorService:
         self.rh_rules_engine = rh_rules_engine
 
     @profiler.profile_call()
-    def validate(self, planning: AgentPlanning) -> RuleResult:
+    def validate(
+        self,
+        planning: AgentPlanning,
+        *,
+        window_start: Optional[date] = None,
+        window_end: Optional[date] = None,
+    ) -> RuleResult:
         ctx = rh_context_from_planning_days(
             agent=planning.agent,
             days=planning.days,
-            window_start=planning.start_date,
-            window_end=planning.end_date,
+            window_start=window_start or planning.start_date,
+            window_end=window_end or planning.end_date,
         )
         return self.rh_rules_engine.run(ctx)
