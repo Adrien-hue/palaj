@@ -9,9 +9,11 @@ import type {
 
 import { PlanningGridBase } from "@/components/planning/PlanningGridBase";
 import { PosteDayCell } from "./PosteDayCell";
+import { RhDaySummary } from "@/types";
 
 type Common = {
   planning: PostePlanningVm;
+  rhSummaryByDate?: Record<string, RhDaySummary>;
 
   selectedDate?: string | null;
   onSelectedDateChange?: (date: string | null) => void;
@@ -74,12 +76,15 @@ export function PostePlanningGrid(props: PostePlanningGridProps) {
       renderCell={({ day, isOutsideMonth, isSelected, isInSelectedWeek, onSelect }) => {
         const dayDate = day?.day_date ?? null;
 
+        const rh = dayDate ? props.rhSummaryByDate?.[dayDate] : undefined;
+
         const isMultiSelected =
           !!dayDate && (props.multiSelectedDates?.has(dayDate) ?? false);
 
         return (
           <PosteDayCell
             day={day}
+            rhSummary={rh}
             isOutsideMonth={isOutsideMonth}
             isSelected={isSelected}
             isInSelectedWeek={isInSelectedWeek}
