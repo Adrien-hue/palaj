@@ -1,5 +1,6 @@
-import type { RhViolation } from "@/types";
 import { formatDateFRLong } from "@/utils/date.format";
+import type { RhViolationOccurrence } from "@/features/rh-validation/types";
+import type { RhViolation } from "@/types/rhValidation";
 
 export type Severity = "error" | "warning" | "info";
 
@@ -11,7 +12,7 @@ export type RhViolationGroup = {
   message: string;
   range: { start?: string | null; end?: string | null; label: string };
   count: number;
-  items: RhViolation[];
+  items: RhViolationOccurrence[];
 };
 
 function sevRank(s: Severity) {
@@ -39,11 +40,13 @@ function rangeLabel(v: RhViolation) {
   return `${formatDateFRLong(s!)} → ${formatDateFRLong(e!)}`;
 }
 
-export function groupRhViolations(violations: RhViolation[] | undefined): RhViolationGroup[] {
-  const arr = violations ?? [];
+export function groupRhViolations(items: RhViolationOccurrence[] | undefined): RhViolationGroup[] {
+  const arr = items ?? [];
   const map = new Map<string, RhViolationGroup>();
 
-  for (const v of arr) {
+  for (const occ of arr) {
+    const v = occ.violation;
+
     const severity = (v.severity as Severity) ?? "info";
     const start = isoDay(v, "start");
     const end = isoDay(v, "end");
@@ -52,7 +55,7 @@ export function groupRhViolations(violations: RhViolation[] | undefined): RhViol
 
     const existing = map.get(key);
     if (existing) {
-      existing.items.push(v);
+      existing.items.push(occ);
       existing.count++;
       continue;
     }
@@ -65,7 +68,7 @@ export function groupRhViolations(violations: RhViolation[] | undefined): RhViol
       message: v.message ?? "",
       range: { start, end, label: rangeLabel(v) },
       count: 1,
-      items: [v],
+      items: [occ],
     });
   }
 
@@ -77,7 +80,6 @@ export function groupRhViolations(violations: RhViolation[] | undefined): RhViol
     const bs = b.range.start ?? "";
     if (as !== bs) return as.localeCompare(bs);
 
-    // stable : message ensuite
     return a.message.localeCompare(b.message);
   });
 }
