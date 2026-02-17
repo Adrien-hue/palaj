@@ -5,8 +5,17 @@ import type { Agent, AgentDay, TeamAgentPlanning } from "@/types";
 import { cn } from "@/lib/utils";
 import { TeamDayCell } from "./TeamDayCell";
 
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { formatDayLabel, isWeekend } from "@/utils/date.format";
+
+import type { RhViolation } from "@/types/rhValidation";
+
+type RhLevel = "error" | "warning" | "info";
+type RhCellInfo = { level: RhLevel; count: number };
 
 type Props = {
   days: string[];
@@ -16,8 +25,9 @@ type Props = {
   onCellClick: (agent: Agent, day: AgentDay, e: React.MouseEvent) => void;
 
   selectedKeys?: ReadonlySet<string>;
+  rhCellIndex?: Record<string, RhCellInfo>;
+  rhCellViolationsIndex?: Record<string, RhViolation[]>;
 };
-
 
 const AGENT_COL_W = 260;
 const DAY_COL_W = 80;
@@ -40,6 +50,8 @@ export function TeamPlanningMatrix({
   emptyLabel = "Aucun agent dans cette équipe.",
   onCellClick,
   selectedKeys,
+  rhCellIndex,
+  rhCellViolationsIndex,
 }: Props) {
   if (days.length === 0) return null;
 
@@ -93,9 +105,11 @@ export function TeamPlanningMatrix({
                     "box-border h-11 border-b border-r px-2",
                     "text-xs text-muted-foreground",
                     "flex flex-col justify-center",
-                    flags.weekStart && "border-l-4 border-l-muted-foreground/30",
+                    flags.weekStart &&
+                      "border-l-4 border-l-muted-foreground/30",
                     flags.weekend && "bg-muted/30",
-                    flags.today && "bg-accent/35 ring-1 ring-inset ring-ring/40",
+                    flags.today &&
+                      "bg-accent/35 ring-1 ring-inset ring-ring/40",
                   )}
                 >
                   {parts.length >= 2 ? (
@@ -103,12 +117,16 @@ export function TeamPlanningMatrix({
                       <div
                         className={cn(
                           "font-medium",
-                          flags.today ? "text-foreground" : "text-foreground/80",
+                          flags.today
+                            ? "text-foreground"
+                            : "text-foreground/80",
                         )}
                       >
                         {parts[0]}
                       </div>
-                      <div className="tabular-nums">{parts.slice(1).join(" ")}</div>
+                      <div className="tabular-nums">
+                        {parts.slice(1).join(" ")}
+                      </div>
                     </div>
                   ) : (
                     <div className="font-medium text-foreground/80 leading-tight">
@@ -154,7 +172,11 @@ export function TeamPlanningMatrix({
                     </button>
                   </TooltipTrigger>
 
-                  <TooltipContent side="right" align="start" className="max-w-xs">
+                  <TooltipContent
+                    side="right"
+                    align="start"
+                    className="max-w-xs"
+                  >
                     <div className="space-y-1">
                       <div className="text-sm font-medium">
                         {row.agent.prenom} {row.agent.nom}
@@ -173,7 +195,11 @@ export function TeamPlanningMatrix({
               {row.days.map((day, idx) => {
                 const flags = colFlags[idx];
                 const key = `${row.agent.id}__${day.day_date}` as const;
+
                 const isSelected = selectedKeys?.has(key) ?? false;
+                const rh = rhCellIndex?.[key] ?? null;
+
+                const rhViolations = rhCellViolationsIndex?.[key] ?? [];
 
                 return (
                   <TeamDayCell
@@ -183,6 +209,8 @@ export function TeamPlanningMatrix({
                     isWeekStart={flags.weekStart}
                     isWeekend={flags.weekend}
                     isColToday={flags.today}
+                    rhLevel={rh?.level ?? null}
+                    rhViolations={rhViolations}
                     onClick={(e) => onCellClick(row.agent, day, e)}
                   />
                 );
@@ -191,7 +219,9 @@ export function TeamPlanningMatrix({
           ))}
 
           {rows.length === 0 ? (
-            <div className="p-6 text-sm text-muted-foreground">{emptyLabel}</div>
+            <div className="p-6 text-sm text-muted-foreground">
+              {emptyLabel}
+            </div>
           ) : null}
         </div>
       </div>
