@@ -17,13 +17,20 @@ import { TeamHeaderSelect } from "@/features/planning-team/components/TeamHeader
 import { TeamPlanningMatrix } from "@/features/planning-team/components/TeamPlanningMatrix";
 import { AgentDaySheet } from "@/features/planning-agent/components/AgentDaySheet";
 
+import { RhViolationsSheet } from "@/features/rh-validation/components/RhViolationsSheet";
+import { useRhValidationTeam } from "@/features/rh-validation/hooks/useRhValidationTeam";
+
 import { Card, CardContent } from "@/components/ui/card";
 import { formatDateFR, toISODate } from "@/utils/date.format";
 
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 import { TeamBulkEditSheet } from "./TeamBulkEditSheet";
 import type { TeamPlanningBulkItem } from "@/types/teamPlanning";
@@ -68,6 +75,9 @@ export function TeamPlanningClient({
     };
   }, [period]);
 
+  const startDate = range.start;
+  const endDate = range.end;
+
   const subtitle = React.useMemo(() => {
     return range.isRange
       ? `Planning du ${formatDateFR(range.start)} au ${formatDateFR(range.end)}`
@@ -81,10 +91,53 @@ export function TeamPlanningClient({
     endDate: range.end,
   });
 
+  const rh = useRhValidationTeam({
+    teamId,
+    startDate,
+    endDate,
+    profile: "full", // ou state si tu veux un toggle plus tard
+    enabled: teamId !== null,
+  });
+
   const planningVm = React.useMemo(() => {
     if (!data) return null;
     return buildTeamPlanningVm(data);
   }, [data]);
+
+  const agentLabelById = React.useMemo(() => {
+    const map = new Map<number, string>();
+    for (const row of planningVm?.rows ?? []) {
+      const a = row.agent;
+      map.set(
+        a.id,
+        `${a.prenom} ${a.nom}`,
+      );
+    }
+    return map;
+  }, [planningVm]);
+
+  const rhItems = React.useMemo(() => {
+    const results = rh.data?.results ?? [];
+    return results.flatMap((r) => {
+      const label = agentLabelById.get(r.agent_id) ?? `Agent #${r.agent_id}`;
+      return (r.result.violations ?? []).map((v) => ({
+        violation: v,
+        context: { kind: "agent" as const, agent_id: r.agent_id, label },
+      }));
+    });
+  }, [rh.data, agentLabelById]);
+
+  const rhCounts = React.useMemo(() => {
+    let info = 0,
+      warning = 0,
+      error = 0;
+    for (const it of rhItems) {
+      if (it.violation.severity === "info") info++;
+      else if (it.violation.severity === "warning") warning++;
+      else if (it.violation.severity === "error") error++;
+    }
+    return { info, warning, error, total: info + warning + error };
+  }, [rhItems]);
 
   const headerSubtitle =
     teamId === null
@@ -104,9 +157,9 @@ export function TeamPlanningClient({
   const [selectedAgentId, setSelectedAgentId] = React.useState<number | null>(
     null,
   );
-  const [selectedDayDateISO, setSelectedDayDateISO] = React.useState<string | null>(
-    null,
-  );
+  const [selectedDayDateISO, setSelectedDayDateISO] = React.useState<
+    string | null
+  >(null);
 
   // -----
   // Multi-select state
@@ -202,7 +255,7 @@ export function TeamPlanningClient({
         return next;
       });
 
-      setAnchorKey((prev) => (e.shiftKey ? prev ?? key : key));
+      setAnchorKey((prev) => (e.shiftKey ? (prev ?? key) : key));
     },
     [multiSelect, anchorKey, orderedDays],
   );
@@ -243,39 +296,50 @@ export function TeamPlanningClient({
         }
         subtitle={headerSubtitle}
         rightSlot={
-          <div className="flex items-center gap-4">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="flex items-center gap-2 cursor-pointer">
-                  <Switch
-                    id="multi-select"
-                    checked={multiSelect}
-                    onCheckedChange={toggleMultiSelect}
-                    disabled={teamId !== null && isLoading}
-                  />
-                  <Label htmlFor="multi-select">Sélection multiple</Label>
-                </div>
-              </TooltipTrigger>
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex items-center gap-4">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex items-center gap-2 cursor-pointer">
+                    <Switch
+                      id="multi-select"
+                      checked={multiSelect}
+                      onCheckedChange={toggleMultiSelect}
+                      disabled={teamId !== null && isLoading}
+                    />
+                    <Label htmlFor="multi-select">Sélection multiple</Label>
+                  </div>
+                </TooltipTrigger>
 
-              <TooltipContent side="bottom" align="start">
-                <p className="text-sm">
-                  Sélectionnez plusieurs cellules pour appliquer un statut,
-                  <br />
-                  une tranche et un commentaire en une seule fois.
-                  <br />
-                  <span className="text-muted-foreground">
-                    Astuce : Shift pour une plage (même agent).
-                  </span>
-                </p>
-              </TooltipContent>
-            </Tooltip>
+                <TooltipContent side="bottom" align="start">
+                  <p className="text-sm">
+                    Sélectionnez plusieurs cellules pour appliquer un statut,
+                    <br />
+                    une tranche et un commentaire en une seule fois.
+                    <br />
+                    <span className="text-muted-foreground">
+                      Astuce : Shift pour une plage (même agent).
+                    </span>
+                  </p>
+                </TooltipContent>
+              </Tooltip>
 
-            <PlanningPeriodControls
-              value={period}
-              onChange={setPeriod}
-              onPrev={() => setPeriod((p) => shiftPlanningPeriod(p, -1))}
-              onNext={() => setPeriod((p) => shiftPlanningPeriod(p, 1))}
-              disabled={teamId !== null && isLoading}
+              <PlanningPeriodControls
+                value={period}
+                onChange={setPeriod}
+                onPrev={() => setPeriod((p) => shiftPlanningPeriod(p, -1))}
+                onNext={() => setPeriod((p) => shiftPlanningPeriod(p, 1))}
+                disabled={teamId !== null && isLoading}
+              />
+            </div>
+
+            <RhViolationsSheet
+              disabled={teamId === null}
+              startDate={startDate}
+              endDate={endDate}
+              items={rhItems}
+              counts={rhCounts}
+              loading={rh.isLoading || rh.isValidating}
             />
           </div>
         }
@@ -294,7 +358,8 @@ export function TeamPlanningClient({
                 </span>
                 {selectedCount === 0 ? (
                   <span className="text-muted-foreground">
-                    — cliquez pour sélectionner, Shift pour une plage (même agent)
+                    — cliquez pour sélectionner, Shift pour une plage (même
+                    agent)
                   </span>
                 ) : null}
               </div>

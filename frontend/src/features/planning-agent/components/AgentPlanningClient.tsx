@@ -209,32 +209,55 @@ export function AgentPlanningClient({
     return rh.dayIndex?.[selectedDayDate] ?? [];
   }, [rh.dayIndex, selectedDayDate]);
 
+  const noneContext = React.useMemo(() => ({ kind: "none" as const }), []);
+
+  const rhItems = React.useMemo(
+    () => (rh.violations ?? []).map((violation) => ({ violation, context: noneContext })),
+    [rh.violations, noneContext],
+  );
+
   function monthStartISO(iso: string) {
     // iso: "YYYY-MM-DD"
     return iso.slice(0, 7) + "-01";
   }
 
-  const jumpToDate = React.useCallback((iso: string) => {
-    const dayISO = iso.slice(0, 10);
+  const jumpToDate = React.useCallback(
+    (iso: string) => {
+      const dayISO = iso.slice(0, 10);
 
-    if (period.kind === "month") {
-      const currentMonthISO = toISODate(startOfMonth(period.month)); // YYYY-MM-01
-      const targetMonthISO = monthStartISO(dayISO);
-
-      if (currentMonthISO !== targetMonthISO) {
-        setPeriod({ kind: "month", month: new Date(targetMonthISO + "T00:00:00") });
-      }
-    } else {
-      if (dayISO < range.start || dayISO > range.end) {
+      if (period.kind === "month") {
+        const currentMonthISO = toISODate(startOfMonth(period.month)); // YYYY-MM-01
         const targetMonthISO = monthStartISO(dayISO);
-        setPeriod({ kind: "month", month: new Date(targetMonthISO + "T00:00:00") });
+
+        if (currentMonthISO !== targetMonthISO) {
+          setPeriod({
+            kind: "month",
+            month: new Date(targetMonthISO + "T00:00:00"),
+          });
+        }
+      } else {
+        if (dayISO < range.start || dayISO > range.end) {
+          const targetMonthISO = monthStartISO(dayISO);
+          setPeriod({
+            kind: "month",
+            month: new Date(targetMonthISO + "T00:00:00"),
+          });
+        }
       }
-    }
 
-    setSelectedDayDate(dayISO);
-    setSheetOpen(true);
-  }, [period.kind, period, range.start, range.end, setPeriod, setSelectedDayDate, setSheetOpen]);
-
+      setSelectedDayDate(dayISO);
+      setSheetOpen(true);
+    },
+    [
+      period.kind,
+      period,
+      range.start,
+      range.end,
+      setPeriod,
+      setSelectedDayDate,
+      setSheetOpen,
+    ],
+  );
 
   return (
     <div className="space-y-4">
@@ -287,7 +310,7 @@ export function AgentPlanningClient({
               disabled={agentId === null}
               startDate={startDate}
               endDate={endDate}
-              violations={rh.violations}
+              items={rhItems}
               counts={rh.counts}
               loading={rh.isLoading || rh.isValidating}
               onJumpToDate={(iso) => jumpToDate(iso)}
