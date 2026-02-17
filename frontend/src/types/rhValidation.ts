@@ -12,6 +12,10 @@ export type RhViolation = {
   meta?: Record<string, unknown>;
 };
 
+// ======================================================
+// Agent validation
+// ======================================================
+
 export type RhValidateAgentRequest = {
   agent_id: number;
   date_debut: string; // "YYYY-MM-DD"
@@ -21,4 +25,30 @@ export type RhValidateAgentRequest = {
 export type RhValidateAgentResponse = {
   is_valid: boolean;
   violations: RhViolation[];
+};
+
+// ======================================================
+// Team validation
+// ======================================================
+
+export type RhValidateTeamRequest = {
+  team_id: number;
+  date_debut: string; // "YYYY-MM-DD"
+  date_fin: string;   // "YYYY-MM-DD"
+};
+
+export type RhValidationTeamAgentResult = {
+  agent_id: number;
+  result: RhValidateAgentResponse;
+};
+
+export type RhValidationTeamSkipped = {
+  agent_id: number;
+  code: string;
+  details?: Record<string, unknown> | null;
+};
+
+export type RhValidateTeamResponse = {
+  results: RhValidationTeamAgentResult[];
+  skipped: RhValidationTeamSkipped[];
 };

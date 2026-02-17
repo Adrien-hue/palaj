@@ -1,11 +1,25 @@
 import { apiFetch } from "@/lib/api/universal";
 import { backendPath } from "@/lib/backendPath";
 import { RhPosteDayRequest, RhPosteDayResponse, RhPosteSummaryRequest, RhPosteSummaryResponse } from "@/types";
-import type { RhValidateAgentRequest, RhValidateAgentResponse } from "@/types/rhValidation";
+import type { RhValidateAgentRequest, RhValidateAgentResponse, RhValidateTeamRequest, RhValidateTeamResponse } from "@/types/rhValidation";
 
 export async function validateAgentRh(payload: RhValidateAgentRequest): Promise<RhValidateAgentResponse> {
   return apiFetch<RhValidateAgentResponse>(backendPath("/rh/validate/agent"), {
     body: payload,
+  });
+}
+
+export async function validateTeamRh(params: {
+  request: RhValidateTeamRequest;
+  profile: "fast" | "full";
+  signal?: AbortSignal;
+}): Promise<RhValidateTeamResponse> {
+  const { request, profile, signal } = params;
+
+  return apiFetch<RhValidateTeamResponse>(backendPath(`/rh/validate/team?profile=${profile}`), {
+    method: "POST",
+    body: request,
+    signal,
   });
 }
 

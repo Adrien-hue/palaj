@@ -1,5 +1,5 @@
 import type { Key } from "swr";
-import { getRhPosteSummary, validateAgentRh } from "@/services/rh-validation.service";
+import { getRhPosteSummary, validateAgentRh, validateTeamRh } from "@/services/rh-validation.service";
 
 export async function rhValidationAgentFetcher(key: Key) {
   const [, , agentId, startDate, endDate] = key as readonly [
@@ -33,6 +33,26 @@ export async function rhValidationPosteSummaryFetcher(key: Key) {
     profile,
     body: {
       poste_id: posteId,
+      date_debut: startDate,
+      date_fin: endDate,
+    },
+  });
+}
+
+export async function rhValidationTeamFetcher(key: Key) {
+  const [, , teamId, startDate, endDate, profile] = key as readonly [
+    "rh-validation",
+    "team",
+    number,
+    string,
+    string,
+    "fast" | "full",
+  ];
+
+  return validateTeamRh({
+    profile,
+    request: {
+      team_id: teamId,
       date_debut: startDate,
       date_fin: endDate,
     },

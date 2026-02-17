@@ -34,3 +34,21 @@ export const rhValidationPosteSummaryKey = (
     profile,
   ] as const;
 };
+
+export const rhValidationTeamKey = (
+  teamId: number | null,
+  startDate: string | null,
+  endDate: string | null,
+  profile: "fast" | "full" | null,
+) => {
+  if (!teamId || !startDate || !endDate || !profile) return null;
+
+  return [
+    "rh-validation",
+    "team",
+    teamId,
+    startDate,
+    endDate,
+    profile,
+  ] as const;
+};
