@@ -1,4 +1,5 @@
-from pydantic import BaseModel
+from typing import List
+from pydantic import BaseModel, Field
 from datetime import date
 
 class RHValidateAgentRequestDTO(BaseModel):
@@ -14,5 +15,10 @@ class RHValidatePosteRequestDTO(BaseModel):
 class RHValidatePosteDayRequestDTO(BaseModel):
     poste_id: int
     day: date
+    date_debut: date
+    date_fin: date
+
+class RHValidateTeamRequestDTO(BaseModel):
+    team_id: int
     date_debut: date
     date_fin: date
