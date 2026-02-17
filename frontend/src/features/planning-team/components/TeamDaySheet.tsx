@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import type { Agent, AgentDay } from "@/types";
+import type { Agent, AgentDay, RhViolation } from "@/types";
 
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -31,8 +31,9 @@ export function TeamDaySheet(props: {
   onOpenChange: (open: boolean) => void;
   agent: Agent | null;
   day: AgentDay | null;
+  rhViolations?: RhViolation[];
 }) {
-  const { open, onOpenChange, agent, day } = props;
+  const { open, onOpenChange, agent, day, rhViolations } = props;
 
   const dateLabel = day ? formatDateFRLong(day.day_date) : "Jour";
 
@@ -43,6 +44,11 @@ export function TeamDaySheet(props: {
   }, [day]);
 
   const hasTranches = tranches.length > 0;
+
+  const rhList = rhViolations ?? [];
+  const rhErrors = rhList.filter((v) => v.severity === "error");
+  const rhWarnings = rhList.filter((v) => v.severity === "warning");
+
 
   const title = (
     <span className="flex min-w-0 items-center gap-2">

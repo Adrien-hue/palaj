@@ -3,7 +3,7 @@
 import * as React from "react";
 import { startOfMonth, endOfMonth } from "date-fns";
 
-import type { Agent, AgentDay, Team } from "@/types";
+import type { Agent, AgentDay, RhViolation, Team } from "@/types";
 import type { PlanningPeriod } from "@/features/planning-common/period/period.types";
 
 import { useTeamPlanning } from "@/features/planning-team/hooks/useTeamPlanning";
@@ -42,6 +42,47 @@ const cellKey = (agentId: number, dayDateISO: string) =>
 function parseCellKey(key: CellKey): { agentId: number; dayDateISO: string } {
   const [a, d] = key.split("__");
   return { agentId: Number(a), dayDateISO: d };
+}
+
+type RhLevel = "error" | "warning" | "info";
+type RhCellInfo = { level: RhLevel; count: number };
+
+function maxLevel(a: RhLevel, b: RhLevel): RhLevel {
+  const rank: Record<RhLevel, number> = { error: 3, warning: 2, info: 1 };
+  return rank[a] >= rank[b] ? a : b;
+}
+
+function isoDayFromViolation(
+  v: {
+    start_date?: string;
+    end_date?: string;
+    start_dt?: string;
+    end_dt?: string;
+  },
+  which: "start" | "end",
+) {
+  const date = which === "start" ? v.start_date : v.end_date;
+  const dt = which === "start" ? v.start_dt : v.end_dt;
+  return (date && date.slice(0, 10)) || (dt && dt.slice(0, 10)) || null;
+}
+
+function eachDayISO(startISO: string, endISO: string): string[] {
+  const out: string[] = [];
+  const start = new Date(startISO + "T00:00:00");
+  const end = new Date(endISO + "T00:00:00");
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    const yyyy = String(d.getFullYear());
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    out.push(`${yyyy}-${mm}-${dd}`);
+  }
+  return out;
+}
+
+function levelFromSeverity(sev: string | undefined): RhLevel {
+  if (sev === "error") return "error";
+  if (sev === "warning") return "warning";
+  return "info";
 }
 
 export function TeamPlanningClient({
@@ -91,27 +132,24 @@ export function TeamPlanningClient({
     endDate: range.end,
   });
 
-  const rh = useRhValidationTeam({
-    teamId,
-    startDate,
-    endDate,
-    profile: "full", // ou state si tu veux un toggle plus tard
-    enabled: teamId !== null,
-  });
-
   const planningVm = React.useMemo(() => {
     if (!data) return null;
     return buildTeamPlanningVm(data);
   }, [data]);
 
+  const rh = useRhValidationTeam({
+    teamId,
+    startDate,
+    endDate,
+    profile: "full", // ou state si tu veux un toggle plus tard
+    enabled: teamId !== null && !!data,
+  });
+
   const agentLabelById = React.useMemo(() => {
     const map = new Map<number, string>();
     for (const row of planningVm?.rows ?? []) {
       const a = row.agent;
-      map.set(
-        a.id,
-        `${a.prenom} ${a.nom}`,
-      );
+      map.set(a.id, `${a.prenom} ${a.nom}`);
     }
     return map;
   }, [planningVm]);
@@ -138,6 +176,93 @@ export function TeamPlanningClient({
     }
     return { info, warning, error, total: info + warning + error };
   }, [rhItems]);
+
+  const rhCellIndex = React.useMemo(() => {
+    // clé: `${agentId}__${YYYY-MM-DD}`
+    const idx: Record<string, RhCellInfo> = {};
+
+    const days = planningVm?.days ?? [];
+    if (days.length === 0) return idx;
+
+    // borne sur la période affichée
+    const minDay = days[0];
+    const maxDay = days[days.length - 1];
+
+    // petit helper clamp
+    const clamp = (d: string) =>
+      d < minDay ? minDay : d > maxDay ? maxDay : d;
+
+    for (const row of rh.perAgent ?? []) {
+      const agentId = row.agent_id;
+
+      for (const v of row.violations ?? []) {
+        const sev = levelFromSeverity(v.severity);
+        const start = isoDayFromViolation(v, "start");
+        const end = isoDayFromViolation(v, "end");
+
+        // si pas de date -> on ne peut pas mapper à une cellule
+        if (!start && !end) continue;
+
+        const s = clamp(start ?? end!);
+        const e = clamp(end ?? start!);
+
+        const dates = eachDayISO(s, e);
+
+        for (const dayISO of dates) {
+          const key = `${agentId}__${dayISO}`;
+          const prev = idx[key];
+
+          if (!prev) {
+            idx[key] = { level: sev, count: 1 };
+          } else {
+            idx[key] = {
+              level: maxLevel(prev.level, sev),
+              count: prev.count + 1,
+            };
+          }
+        }
+      }
+    }
+
+    return idx;
+  }, [planningVm?.days, rh.perAgent]);
+
+  const rhCellViolationsIndex = React.useMemo(() => {
+    // clé: `${agentId}__${YYYY-MM-DD}`
+    const idx: Record<string, RhViolation[]> = {};
+
+    const days = planningVm?.days ?? [];
+    if (days.length === 0) return idx;
+
+    const minDay = days[0];
+    const maxDay = days[days.length - 1];
+
+    const clamp = (d: string) =>
+      d < minDay ? minDay : d > maxDay ? maxDay : d;
+
+    for (const row of rh.perAgent ?? []) {
+      const agentId = row.agent_id;
+
+      for (const v of row.violations ?? []) {
+        // 👉 on ignore les infos en team (tooltip + cell)
+        if (v.severity === "info") continue;
+
+        const start = isoDayFromViolation(v, "start");
+        const end = isoDayFromViolation(v, "end");
+        if (!start && !end) continue;
+
+        const s = clamp(start ?? end!);
+        const e = clamp(end ?? start!);
+
+        for (const dayISO of eachDayISO(s, e)) {
+          const key = `${agentId}__${dayISO}`;
+          (idx[key] ??= []).push(v);
+        }
+      }
+    }
+
+    return idx;
+  }, [planningVm?.days, rh.perAgent]);
 
   const headerSubtitle =
     teamId === null
@@ -169,6 +294,12 @@ export function TeamPlanningClient({
     () => new Set(),
   );
   const [anchorKey, setAnchorKey] = React.useState<CellKey | null>(null);
+
+  const selectedRhViolations = React.useMemo((): RhViolation[] => {
+    if (!selectedAgentId || !selectedDayDateISO) return [];
+    const key = `${selectedAgentId}__${selectedDayDateISO}`;
+    return rhCellViolationsIndex[key] ?? [];
+  }, [selectedAgentId, selectedDayDateISO, rhCellViolationsIndex]);
 
   const selectedCount = selectedKeys.size;
 
@@ -415,6 +546,8 @@ export function TeamPlanningClient({
           rows={planningVm.rows}
           onCellClick={handleCellClick}
           selectedKeys={selectedKeys}
+          rhCellIndex={rhCellIndex}
+          rhCellViolationsIndex={rhCellViolationsIndex}
         />
       ) : (
         <Card>
@@ -430,10 +563,13 @@ export function TeamPlanningClient({
         onClose={() => setSheetOpen(false)}
         agentId={selectedAgentId ?? 0}
         dayDateISO={selectedDayDateISO}
+        rhViolations={selectedRhViolations}
         onChanged={async () => {
           await mutate();
+          await rh.refresh();
         }}
       />
+
 
       {/* Sheet (bulk edit) */}
       {teamId !== null ? (
