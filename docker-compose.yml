@@ -2,6 +2,12 @@ services:
   db:
     image: postgres:16
     container_name: palaj-postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U root -d palaj_db"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
     environment:
       POSTGRES_USER: root
       POSTGRES_PASSWORD: root
@@ -17,9 +23,16 @@ services:
       dockerfile: backend/Dockerfile
     container_name: palaj-api
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     env_file:
       - backend/.env.docker
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health').read()"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
     ports:
       - "8000:8000"
 

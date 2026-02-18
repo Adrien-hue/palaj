@@ -24,4 +24,4 @@ COPY alembic.ini /app/alembic.ini
 
 EXPOSE 8000
 
-CMD ["python", "-m", "uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["bash", "-lc", "python -m backend.scripts.wait_for_db && python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000"]
