@@ -1,0 +1,15 @@
+services:
+  db:
+    image: postgres:16
+    container_name: palaj-postgres
+    environment:
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: root
+      POSTGRES_DB: palaj_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - palaj_pg_data:/var/lib/postgresql/data
+
+volumes:
+  palaj_pg_data:
