@@ -1,5 +1,5 @@
 # db/__init__.py
-from db.database import SQLiteDatabase
+from backend.app.settings import settings
+from db.database import Database
 
-# Base globale
-db = SQLiteDatabase("data/palaj.db", debug=False, echo=False)
+db = Database(settings.database_url, debug=False, echo=False)
