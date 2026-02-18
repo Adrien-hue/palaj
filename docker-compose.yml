@@ -11,5 +11,17 @@ services:
     volumes:
       - palaj_pg_data:/var/lib/postgresql/data
 
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: palaj-api
+    depends_on:
+      - db
+    env_file:
+      - backend/.env.docker
+    ports:
+      - "8000:8000"
+
 volumes:
   palaj_pg_data:
