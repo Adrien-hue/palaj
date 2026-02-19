@@ -1,8 +1,9 @@
 import { ApiError, AuthExpiredError, ForbiddenError, UnauthorizedError } from "./errors";
 import { formatMessage, readBody } from "./error_parsing";
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL;
-if (!BASE_URL) throw new Error("Missing NEXT_PUBLIC_API_URL in .env.local");
+import { env } from "@/config/env";
+
+const BASE_URL = env.NEXT_PUBLIC_API_URL;
 
 type FetchOptions = Omit<RequestInit, "body"> & {
   body?: unknown;

@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { relaySetCookies } from "@/lib/relaySetCookies";
 
-const BACKEND_URL = process.env.BACKEND_URL!;
+import { env } from "@/config/env";
+
+const BACKEND_URL = env.BACKEND_URL!;
 
 export async function POST() {
   const cookieStore = await cookies();
