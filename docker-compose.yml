@@ -28,13 +28,37 @@ services:
     env_file:
       - backend/.env.docker
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health').read()"]
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health').read()",
+        ]
       interval: 5s
       timeout: 3s
       retries: 20
 
     ports:
       - "8000:8000"
+
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        NEXT_PUBLIC_APP_URL: "http://localhost:3000"
+        NEXT_PUBLIC_API_URL: "http://localhost:3000/api"
+        BACKEND_URL: "http://api:8000"
+    container_name: palaj-web
+    depends_on:
+      - api
+    env_file:
+      - frontend/.env.docker
+    ports:
+      - "127.0.0.1:3000:3000"
+
+
 
 volumes:
   palaj_pg_data:
