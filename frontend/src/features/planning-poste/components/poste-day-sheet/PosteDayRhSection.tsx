@@ -42,6 +42,7 @@ export function PosteDayRhSection({
   onRefresh: () => void;
 }) {
   const agents = rhDay.data?.agents ?? [];
+  const poste_id = rhDay.data?.poste_id ?? null;
 
   // Totaux mémoïsés
   const totals = React.useMemo(() => {
@@ -61,11 +62,27 @@ export function PosteDayRhSection({
   // Groupement violations mémoïsé par agent
   const groupsByAgentId = React.useMemo(() => {
     const m = new Map<number, ReturnType<typeof groupRhViolations>>();
+
+    if (poste_id == null) return m;
+
     for (const a of agents) {
-      m.set(a.agent_id, groupRhViolations(a.violations));
+      m.set(
+        a.agent_id,
+        groupRhViolations(
+          a.violations.map((v) => ({
+            violation: v,
+            context: {
+              kind: "poste",
+              poste_id,
+              label: `Poste #${poste_id}`,
+            },
+          })),
+        ),
+      );
     }
+
     return m;
-  }, [agents]);
+  }, [agents, poste_id]);
 
   // Liste triée mémoïsée
   const sortedAgents = React.useMemo(() => {
