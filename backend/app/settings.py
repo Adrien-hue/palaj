@@ -9,14 +9,15 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # backend/
 BASE_DIR = Path(__file__).resolve().parents[1]
-
+ENV_PATH = BASE_DIR / ".env.local"
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="APP_",
-        env_file=BASE_DIR / ".env",  # backend/.env
+        env_file=str(ENV_PATH) if ENV_PATH.exists() else None,
         extra="ignore",
     )
+
 
     # ==========================================================
     # ENVIRONMENT

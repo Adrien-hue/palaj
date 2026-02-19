@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
-    ForeignKey, ForeignKeyConstraint, Index, UniqueConstraint, CheckConstraint
+    ForeignKey, ForeignKeyConstraint, Index, Integer, UniqueConstraint, CheckConstraint
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 class PosteCoverageRequirement(Base):
     __tablename__ = "poste_coverage_requirements"
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
 
     poste_id: Mapped[int] = mapped_column(
         ForeignKey("postes.id", ondelete="CASCADE"),

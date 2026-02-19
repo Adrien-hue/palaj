@@ -3,7 +3,7 @@ from typing import Any, Generic, TypeVar, Type, List, Literal, Optional, Sequenc
 
 from sqlalchemy.orm import DeclarativeBase, selectinload, joinedload
 
-from db.database import SQLiteDatabase
+from db.database import Database
 from core.adapters.entity_mapper import EntityMapper
 
 TModel = TypeVar("TModel", bound=DeclarativeBase)
@@ -23,11 +23,11 @@ class SQLRepository(Generic[TModel, TEntity]):
       • TEntity : Classe d'entité métier correspondante (ex: AgentEntity)
     """
 
-    def __init__(self, db: SQLiteDatabase, model_class: Type[TModel], entity_class: Type[TEntity]):
+    def __init__(self, db: Database, model_class: Type[TModel], entity_class: Type[TEntity]):
         """
         Initialise un repository SQL.
 
-        :param db: Instance active de la base SQLiteDatabase (contient engine et sessions)
+        :param db: Instance active de la base Database (contient engine et sessions)
         :param model_class: Classe SQLAlchemy utilisée pour les opérations ORM
         :param entity_class: Classe d'entité métier retournée aux couches supérieures
         """
