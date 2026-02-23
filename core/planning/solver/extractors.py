@@ -52,7 +52,7 @@ def expand_needs_to_slots(needs: Sequence[Need]) -> List[SolverSlot]:
 
 def build_solver_agents(
     agents: Iterable[object],
-    agent_days: Optional[Iterable[object]] = None,    
+    agent_days: Optional[Iterable[object]] = None,
 ) -> List[SolverAgent]:
     unavailable_by_agent: dict[int, Set[date]] = defaultdict(set)
 
@@ -64,22 +64,21 @@ def build_solver_agents(
 
     out: List[SolverAgent] = []
     for a in sorted(list(agents), key=lambda x: int(x.id)):
-        quals = set()
+        poste_ids: Set[int] = set()
         for q in getattr(a, "qualifications", []) or []:
-            if hasattr(q, "qualification_id"):
-                quals.add(int(q.qualification_id))
-            elif hasattr(q, "id"):
-                quals.add(int(q.id))
+            if hasattr(q, "poste_id"):
+                poste_ids.add(int(q.poste_id))
+            else:
+                raise ValueError("Qualification doit exposer .poste_id")
 
         out.append(
             SolverAgent(
                 id=int(a.id),
-                qualifications=quals,
+                qualifications=poste_ids,
                 unavailable_dates=unavailable_by_agent.get(int(a.id), set()),
             )
         )
     return out
-
 
 
 # ---------- Baseline groups (from AgentDayAssignment) ----------
