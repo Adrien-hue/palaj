@@ -47,13 +47,6 @@ class PlanningGenerationService:
         )
         session.add(draft)
         session.flush()
-        conn = session.connection()
-        logger.warning(
-            "DB_DEBUG_CREATE job_id=%s draft_id=%s db_url=%s",
-            draft.job_id,
-            draft.id,
-            str(conn.engine.url),
-        )
         logger.error("planning_generation.create_draft", extra={"draft_id": draft.id, "job_id": draft.job_id})
         return draft
 
@@ -118,19 +111,7 @@ class PlanningGenerationService:
         )
 
         with self.db.session_scope() as session:
-            conn = session.connection()
-            logger.warning(
-                "DB_DEBUG_RUN job_id=%s db_url=%s",
-                normalized_job_id,
-                str(conn.engine.url),
-            )
-            draft_count = session.query(PlanningDraft).count()
-            logger.warning("DB_DEBUG_RUN draft_count=%s", draft_count)
             draft = session.query(PlanningDraft).filter(PlanningDraft.job_id == normalized_job_id).first()
-
-            existing = session.query(PlanningDraft.id, PlanningDraft.job_id).order_by(PlanningDraft.id.desc()).limit(10).all()
-            logger.warning("DB_DEBUG_RUN last_drafts=%s", existing)
-            logger.warning("DB_DEBUG_RUN looking_for=%r", normalized_job_id)
 
             if draft is None:
                 logger.error(
