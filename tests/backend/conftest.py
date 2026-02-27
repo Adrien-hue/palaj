@@ -5,7 +5,6 @@ import tempfile
 from typing import Generator
 
 import pytest
-from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 
@@ -92,6 +91,8 @@ def app(engine):
 
 @pytest.fixture()
 def client(app):
+    pytest.importorskip("httpx", reason="httpx required for TestClient")
+    from fastapi.testclient import TestClient
     with TestClient(app) as c:
         yield c
 

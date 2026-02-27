@@ -45,7 +45,7 @@ def upgrade() -> None:
     sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
     sa.Column('name', sa.String(length=120), nullable=False),
     sa.Column('description', sa.Text(), nullable=True),
-    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.current_timestamp(), nullable=False),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_teams')),
     sa.UniqueConstraint('name', name=op.f('uq_teams_name'))
     )
@@ -112,7 +112,7 @@ def upgrade() -> None:
     op.create_table('agent_teams',
     sa.Column('agent_id', sa.Integer(), nullable=False),
     sa.Column('team_id', sa.Integer(), nullable=False),
-    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.current_timestamp(), nullable=False),
     sa.ForeignKeyConstraint(['agent_id'], ['agents.id'], name=op.f('fk_agent_teams_agent_id_agents'), ondelete='CASCADE'),
     sa.ForeignKeyConstraint(['team_id'], ['teams.id'], name=op.f('fk_agent_teams_team_id_teams'), ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('agent_id', 'team_id', name=op.f('pk_agent_teams'))

@@ -2,6 +2,10 @@
 branch = True
 source =
     core
+    backend
+omit =
+    */alembic/*
+    */__init__.py
 
 [report]
 show_missing = True
