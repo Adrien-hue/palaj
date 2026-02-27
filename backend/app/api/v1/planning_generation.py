@@ -1,12 +1,6 @@
 from __future__ import annotations
 
 from uuid import UUID
-import os
-import logging
-
-logger = logging.getLogger(__name__)
-
-logger.info("CWD=%s", os.getcwd())
 
 from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy.orm import Session
