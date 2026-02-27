@@ -12,3 +12,6 @@ from .regime import Regime
 from .team import Team
 from .tranche import Tranche
 from .user import User
+from .planning_draft import PlanningDraft
+from .planning_draft_agent_day import PlanningDraftAgentDay
+from .planning_draft_assignment import PlanningDraftAssignment

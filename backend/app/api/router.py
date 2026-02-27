@@ -12,6 +12,7 @@ from backend.app.api.v1.postes import router as postes_router
 from backend.app.api.v1.poste_coverage import router as poste_coverage_router
 from backend.app.api.v1.poste_planning import router as poste_planning_router
 from backend.app.api.v1.poste_tranches import router as poste_tranches_router
+from backend.app.api.v1.planning_generation import router as planning_generation_router
 from backend.app.api.v1.qualifications import router as qualifications_router
 from backend.app.api.v1.regimes import router as regimes_router
 from backend.app.api.v1.teams import router as teams_router
@@ -35,6 +36,7 @@ api_router.include_router(postes_router, dependencies=protected)
 api_router.include_router(poste_coverage_router, dependencies=protected)
 api_router.include_router(poste_planning_router, dependencies=protected)
 api_router.include_router(poste_tranches_router, dependencies=protected)
+api_router.include_router(planning_generation_router, dependencies=protected)
 api_router.include_router(qualifications_router, dependencies=protected)
 api_router.include_router(regimes_router, dependencies=protected)
 api_router.include_router(teams_router, dependencies=protected)
