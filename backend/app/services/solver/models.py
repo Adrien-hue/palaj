@@ -13,6 +13,25 @@ class SolverInput:
     seed: Optional[int]
     time_limit_seconds: int
     agent_ids: list[int]
+    absences: set[tuple[int, date]]
+    qualified_postes_by_agent: dict[int, tuple[int, ...]]
+    poste_ids: list[int]
+    tranches: list["TrancheInfo"]
+    coverage_demands: list["CoverageDemand"]
+
+
+@dataclass(frozen=True)
+class TrancheInfo:
+    id: int
+    poste_id: int
+
+
+@dataclass(frozen=True)
+class CoverageDemand:
+    day_date: date
+    tranche_id: int
+    required_count: int
+    poste_id: Optional[int] = None
 
 
 @dataclass(frozen=True)
