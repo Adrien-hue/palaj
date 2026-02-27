@@ -1,21 +1,55 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from contextlib import contextmanager
+from datetime import date, time, timedelta
 from importlib.util import find_spec
 from uuid import uuid4
 
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
-from backend.app.services.planning.generation import planning_generation_service
+from backend.app.services.planning.generation import PlanningGenerationService
+from backend.app.services.solver.ortools_solver import OrtoolsSolver
 from backend.app.settings import settings
 from core.domain.enums.planning_draft_status import PlanningDraftStatus
-from db.models import Agent, AgentTeam, PlanningDraft, PlanningDraftAgentDay, PlanningDraftAssignment, Team
+from db.models import (
+    Agent,
+    AgentTeam,
+    PlanningDraft,
+    PlanningDraftAgentDay,
+    PlanningDraftAssignment,
+    Poste,
+    PosteCoverageRequirement,
+    Qualification,
+    Team,
+    Tranche,
+)
 
 pytestmark = [pytest.mark.flow, pytest.mark.integration]
 
 API = "/api/v1"
 HTTPX_MISSING = find_spec("httpx") is None
+
+
+class _TestDbAdapter:
+    def __init__(self, bind):
+        self._session_factory = sessionmaker(bind=bind, expire_on_commit=False, autoflush=False, autocommit=False)
+
+    @contextmanager
+    def session_scope(self):
+        session = self._session_factory()
+        try:
+            yield session
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+
+def _build_generation_service(db_session: Session) -> PlanningGenerationService:
+    return PlanningGenerationService(solver=OrtoolsSolver(), database=_TestDbAdapter(db_session.get_bind()))
 
 
 def _login(client, username: str, password: str):
@@ -99,7 +133,9 @@ def test_runner_execution_with_string_job_id_sets_success_and_creates_agent_days
     start_date = date(2026, 1, 1)
     end_date = date(2026, 1, 3)
 
-    draft = planning_generation_service.create_draft(
+    generation_service = _build_generation_service(db_session)
+
+    draft = generation_service.create_draft(
         session=db_session,
         team_id=team.id,
         start_date=start_date,
@@ -109,14 +145,7 @@ def test_runner_execution_with_string_job_id_sets_success_and_creates_agent_days
     )
     db_session.commit()
 
-    testing_session_factory = sessionmaker(
-        bind=db_session.get_bind(),
-        expire_on_commit=False,
-        autoflush=False,
-        autocommit=False,
-    )
-    # Non-régression: passer job_id string comme en production BackgroundTask
-    planning_generation_service.run_job(testing_session_factory, str(draft.job_id))
+    generation_service.run_job(str(draft.job_id))
 
     db_session.expire_all()
     persisted_draft = db_session.get(PlanningDraft, draft.id)
@@ -146,3 +175,119 @@ def test_runner_execution_with_string_job_id_sets_success_and_creates_agent_days
 
     assert created_days_count == expected_days_count
     assert assignments_count == 0
+
+
+def test_runner_adds_hard_infeasible_stats_for_unreachable_demand(db_session: Session):
+    team = _seed_team(db_session, agent_count=1)
+    start_date = date(2026, 1, 5)
+    end_date = date(2026, 1, 5)
+
+    agent_id = db_session.query(AgentTeam.agent_id).filter(AgentTeam.team_id == team.id).one()[0]
+
+    poste = Poste(nom=f"Poste infeasible {uuid4()}")
+    db_session.add(poste)
+    db_session.flush()
+
+    tranche = Tranche(
+        nom=f"Tranche infeasible {uuid4()}",
+        heure_debut=time(8, 0),
+        heure_fin=time(12, 0),
+        poste_id=poste.id,
+        color=None,
+    )
+    db_session.add(tranche)
+    db_session.flush()
+
+    db_session.add(Qualification(agent_id=agent_id, poste_id=poste.id))
+    db_session.add(
+        PosteCoverageRequirement(
+            poste_id=poste.id,
+            weekday=start_date.weekday(),
+            tranche_id=tranche.id,
+            required_count=2,
+        )
+    )
+    db_session.commit()
+
+    generation_service = _build_generation_service(db_session)
+
+    draft = generation_service.create_draft(
+        session=db_session,
+        team_id=team.id,
+        start_date=start_date,
+        end_date=end_date,
+        seed=321,
+        time_limit_seconds=30,
+    )
+    db_session.commit()
+
+    generation_service.run_job(str(draft.job_id))
+
+    db_session.expire_all()
+    persisted_draft = db_session.get(PlanningDraft, draft.id)
+    assert persisted_draft is not None
+    assert persisted_draft.status == PlanningDraftStatus.SUCCESS.value
+    assert persisted_draft.result_stats is not None
+    assert persisted_draft.result_stats["hard_infeasible_demands_count"] == 1
+    assert persisted_draft.result_stats["ignored_coverage_requirements_count"] == 0
+    assert persisted_draft.result_stats["covered_poste_ids_count"] == 1
+    assert persisted_draft.result_stats["ignored_poste_ids_sample"] == []
+
+    sample = persisted_draft.result_stats["hard_infeasible_demands_sample"]
+    assert isinstance(sample, list)
+    assert len(sample) == 1
+    assert sample[0]["tranche_id"] == tranche.id
+    assert sample[0]["required_count"] == 2
+    assert sample[0]["capacity"] == 1
+
+
+def test_runner_adds_ignored_coverage_requirement_stats(db_session: Session):
+    team = _seed_team(db_session, agent_count=1)
+    start_date = date(2026, 1, 5)
+    end_date = date(2026, 1, 5)
+
+    uncovered_poste = Poste(nom=f"Poste uncovered {uuid4()}")
+    db_session.add(uncovered_poste)
+    db_session.flush()
+
+    uncovered_tranche = Tranche(
+        nom=f"Tranche uncovered {uuid4()}",
+        heure_debut=time(13, 0),
+        heure_fin=time(17, 0),
+        poste_id=uncovered_poste.id,
+        color=None,
+    )
+    db_session.add(uncovered_tranche)
+    db_session.flush()
+
+    db_session.add(
+        PosteCoverageRequirement(
+            poste_id=uncovered_poste.id,
+            weekday=start_date.weekday(),
+            tranche_id=uncovered_tranche.id,
+            required_count=1,
+        )
+    )
+    db_session.commit()
+
+    generation_service = _build_generation_service(db_session)
+    draft = generation_service.create_draft(
+        session=db_session,
+        team_id=team.id,
+        start_date=start_date,
+        end_date=end_date,
+        seed=42,
+        time_limit_seconds=30,
+    )
+    db_session.commit()
+
+    generation_service.run_job(str(draft.job_id))
+
+    db_session.expire_all()
+    persisted_draft = db_session.get(PlanningDraft, draft.id)
+    assert persisted_draft is not None
+    assert persisted_draft.status == PlanningDraftStatus.SUCCESS.value
+    assert persisted_draft.result_stats is not None
+    assert persisted_draft.result_stats["covered_poste_ids_count"] == 0
+    assert persisted_draft.result_stats["ignored_coverage_requirements_count"] >= 1
+    assert uncovered_poste.id in persisted_draft.result_stats["ignored_poste_ids_sample"]
