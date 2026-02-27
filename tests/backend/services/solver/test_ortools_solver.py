@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, time
 
 import pytest
 
@@ -27,7 +27,7 @@ def _build_input(**kwargs) -> SolverInput:
         qualification_date_by_agent_poste={(1, 1): None, (2, 1): None},
         existing_day_type_by_agent_day={},
         poste_ids=[1],
-        tranches=[TrancheInfo(id=10, poste_id=1)],
+        tranches=[TrancheInfo(id=10, poste_id=1, heure_debut=time(8, 0), heure_fin=time(14, 0))],
         coverage_demands=[],
     )
     base.update(kwargs)
@@ -55,6 +55,7 @@ def test_feasible_respects_qualification_date():
     assert out.stats["objective_value"] == out.stats["score"]
     assert out.stats["num_constraints"] >= 0
     assert out.stats["demanded_pairs_count"] == 2
+    assert out.stats["coverage_constraints_count"] == 2
 
 
 def test_infeasible_when_required_exceeds_capacity():
@@ -96,10 +97,11 @@ def test_no_demands_gives_zero_assignments_and_full_coverage():
 
     assert out.assignments == []
     assert out.stats["coverage_ratio"] == 1.0
-    assert out.stats["num_variables"] == 0
+    assert out.stats["num_variables"] > 0
     assert out.stats["objective_value"] == out.stats["score"]
     assert out.stats["num_constraints"] >= 0
     assert out.stats["demanded_pairs_count"] == 0
+    assert out.stats["coverage_constraints_count"] == 0
 
 
 def test_copies_existing_day_type_when_unassigned():
@@ -107,8 +109,8 @@ def test_copies_existing_day_type_when_unassigned():
     out = solver.generate(
         _build_input(
             agent_ids=[1],
-            qualified_postes_by_agent={1: (1,)},
-            qualification_date_by_agent_poste={(1, 1): None},
+            qualified_postes_by_agent={1: ()},
+            qualification_date_by_agent_poste={},
             existing_day_type_by_agent_day={(1, date(2026, 1, 1)): "zcot"},
             coverage_demands=[],
         )
@@ -116,3 +118,93 @@ def test_copies_existing_day_type_when_unassigned():
 
     day = next(d for d in out.agent_days if d.agent_id == 1 and d.day_date == date(2026, 1, 1))
     assert day.day_type == "zcot"
+
+
+def test_allows_multi_tranche_same_day_when_combo_valid():
+    solver = OrtoolsSolver()
+    out = solver.generate(
+        _build_input(
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 1),
+            agent_ids=[1],
+            qualified_postes_by_agent={1: (1,)},
+            qualification_date_by_agent_poste={(1, 1): None},
+            tranches=[
+                TrancheInfo(id=10, poste_id=1, heure_debut=time(8, 0), heure_fin=time(11, 0)),
+                TrancheInfo(id=11, poste_id=1, heure_debut=time(11, 0), heure_fin=time(14, 0)),
+            ],
+            coverage_demands=[
+                CoverageDemand(day_date=date(2026, 1, 1), tranche_id=10, required_count=1),
+                CoverageDemand(day_date=date(2026, 1, 1), tranche_id=11, required_count=1),
+            ],
+        )
+    )
+
+    assert {(a.agent_id, a.tranche_id) for a in out.assignments} == {(1, 10), (1, 11)}
+
+
+def test_rejects_invalid_combo_with_excessive_amplitude():
+    solver = OrtoolsSolver()
+    inp = _build_input(
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 1, 1),
+        agent_ids=[1],
+        qualified_postes_by_agent={1: (1,)},
+        qualification_date_by_agent_poste={(1, 1): None},
+        tranches=[
+            TrancheInfo(id=10, poste_id=1, heure_debut=time(6, 0), heure_fin=time(11, 30)),
+            TrancheInfo(id=11, poste_id=1, heure_debut=time(18, 0), heure_fin=time(23, 30)),
+        ],
+        coverage_demands=[
+            CoverageDemand(day_date=date(2026, 1, 1), tranche_id=10, required_count=1),
+            CoverageDemand(day_date=date(2026, 1, 1), tranche_id=11, required_count=1),
+        ],
+    )
+
+    with pytest.raises(InfeasibleError):
+        solver.generate(inp)
+
+
+def test_daily_rest_night_rule_blocks_incompatible_pair():
+    solver = OrtoolsSolver()
+    inp = _build_input(
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 1, 2),
+        agent_ids=[1],
+        qualified_postes_by_agent={1: (1,)},
+        qualification_date_by_agent_poste={(1, 1): None},
+        tranches=[
+            TrancheInfo(id=10, poste_id=1, heure_debut=time(17, 30), heure_fin=time(23, 0)),
+            TrancheInfo(id=11, poste_id=1, heure_debut=time(8, 0), heure_fin=time(13, 30)),
+        ],
+        coverage_demands=[
+            CoverageDemand(day_date=date(2026, 1, 1), tranche_id=10, required_count=1),
+            CoverageDemand(day_date=date(2026, 1, 2), tranche_id=11, required_count=1),
+        ],
+    )
+
+    with pytest.raises(InfeasibleError):
+        solver.generate(inp)
+
+
+def test_no_implicit_zero_demand_constraints_are_added():
+    solver = OrtoolsSolver()
+    out = solver.generate(
+        _build_input(
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 1),
+            agent_ids=[1],
+            qualified_postes_by_agent={1: (1,)},
+            qualification_date_by_agent_poste={(1, 1): None},
+            tranches=[
+                TrancheInfo(id=10, poste_id=1, heure_debut=time(8, 0), heure_fin=time(13, 30)),
+                TrancheInfo(id=11, poste_id=1, heure_debut=time(13, 30), heure_fin=time(19, 0)),
+            ],
+            coverage_demands=[
+                CoverageDemand(day_date=date(2026, 1, 1), tranche_id=10, required_count=1),
+            ],
+        )
+    )
+
+    assert out.stats["coverage_constraints_count"] == 1
+    assert any(a.tranche_id == 10 for a in out.assignments)
