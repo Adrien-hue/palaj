@@ -15,9 +15,19 @@ class SolverInput:
     agent_ids: list[int]
     absences: set[tuple[int, date]]
     qualified_postes_by_agent: dict[int, tuple[int, ...]]
+    qualification_date_by_agent_poste: dict[tuple[int, int], date | None]
+    existing_day_type_by_agent_day: dict[tuple[int, date], str]
     poste_ids: list[int]
     tranches: list["TrancheInfo"]
     coverage_demands: list["CoverageDemand"]
+
+
+class InfeasibleError(Exception):
+    pass
+
+
+class TimeoutError(Exception):
+    pass
 
 
 @dataclass(frozen=True)
