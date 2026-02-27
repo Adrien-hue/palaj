@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
 from backend.app.services.planning.generation import PlanningGenerationService
+from backend.app.services.solver.models import TimeoutError
 from backend.app.services.solver.ortools_solver import OrtoolsSolver
 from backend.app.settings import settings
 from core.domain.enums.planning_draft_status import PlanningDraftStatus
@@ -177,6 +178,41 @@ def test_runner_execution_with_string_job_id_sets_success_and_creates_agent_days
     assert assignments_count == 0
 
 
+
+
+def test_runner_marks_timeout_when_solver_times_out(db_session: Session, monkeypatch):
+    team = _seed_team(db_session, agent_count=1)
+    start_date = date(2026, 1, 5)
+    end_date = date(2026, 1, 5)
+
+    generation_service = _build_generation_service(db_session)
+
+    def _raise_timeout(self, _solver_input):
+        raise TimeoutError("timeout")
+
+    monkeypatch.setattr(OrtoolsSolver, "generate", _raise_timeout)
+
+    draft = generation_service.create_draft(
+        session=db_session,
+        team_id=team.id,
+        start_date=start_date,
+        end_date=end_date,
+        seed=999,
+        time_limit_seconds=1,
+    )
+    db_session.commit()
+
+    generation_service.run_job(str(draft.job_id))
+
+    db_session.expire_all()
+    persisted_draft = db_session.get(PlanningDraft, draft.id)
+    assert persisted_draft is not None
+    assert persisted_draft.status == PlanningDraftStatus.FAILED.value
+    assert persisted_draft.error == "timeout"
+    assert persisted_draft.result_stats is not None
+    assert persisted_draft.result_stats["solver_status"] == "TIMEOUT"
+    assert persisted_draft.result_stats["coverage_ratio"] == 0
+
 def test_runner_adds_hard_infeasible_stats_for_unreachable_demand(db_session: Session):
     team = _seed_team(db_session, agent_count=1)
     start_date = date(2026, 1, 5)
@@ -226,8 +262,11 @@ def test_runner_adds_hard_infeasible_stats_for_unreachable_demand(db_session: Se
     db_session.expire_all()
     persisted_draft = db_session.get(PlanningDraft, draft.id)
     assert persisted_draft is not None
-    assert persisted_draft.status == PlanningDraftStatus.SUCCESS.value
+    assert persisted_draft.status == PlanningDraftStatus.FAILED.value
+    assert persisted_draft.error == "infeasible"
     assert persisted_draft.result_stats is not None
+    assert persisted_draft.result_stats["solver_status"] == "INFEASIBLE"
+    assert persisted_draft.result_stats["coverage_ratio"] == 0
     assert persisted_draft.result_stats["hard_infeasible_demands_count"] == 1
     assert persisted_draft.result_stats["ignored_coverage_requirements_count"] == 0
     assert persisted_draft.result_stats["covered_poste_ids_count"] == 1

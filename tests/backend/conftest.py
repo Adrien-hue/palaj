@@ -14,9 +14,38 @@ from db.base import Base
 
 from backend.app.settings import settings
 from backend.app.security.password import hash_password
+from backend.app.services.planning.generation import planning_generation_service
 
 from db.models import User
 from db.models.refresh_token import RefreshToken
+
+
+class _TestDbAdapter:
+    def __init__(self, session_factory):
+        self._session_factory = session_factory
+
+    def session_scope(self):
+        class _SessionManager:
+            def __init__(self, session_factory):
+                self._session_factory = session_factory
+                self._session = None
+
+            def __enter__(self):
+                self._session = self._session_factory()
+                return self._session
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                if self._session is None:
+                    return
+                try:
+                    if exc_type:
+                        self._session.rollback()
+                    else:
+                        self._session.commit()
+                finally:
+                    self._session.close()
+
+        return _SessionManager(self._session_factory)
 
 
 @pytest.fixture(scope="session")
@@ -68,6 +97,9 @@ def app(engine):
 
     app.dependency_overrides[get_db] = _override_get_db
 
+    previous_planning_db = planning_generation_service.db
+    planning_generation_service.db = _TestDbAdapter(TestingSessionLocal)
+
     # Settings adaptés aux tests
     settings.cookie_secure = False
     settings.cookie_samesite = "lax"
@@ -86,7 +118,10 @@ def app(engine):
     settings.jwt_issuer = "palaj-api"
     settings.jwt_audience = "palaj-web"
 
-    return app
+    try:
+        yield app
+    finally:
+        planning_generation_service.db = previous_planning_db
 
 
 @pytest.fixture()

@@ -57,6 +57,43 @@ class SolverInputMapper:
             for agent_id in sorted(agent_ids)
         }
 
+
+    def list_qualification_dates(
+        self,
+        agent_ids: list[int],
+    ) -> dict[tuple[int, int], date | None]:
+        qualification_date_by_agent_poste: dict[tuple[int, int], date | None] = {}
+        if not agent_ids:
+            return qualification_date_by_agent_poste
+
+        rows = self.session.execute(
+            select(Qualification.agent_id, Qualification.poste_id, Qualification.date_qualification)
+            .where(Qualification.agent_id.in_(agent_ids))
+            .order_by(Qualification.agent_id, Qualification.poste_id)
+        ).all()
+        for agent_id, poste_id, qualification_date in rows:
+            qualification_date_by_agent_poste[(agent_id, poste_id)] = qualification_date
+
+        return qualification_date_by_agent_poste
+
+    def list_existing_day_types(
+        self,
+        agent_ids: list[int],
+        start_date: date,
+        end_date: date,
+    ) -> dict[tuple[int, date], str]:
+        if not agent_ids:
+            return {}
+
+        rows = self.session.execute(
+            select(AgentDay.agent_id, AgentDay.day_date, AgentDay.day_type)
+            .where(AgentDay.agent_id.in_(agent_ids))
+            .where(AgentDay.day_date >= start_date, AgentDay.day_date <= end_date)
+            .order_by(AgentDay.day_date, AgentDay.agent_id)
+        ).all()
+
+        return {(agent_id, day_date): day_type for agent_id, day_date, day_type in rows}
+
     def list_team_poste_ids(self, qualified_postes_by_agent: dict[int, set[int]]) -> set[int]:
         return {poste_id for postes in qualified_postes_by_agent.values() for poste_id in postes}
 
@@ -164,7 +201,7 @@ class SolverInputMapper:
             select(AgentDay.agent_id, AgentDay.day_date)
             .where(AgentDay.agent_id.in_(agent_ids))
             .where(AgentDay.day_date >= start_date, AgentDay.day_date <= end_date)
-            .where(AgentDay.day_type == "absent")
+            .where(AgentDay.day_type.in_(("absent", "leave")))
             .order_by(AgentDay.day_date, AgentDay.agent_id)
         ).all()
 

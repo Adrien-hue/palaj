@@ -8,7 +8,14 @@ from sqlalchemy.orm import Session
 
 from backend.app.services.solver.interface import SolverService
 from backend.app.services.solver.mapper import SolverInputMapper
-from backend.app.services.solver.models import CoverageDemand, SolverInput, SolverOutput, TrancheInfo
+from backend.app.services.solver.models import (
+    CoverageDemand,
+    InfeasibleError,
+    SolverInput,
+    SolverOutput,
+    TimeoutError,
+    TrancheInfo,
+)
 from backend.app.services.solver.ortools_solver import OrtoolsSolver
 from core.domain.enums.planning_draft_status import PlanningDraftStatus
 from db.models import PlanningDraft, PlanningDraftAgentDay, PlanningDraftAssignment, Team
@@ -150,6 +157,12 @@ class PlanningGenerationService:
                     start_date=draft.start_date,
                     end_date=draft.end_date,
                 )
+                qualification_date_by_agent_poste = mapper.list_qualification_dates(agent_ids=team_agent_ids)
+                existing_day_type_by_agent_day = mapper.list_existing_day_types(
+                    agent_ids=team_agent_ids,
+                    start_date=draft.start_date,
+                    end_date=draft.end_date,
+                )
 
                 hard_infeasible_count, hard_infeasible_sample = self._compute_hard_infeasible_stats(
                     demands=coverage_demands,
@@ -169,6 +182,8 @@ class PlanningGenerationService:
                         agent_ids=team_agent_ids,
                         absences=absences,
                         qualified_postes_by_agent=sorted_qualified_postes_by_agent,
+                        qualification_date_by_agent_poste=qualification_date_by_agent_poste,
+                        existing_day_type_by_agent_day=existing_day_type_by_agent_day,
                         poste_ids=poste_ids,
                         tranches=tranches,
                         coverage_demands=coverage_demands,
@@ -198,6 +213,60 @@ class PlanningGenerationService:
                     "planning_generation.run_job.success",
                     extra={"draft_id": draft.id, "job_id": normalized_job_id},
                 )
+            except InfeasibleError:
+                logger.exception(
+                    "planning_generation.run_job.failure",
+                    extra={"draft_id": getattr(draft, "id", None), "job_id": normalized_job_id},
+                )
+                session.rollback()
+
+                failed_draft = session.query(PlanningDraft).filter(PlanningDraft.job_id == normalized_job_id).first()
+                if failed_draft is None:
+                    return
+                failed_draft.status = PlanningDraftStatus.FAILED.value
+                failed_draft.error = "infeasible"
+                failed_draft.result_stats = {
+                    "absence_count": len(absences),
+                    "demand_count": len(coverage_demands),
+                    "tranche_count": len(tranches),
+                    "poste_count": len(poste_ids),
+                    "agent_count": len(team_agent_ids),
+                    "ignored_coverage_requirements_count": ignored_coverage_requirements_count,
+                    "covered_poste_ids_count": len(poste_ids),
+                    "ignored_poste_ids_sample": ignored_poste_ids_sample,
+                    "hard_infeasible_demands_count": hard_infeasible_count,
+                    "hard_infeasible_demands_sample": hard_infeasible_sample,
+                    "solver_status": "INFEASIBLE",
+                    "coverage_ratio": 0,
+                }
+                session.commit()
+            except TimeoutError:
+                logger.exception(
+                    "planning_generation.run_job.failure",
+                    extra={"draft_id": getattr(draft, "id", None), "job_id": normalized_job_id},
+                )
+                session.rollback()
+
+                failed_draft = session.query(PlanningDraft).filter(PlanningDraft.job_id == normalized_job_id).first()
+                if failed_draft is None:
+                    return
+                failed_draft.status = PlanningDraftStatus.FAILED.value
+                failed_draft.error = "timeout"
+                failed_draft.result_stats = {
+                    "absence_count": len(absences),
+                    "demand_count": len(coverage_demands),
+                    "tranche_count": len(tranches),
+                    "poste_count": len(poste_ids),
+                    "agent_count": len(team_agent_ids),
+                    "ignored_coverage_requirements_count": ignored_coverage_requirements_count,
+                    "covered_poste_ids_count": len(poste_ids),
+                    "ignored_poste_ids_sample": ignored_poste_ids_sample,
+                    "hard_infeasible_demands_count": hard_infeasible_count,
+                    "hard_infeasible_demands_sample": hard_infeasible_sample,
+                    "solver_status": "TIMEOUT",
+                    "coverage_ratio": 0,
+                }
+                session.commit()
             except Exception as exc:  # pragma: no cover
                 logger.exception(
                     "planning_generation.run_job.failure",

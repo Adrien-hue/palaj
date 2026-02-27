@@ -120,7 +120,7 @@ def test_qualifications_builds_union_and_mapping(db_session):
     assert poste_ids == {poste_a.id, poste_b.id}
 
 
-def test_list_absences_returns_only_absent_days(db_session):
+def test_list_absences_returns_absent_and_leave_days(db_session):
     team, agents = _create_team_with_agents(db_session)
 
     db_session.add_all(
@@ -141,6 +141,7 @@ def test_list_absences_returns_only_absent_days(db_session):
 
     assert absences == {
         (agents[0].id, date(2026, 1, 5)),
+        (agents[0].id, date(2026, 1, 6)),
         (agents[1].id, date(2026, 1, 7)),
     }
 
@@ -218,3 +219,51 @@ def test_mapper_is_deterministic_for_demands_and_qualified_postes(db_session):
     assert normalized_1 == normalized_2
     assert poste_ids_1 == poste_ids_2
     assert demands_1 == demands_2
+
+
+def test_list_qualification_dates_returns_mapping(db_session):
+    team, agents = _create_team_with_agents(db_session)
+
+    poste = Poste(nom=f"Poste-Q-{uuid4()}")
+    db_session.add(poste)
+    db_session.flush()
+
+    db_session.add_all(
+        [
+            Qualification(agent_id=agents[0].id, poste_id=poste.id, date_qualification=date(2026, 1, 2)),
+            Qualification(agent_id=agents[1].id, poste_id=poste.id, date_qualification=None),
+        ]
+    )
+    db_session.commit()
+
+    mapper = SolverInputMapper(session=db_session)
+    mapping = mapper.list_qualification_dates(agent_ids=[agents[0].id, agents[1].id])
+
+    assert mapping == {
+        (agents[0].id, poste.id): date(2026, 1, 2),
+        (agents[1].id, poste.id): None,
+    }
+
+
+def test_list_existing_day_types_returns_existing_rows(db_session):
+    team, agents = _create_team_with_agents(db_session)
+
+    db_session.add_all(
+        [
+            AgentDay(agent_id=agents[0].id, day_date=date(2026, 1, 5), day_type="zcot"),
+            AgentDay(agent_id=agents[1].id, day_date=date(2026, 1, 6), day_type="unknown"),
+        ]
+    )
+    db_session.commit()
+
+    mapper = SolverInputMapper(session=db_session)
+    mapping = mapper.list_existing_day_types(
+        agent_ids=[agents[0].id, agents[1].id],
+        start_date=date(2026, 1, 5),
+        end_date=date(2026, 1, 6),
+    )
+
+    assert mapping == {
+        (agents[0].id, date(2026, 1, 5)): "zcot",
+        (agents[1].id, date(2026, 1, 6)): "unknown",
+    }
