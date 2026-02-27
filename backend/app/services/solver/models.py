@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+from datetime import time
 from typing import Any, Optional
 
 
@@ -34,6 +35,8 @@ class TimeoutError(Exception):
 class TrancheInfo:
     id: int
     poste_id: int
+    heure_debut: time = time(0, 0)
+    heure_fin: time = time(0, 0)
 
 
 @dataclass(frozen=True)

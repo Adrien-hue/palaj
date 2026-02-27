@@ -102,11 +102,14 @@ class SolverInputMapper:
             return []
 
         tranches = self.session.execute(
-            select(Tranche.id, Tranche.poste_id)
+            select(Tranche.id, Tranche.poste_id, Tranche.heure_debut, Tranche.heure_fin)
             .where(Tranche.poste_id.in_(poste_ids))
             .order_by(Tranche.id)
         ).all()
-        return [TrancheInfo(id=tranche_id, poste_id=poste_id) for tranche_id, poste_id in tranches]
+        return [
+            TrancheInfo(id=tranche_id, poste_id=poste_id, heure_debut=heure_debut, heure_fin=heure_fin)
+            for tranche_id, poste_id, heure_debut, heure_fin in tranches
+        ]
 
     def list_coverage_requirements(self, poste_ids: set[int]) -> list[CoverageRequirementPattern]:
         if not poste_ids:
