@@ -7,7 +7,7 @@ from datetime import date, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from db.models import AgentDay, AgentTeam, PosteCoverageRequirement, Qualification, Tranche
+from db.models import AgentDay, AgentDayAssignment, AgentTeam, PosteCoverageRequirement, Qualification, Tranche
 
 from .models import CoverageDemand, TrancheInfo
 
@@ -93,6 +93,101 @@ class SolverInputMapper:
         ).all()
 
         return {(agent_id, day_date): day_type for agent_id, day_date, day_type in rows}
+
+
+
+    def list_gpt_context_days(self, start_date: date, end_date: date) -> list[date]:
+        ctx_start = start_date - timedelta(days=7)
+        ctx_end = end_date + timedelta(days=7)
+        days: list[date] = []
+        cursor = ctx_start
+        while cursor <= ctx_end:
+            days.append(cursor)
+            cursor += timedelta(days=1)
+        return days
+
+    def list_existing_day_types_context(
+        self,
+        agent_ids: list[int],
+        start_date: date,
+        end_date: date,
+    ) -> dict[tuple[int, date], str]:
+        ctx_start = start_date - timedelta(days=7)
+        ctx_end = end_date + timedelta(days=7)
+        return self.list_existing_day_types(agent_ids=agent_ids, start_date=ctx_start, end_date=ctx_end)
+
+    def list_existing_work_context(
+        self,
+        agent_ids: list[int],
+        start_date: date,
+        end_date: date,
+    ) -> tuple[dict[tuple[int, date], int], dict[tuple[int, date], tuple[int, int] | None]]:
+        if not agent_ids:
+            return {}, {}
+
+        ctx_start = start_date - timedelta(days=7)
+        ctx_end = end_date + timedelta(days=7)
+
+        existing_day_types = self.list_existing_day_types(
+            agent_ids=agent_ids,
+            start_date=ctx_start,
+            end_date=ctx_end,
+        )
+
+        work_minutes: dict[tuple[int, date], int] = {}
+        shift_start_end: dict[tuple[int, date], tuple[int, int] | None] = {}
+
+        assignment_rows = self.session.execute(
+            select(
+                AgentDay.agent_id,
+                AgentDay.day_date,
+                Tranche.heure_debut,
+                Tranche.heure_fin,
+            )
+            .select_from(AgentDayAssignment)
+            .join(AgentDay, AgentDay.id == AgentDayAssignment.agent_day_id)
+            .join(Tranche, Tranche.id == AgentDayAssignment.tranche_id)
+            .where(AgentDay.agent_id.in_(agent_ids))
+            .where(AgentDay.day_date >= ctx_start, AgentDay.day_date <= ctx_end)
+            .order_by(AgentDay.agent_id, AgentDay.day_date)
+        ).all()
+
+        assignment_windows: dict[tuple[int, date], list[tuple[int, int]]] = {}
+        for agent_id, day_date, heure_debut, heure_fin in assignment_rows:
+            start_min = heure_debut.hour * 60 + heure_debut.minute
+            end_min = heure_fin.hour * 60 + heure_fin.minute
+            if end_min <= start_min:
+                end_min += 24 * 60
+            assignment_windows.setdefault((agent_id, day_date), []).append((start_min, end_min))
+
+        for key, day_type in existing_day_types.items():
+            if day_type == "zcot":
+                work_minutes[key] = 480
+                shift_start_end[key] = None
+                continue
+
+            if day_type in {"leave", "absent", "rest", "unknown"}:
+                work_minutes[key] = 0
+                shift_start_end[key] = None
+                continue
+
+            if day_type == "working":
+                windows = assignment_windows.get(key, [])
+                if not windows:
+                    work_minutes[key] = 0
+                    shift_start_end[key] = None
+                    continue
+                work_minutes[key] = sum(end - start for start, end in windows)
+                shift_start_end[key] = (
+                    min(start for start, _ in windows),
+                    max(end for _, end in windows),
+                )
+                continue
+
+            work_minutes[key] = 0
+            shift_start_end[key] = None
+
+        return work_minutes, shift_start_end
 
     def list_team_poste_ids(self, qualified_postes_by_agent: dict[int, set[int]]) -> set[int]:
         return {poste_id for postes in qualified_postes_by_agent.values() for poste_id in postes}

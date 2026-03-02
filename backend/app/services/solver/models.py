@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from datetime import time
 from typing import Any, Optional
@@ -21,6 +21,10 @@ class SolverInput:
     poste_ids: list[int]
     tranches: list["TrancheInfo"]
     coverage_demands: list["CoverageDemand"]
+    gpt_context_days: list[date] = field(default_factory=list)
+    existing_day_type_by_agent_day_ctx: dict[tuple[int, date], str] = field(default_factory=dict)
+    existing_work_minutes_by_agent_day_ctx: dict[tuple[int, date], int] = field(default_factory=dict)
+    existing_shift_start_end_by_agent_day_ctx: dict[tuple[int, date], tuple[int, int] | None] = field(default_factory=dict)
 
 
 class InfeasibleError(Exception):
