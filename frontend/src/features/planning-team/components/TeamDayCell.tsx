@@ -62,8 +62,6 @@ export function TeamDayCell({
   onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void;
   readOnly?: boolean;
 }) {
-  const guardReadOnly = React.useCallback(() => readOnly, [readOnly]);
-
   const t = day.day_type;
   const tranches = day.tranches ?? [];
   const hasWork = tranches.length > 0;
@@ -90,17 +88,7 @@ export function TeamDayCell({
   const button = (
     <button
       type="button"
-      onClick={(e) => {
-        if (guardReadOnly()) return;
-        onClick?.(e);
-      }}
-      onKeyDown={(e) => {
-        if (!guardReadOnly()) return;
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          e.stopPropagation();
-        }
-      }}
+      onClick={readOnly ? undefined : onClick}
       tabIndex={readOnly ? -1 : 0}
       aria-pressed={selected}
       aria-disabled={readOnly}
