@@ -104,6 +104,8 @@ class OrtoolsSolver:
                 next_combo_id += 1
 
         combo_by_id = {combo.id: combo for combo in combos}
+        sorted_combos = sorted(combos, key=lambda combo: ((combo.poste_id if combo.poste_id is not None else -1), combo.id))
+        sorted_work_combos = [combo for combo in sorted_combos if combo.poste_id is not None]
         combo_ids_by_poste: dict[int, list[int]] = {}
         for combo in combos:
             if combo.poste_id is not None:
@@ -135,6 +137,15 @@ class OrtoolsSolver:
             "coverage_constraints_count": 0,
             "num_combos_total": num_combos_total,
             "num_combos_effective": 0,
+            "combo_candidate_pairs_count": 0,
+            "combo_allowed_pairs_count": 0,
+            "combo_rejected_absence_count": 0,
+            "combo_rejected_not_qualified_count": 0,
+            "combo_rejected_qualification_date_count": 0,
+            "combo_rejected_unknown_daytype_forces_rest_count": 0,
+            "combo_rejected_other_count": 0,
+            "combo_rejected_samples": [],
+            "combo_allowed_samples": [],
             "num_incompatible_pairs": num_incompatible_pairs,
             "num_rest_constraints": 0,
             "gpt_ctx_days_count": gpt_ctx_days_count,
@@ -143,6 +154,10 @@ class OrtoolsSolver:
             "avg_required_minutes_per_day": avg_required_minutes_per_day,
             "avg_required_minutes_per_agent_per_day": avg_required_minutes_per_agent_per_day,
             "gpt_max_avg_minutes_per_day_if_6": 480,
+            "demanded_tranche_ids_count": 0,
+            "covered_tranche_ids_by_any_combo_count": 0,
+            "missing_tranche_in_any_combo_count": 0,
+            "missing_tranche_in_any_combo_sample": [],
             # Heuristic estimation from demand volume; useful diagnostic signal, not a proof of feasibility.
             "required_minutes_estimate_method": "sum(tranche_duration_minutes * required_count) over coverage_demands",
             "total_required_work_minutes_estimate": total_required_work_minutes,
@@ -157,33 +172,116 @@ class OrtoolsSolver:
         vars_by_agent_day: dict[tuple[int, int], list[cp_model.IntVar]] = {}
         vars_by_demand: dict[tuple[int, int], list[cp_model.IntVar]] = {}
 
+        covered_tranche_ids_by_any_combo = {
+            tranche_id
+            for combo in combos
+            if combo.tranche_ids
+            for tranche_id in combo.tranche_ids
+        }
+        demanded_tranche_ids = {demand.tranche_id for demand in solver_input.coverage_demands}
+        missing_tranche_ids = demanded_tranche_ids - covered_tranche_ids_by_any_combo
+        stats["demanded_tranche_ids_count"] = len(demanded_tranche_ids)
+        stats["covered_tranche_ids_by_any_combo_count"] = len(covered_tranche_ids_by_any_combo)
+        stats["missing_tranche_in_any_combo_count"] = len(missing_tranche_ids)
+        stats["missing_tranche_in_any_combo_sample"] = sorted(missing_tranche_ids)[:10]
+        if missing_tranche_ids:
+            stats["solver_status"] = "INFEASIBLE"
+            stats["solver_status_raw"] = "PRECHECK_INFEASIBLE"
+            stats["normalized_solver_status"] = "INFEASIBLE"
+            stats["is_timeout"] = False
+            raise InfeasibleError("infeasible", stats=stats)
+
+        combo_candidate_pairs_count = 0
+        combo_allowed_pairs_count = 0
+        combo_rejected_absence_count = 0
+        combo_rejected_not_qualified_count = 0
+        combo_rejected_qualification_date_count = 0
+        combo_rejected_unknown_daytype_forces_rest_count = 0
+        combo_rejected_other_count = 0
+        combo_rejected_samples: list[dict] = []
+        combo_allowed_samples: list[dict] = []
+
+        def _append_sample(samples: list[dict], *, agent_id: int, day_date, combo_id: int, poste_id: int | None, reason: str) -> None:
+            if len(samples) >= 10:
+                return
+            samples.append(
+                {
+                    "agent_id": agent_id,
+                    "day_date": day_date.isoformat(),
+                    "combo_id": combo_id,
+                    "poste_id": poste_id,
+                    "reason": reason,
+                }
+            )
+
         for agent_id in ordered_agent_ids:
             for di, day_date in enumerate(dates):
-                key = (agent_id, day_date)
-                if key in solver_input.absences:
+                is_absent = (agent_id, day_date) in solver_input.absences
+                if is_absent:
                     var = model.NewBoolVar(f"y_a{agent_id}_d{di}_c0")
                     num_variables += 1
                     y[(agent_id, di, 0)] = var
                     vars_by_agent_day.setdefault((agent_id, di), []).append(var)
                     model.Add(var == 1)
                     num_constraints += 1
-                    continue
+                else:
+                    var = model.NewBoolVar(f"y_a{agent_id}_d{di}_c0")
+                    num_variables += 1
+                    y[(agent_id, di, 0)] = var
+                    vars_by_agent_day.setdefault((agent_id, di), []).append(var)
 
-                allowed_combo_ids = {0}
-                for poste_id in qual_posts.get(agent_id, set()):
-                    min_qual_date = qual_date.get((agent_id, poste_id))
-                    if min_qual_date is not None and day_date < min_qual_date:
+                for combo in sorted_work_combos:
+                    combo_candidate_pairs_count += 1
+                    combo_id = combo.id
+                    reason = None
+                    if is_absent:
+                        combo_rejected_absence_count += 1
+                        reason = "absence"
+                    elif combo.poste_id not in qual_posts.get(agent_id, set()):
+                        combo_rejected_not_qualified_count += 1
+                        reason = "not_qualified"
+                    else:
+                        min_qual_date = qual_date.get((agent_id, combo.poste_id))
+                        if min_qual_date is not None and day_date < min_qual_date:
+                            combo_rejected_qualification_date_count += 1
+                            reason = "qualification_date"
+
+                    if reason is not None:
+                        _append_sample(
+                            combo_rejected_samples,
+                            agent_id=agent_id,
+                            day_date=day_date,
+                            combo_id=combo_id,
+                            poste_id=combo.poste_id,
+                            reason=reason,
+                        )
                         continue
-                    allowed_combo_ids.update(combo_ids_by_poste.get(poste_id, []))
 
-                for combo_id in sorted(allowed_combo_ids):
+                    combo_allowed_pairs_count += 1
+                    _append_sample(
+                        combo_allowed_samples,
+                        agent_id=agent_id,
+                        day_date=day_date,
+                        combo_id=combo_id,
+                        poste_id=combo.poste_id,
+                        reason="allowed",
+                    )
                     var = model.NewBoolVar(f"y_a{agent_id}_d{di}_c{combo_id}")
                     num_variables += 1
                     y[(agent_id, di, combo_id)] = var
                     vars_by_agent_day.setdefault((agent_id, di), []).append(var)
-                    combo = combo_by_id[combo_id]
                     for tranche_id in combo.tranche_ids:
                         vars_by_demand.setdefault((di, tranche_id), []).append(var)
+
+        stats["combo_candidate_pairs_count"] = combo_candidate_pairs_count
+        stats["combo_allowed_pairs_count"] = combo_allowed_pairs_count
+        stats["combo_rejected_absence_count"] = combo_rejected_absence_count
+        stats["combo_rejected_not_qualified_count"] = combo_rejected_not_qualified_count
+        stats["combo_rejected_qualification_date_count"] = combo_rejected_qualification_date_count
+        stats["combo_rejected_unknown_daytype_forces_rest_count"] = combo_rejected_unknown_daytype_forces_rest_count
+        stats["combo_rejected_other_count"] = combo_rejected_other_count
+        stats["combo_rejected_samples"] = combo_rejected_samples
+        stats["combo_allowed_samples"] = combo_allowed_samples
 
         for agent_id in ordered_agent_ids:
             for di in range(len(dates)):
