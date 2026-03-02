@@ -129,6 +129,48 @@ def test_post_generate_invalid_dates_returns_422(client):
     assert r.status_code == 422, r.text
 
 
+
+
+@pytest.mark.skipif(HTTPX_MISSING, reason="httpx required for TestClient")
+def test_get_generate_status_returns_result_stats_when_failed(client, db_session: Session, monkeypatch):
+    _login(client, "admin", "admin123")
+    team = _seed_team(db_session, agent_count=1)
+
+    def _raise_timeout(self, _solver_input):
+        raise TimeoutError(
+            "timeout",
+            stats={
+                "solver_status": "UNKNOWN",
+                "solver_status_raw": "UNKNOWN",
+                "normalized_solver_status": "TIMEOUT",
+                "is_timeout": True,
+            },
+        )
+
+    monkeypatch.setattr(OrtoolsSolver, "generate", _raise_timeout)
+
+    payload = {
+        "team_id": team.id,
+        "start_date": str(date.today()),
+        "end_date": str(date.today()),
+        "seed": 123,
+        "time_limit_seconds": 1,
+    }
+
+    post_response = client.post(f"{API}/planning/generate", json=payload)
+    assert post_response.status_code == 200, post_response.text
+    job_id = post_response.json()["job_id"]
+
+    status_response = client.get(f"{API}/planning/generate/{job_id}")
+    assert status_response.status_code == 200, status_response.text
+
+    data = status_response.json()
+    assert data["status"] == PlanningDraftStatus.FAILED.value
+    assert data["error"] is not None
+    assert data["result_stats"] is not None
+    assert data["result_stats"]["coverage_ratio"] == 0
+    assert data["result_stats"]["solver_status"] in ("INFEASIBLE", "TIMEOUT")
+
 def test_runner_execution_with_string_job_id_sets_success_and_creates_agent_days_without_http_client(db_session: Session):
     team = _seed_team(db_session, agent_count=2)
     start_date = date(2026, 1, 1)
