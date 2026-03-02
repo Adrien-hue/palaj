@@ -22,7 +22,8 @@ type Props = {
   rows: TeamAgentPlanning[];
   emptyLabel?: string;
 
-  onCellClick: (agent: Agent, day: AgentDay, e: React.MouseEvent) => void;
+  onCellClick?: (agent: Agent, day: AgentDay, e: React.MouseEvent) => void;
+  readOnly?: boolean;
 
   selectedKeys?: ReadonlySet<string>;
   rhCellIndex?: Record<string, RhCellInfo>;
@@ -49,18 +50,19 @@ export function TeamPlanningMatrix({
   rows,
   emptyLabel = "Aucun agent dans cette équipe.",
   onCellClick,
+  readOnly = false,
   selectedKeys,
   rhCellIndex,
   rhCellViolationsIndex,
 }: Props) {
-  if (days.length === 0) return null;
-
   const gridCols = React.useMemo(
     () => `${AGENT_COL_W}px repeat(${days.length}, ${DAY_COL_W}px)`,
     [days.length],
   );
 
   const today = React.useMemo(() => todayISO(), []);
+
+  const guardReadOnly = React.useCallback(() => readOnly, [readOnly]);
 
   const colFlags = React.useMemo(
     () =>
@@ -71,6 +73,8 @@ export function TeamPlanningMatrix({
       })),
     [days, today],
   );
+
+  if (days.length === 0) return null;
 
   return (
     <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
@@ -163,8 +167,18 @@ export function TeamPlanningMatrix({
                         "w-full h-full bg-inherit",
                         "text-left flex items-center",
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm",
+                        readOnly && "pointer-events-none cursor-default",
                       )}
                       aria-label={`Agent ${row.agent.prenom} ${row.agent.nom}`}
+                      disabled={readOnly}
+                      aria-disabled={readOnly}
+                      onKeyDown={(e) => {
+                        if (!guardReadOnly()) return;
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          e.stopPropagation();
+                        }
+                      }}
                     >
                       <div className="truncate font-medium leading-none">
                         {row.agent.prenom} {row.agent.nom}
@@ -211,7 +225,11 @@ export function TeamPlanningMatrix({
                     isColToday={flags.today}
                     rhLevel={rh?.level ?? null}
                     rhViolations={rhViolations}
-                    onClick={(e) => onCellClick(row.agent, day, e)}
+                    readOnly={readOnly}
+                    onClick={(e) => {
+                      if (guardReadOnly()) return;
+                      onCellClick?.(row.agent, day, e);
+                    }}
                   />
                 );
               })}

@@ -48,6 +48,7 @@ export function TeamDayCell({
   rhLevel = null,
   rhViolations = [],
   onClick,
+  readOnly = false,
 }: {
   day: AgentDay;
   isWeekStart?: boolean;
@@ -59,7 +60,10 @@ export function TeamDayCell({
   rhViolations?: RhViolation[];
 
   onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void;
+  readOnly?: boolean;
 }) {
+  const guardReadOnly = React.useCallback(() => readOnly, [readOnly]);
+
   const t = day.day_type;
   const tranches = day.tranches ?? [];
   const hasWork = tranches.length > 0;
@@ -86,11 +90,24 @@ export function TeamDayCell({
   const button = (
     <button
       type="button"
-      onClick={onClick}
+      onClick={(e) => {
+        if (guardReadOnly()) return;
+        onClick?.(e);
+      }}
+      onKeyDown={(e) => {
+        if (!guardReadOnly()) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }}
+      tabIndex={readOnly ? -1 : 0}
       aria-pressed={selected}
+      aria-disabled={readOnly}
+      disabled={readOnly}
       className={cn(
         "relative box-border h-11 w-[80px] px-2 py-1.5 text-left overflow-hidden",
-        "cursor-pointer select-none",
+        readOnly ? "cursor-default select-none" : "cursor-pointer select-none",
         "border-b border-r",
         weekStartBorder,
         rhTone,
@@ -99,8 +116,8 @@ export function TeamDayCell({
         isColToday && !selected && "bg-accent/25 ring-1 ring-inset ring-ring/30",
         selected && "bg-primary/10 ring-2 ring-inset ring-primary",
 
-        hoverBg,
-        "hover:ring-1 hover:ring-inset hover:ring-ring/20",
+        !readOnly && hoverBg,
+        !readOnly && "hover:ring-1 hover:ring-inset hover:ring-ring/20",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         "transition-colors",
       )}
