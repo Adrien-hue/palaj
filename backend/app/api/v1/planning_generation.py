@@ -77,7 +77,7 @@ def get_generation_status(job_id: str, session: Session = Depends(get_db)) -> Pl
         draft_id=draft.id,
         status=draft_status,
         progress=_progress_from_status(draft_status),
-        result_stats=draft.result_stats if draft_status == PlanningDraftStatus.SUCCESS else None,
+        result_stats=draft.result_stats if draft_status in (PlanningDraftStatus.SUCCESS, PlanningDraftStatus.FAILED) else None,
         error=draft.error if draft_status == PlanningDraftStatus.FAILED else None,
     )
 

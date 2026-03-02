@@ -210,7 +210,7 @@ class PlanningGenerationService:
                     qualified_postes_by_agent=sorted_qualified_postes_by_agent,
                     absences=absences,
                 )
-                mapper_stats = {
+                mapper_debug_stats = {
                     "absence_count": len(absences),
                     "demand_count": len(coverage_demands),
                     "tranche_count": len(tranches),
@@ -247,7 +247,7 @@ class PlanningGenerationService:
 
                 self._persist_output(session=session, draft=draft, solver_output=solver_output)
 
-                stats = merge_stats(mapper_stats, solver_output.stats)
+                stats = merge_stats(mapper_debug_stats, solver_output.stats)
 
                 draft.result_stats = stats
                 draft.status = PlanningDraftStatus.SUCCESS.value
@@ -258,11 +258,32 @@ class PlanningGenerationService:
                     "planning_generation.run_job.success",
                     extra={"draft_id": draft.id, "job_id": normalized_job_id},
                 )
-            except InfeasibleError as exc:
-                logger.exception(
-                    "planning_generation.run_job.failure",
-                    extra={"draft_id": getattr(draft, "id", None), "job_id": normalized_job_id},
+                return
+            except TimeoutError as exc:
+                session.rollback()
+
+                failed_draft = session.query(PlanningDraft).filter(PlanningDraft.job_id == normalized_job_id).first()
+                if failed_draft is not None:
+                    failed_draft.status = PlanningDraftStatus.FAILED.value
+                    failed_draft.error = "timeout"
+                    failed_draft.result_stats = merge_stats(
+                        mapper_debug_stats,
+                        getattr(exc, "stats", {}),
+                        {
+                            "solver_status": "TIMEOUT",
+                            "solver_status_raw": "UNKNOWN",
+                            "normalized_solver_status": "TIMEOUT",
+                            "coverage_ratio": 0,
+                        },
+                    )
+                    session.commit()
+
+                logger.warning(
+                    "planning_generation.run_job.timeout",
+                    extra={"draft_id": failed_draft.id if failed_draft else None, "job_id": normalized_job_id},
                 )
+                return
+            except InfeasibleError as exc:
                 session.rollback()
 
                 failed_draft = session.query(PlanningDraft).filter(PlanningDraft.job_id == normalized_job_id).first()
@@ -271,29 +292,17 @@ class PlanningGenerationService:
                 failed_draft.status = PlanningDraftStatus.FAILED.value
                 failed_draft.error = "infeasible"
                 failed_draft.result_stats = merge_stats(
-                    mapper_stats,
+                    mapper_debug_stats,
                     getattr(exc, "stats", {}),
                     {"solver_status": "INFEASIBLE", "coverage_ratio": 0, "normalized_solver_status": "INFEASIBLE"},
                 )
                 session.commit()
-            except TimeoutError as exc:
-                logger.exception(
-                    "planning_generation.run_job.failure",
-                    extra={"draft_id": getattr(draft, "id", None), "job_id": normalized_job_id},
-                )
-                session.rollback()
 
-                failed_draft = session.query(PlanningDraft).filter(PlanningDraft.job_id == normalized_job_id).first()
-                if failed_draft is None:
-                    return
-                failed_draft.status = PlanningDraftStatus.FAILED.value
-                failed_draft.error = "timeout"
-                failed_draft.result_stats = merge_stats(
-                    mapper_stats,
-                    getattr(exc, "stats", {}),
-                    {"solver_status": "TIMEOUT", "solver_status_raw": "UNKNOWN", "normalized_solver_status": "TIMEOUT", "coverage_ratio": 0},
+                logger.info(
+                    "planning_generation.run_job.infeasible",
+                    extra={"draft_id": failed_draft.id if failed_draft else None, "job_id": normalized_job_id},
                 )
-                session.commit()
+                return
             except Exception as exc:  # pragma: no cover
                 logger.exception(
                     "planning_generation.run_job.failure",
