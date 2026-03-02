@@ -117,6 +117,8 @@ def test_feasible_respects_qualification_date():
     assert out.stats["num_constraints"] >= 0
     assert out.stats["demanded_pairs_count"] == 2
     assert out.stats["coverage_constraints_count"] == 2
+    assert out.stats["num_combos_used_in_solution"] >= 1
+    assert out.stats["num_combos_in_model"] >= out.stats["num_combos_used_in_solution"]
 
 
 def test_infeasible_when_required_exceeds_capacity():
@@ -140,6 +142,11 @@ def test_infeasible_when_required_exceeds_capacity():
     assert exc_info.value.stats["variable_count_method"] == "internal_counter"
     assert exc_info.value.stats["constraint_count_method"] == "internal_counter"
     assert "required_minutes_estimate_method" in exc_info.value.stats
+    assert exc_info.value.stats["combo_allowed_pairs_count"] > 0
+    assert exc_info.value.stats["y_variables_count"] > 0
+    assert exc_info.value.stats["num_combos_in_model"] > 0
+    assert exc_info.value.stats["num_combos_used_in_solution"] is None
+    assert exc_info.value.stats["num_combos_effective"] == exc_info.value.stats["num_combos_in_model"]
 
 
 @pytest.mark.skip(reason="CP-SAT timeout status is not stable in CI with tiny limits")
