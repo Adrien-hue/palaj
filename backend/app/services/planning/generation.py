@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date
+from numbers import Real
 from uuid import uuid4
 
 from sqlalchemy.orm import Session
@@ -23,6 +24,30 @@ from db.models import PlanningDraft, PlanningDraftAgentDay, PlanningDraftAssignm
 from db import db
 
 logger = logging.getLogger(__name__)
+
+
+def _json_safe(value):
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, Real):
+        return float(value)
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {str(key): _json_safe(val) for key, val in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(item) for item in value]
+    return str(value)
+
+
+def merge_stats(*dicts: dict | None) -> dict[str, object]:
+    merged: dict[str, object] = {}
+    for item in dicts:
+        if not item:
+            continue
+        for key, value in item.items():
+            merged[str(key)] = _json_safe(value)
+    return merged
 
 
 class PlanningGenerationService:
@@ -185,6 +210,18 @@ class PlanningGenerationService:
                     qualified_postes_by_agent=sorted_qualified_postes_by_agent,
                     absences=absences,
                 )
+                mapper_stats = {
+                    "absence_count": len(absences),
+                    "demand_count": len(coverage_demands),
+                    "tranche_count": len(tranches),
+                    "poste_count": len(poste_ids),
+                    "agent_count": len(team_agent_ids),
+                    "ignored_coverage_requirements_count": ignored_coverage_requirements_count,
+                    "covered_poste_ids_count": len(poste_ids),
+                    "ignored_poste_ids_sample": ignored_poste_ids_sample,
+                    "hard_infeasible_demands_count": hard_infeasible_count,
+                    "hard_infeasible_demands_sample": hard_infeasible_sample,
+                }
 
                 solver_output = self.solver.generate(
                     SolverInput(
@@ -210,17 +247,7 @@ class PlanningGenerationService:
 
                 self._persist_output(session=session, draft=draft, solver_output=solver_output)
 
-                stats = dict(solver_output.stats)
-                stats["absence_count"] = len(absences)
-                stats["demand_count"] = len(coverage_demands)
-                stats["tranche_count"] = len(tranches)
-                stats["poste_count"] = len(poste_ids)
-                stats["agent_count"] = len(team_agent_ids)
-                stats["ignored_coverage_requirements_count"] = ignored_coverage_requirements_count
-                stats["covered_poste_ids_count"] = len(poste_ids)
-                stats["ignored_poste_ids_sample"] = ignored_poste_ids_sample
-                stats["hard_infeasible_demands_count"] = hard_infeasible_count
-                stats["hard_infeasible_demands_sample"] = hard_infeasible_sample
+                stats = merge_stats(mapper_stats, solver_output.stats)
 
                 draft.result_stats = stats
                 draft.status = PlanningDraftStatus.SUCCESS.value
@@ -231,7 +258,7 @@ class PlanningGenerationService:
                     "planning_generation.run_job.success",
                     extra={"draft_id": draft.id, "job_id": normalized_job_id},
                 )
-            except InfeasibleError:
+            except InfeasibleError as exc:
                 logger.exception(
                     "planning_generation.run_job.failure",
                     extra={"draft_id": getattr(draft, "id", None), "job_id": normalized_job_id},
@@ -243,22 +270,13 @@ class PlanningGenerationService:
                     return
                 failed_draft.status = PlanningDraftStatus.FAILED.value
                 failed_draft.error = "infeasible"
-                failed_draft.result_stats = {
-                    "absence_count": len(absences),
-                    "demand_count": len(coverage_demands),
-                    "tranche_count": len(tranches),
-                    "poste_count": len(poste_ids),
-                    "agent_count": len(team_agent_ids),
-                    "ignored_coverage_requirements_count": ignored_coverage_requirements_count,
-                    "covered_poste_ids_count": len(poste_ids),
-                    "ignored_poste_ids_sample": ignored_poste_ids_sample,
-                    "hard_infeasible_demands_count": hard_infeasible_count,
-                    "hard_infeasible_demands_sample": hard_infeasible_sample,
-                    "solver_status": "INFEASIBLE",
-                    "coverage_ratio": 0,
-                }
+                failed_draft.result_stats = merge_stats(
+                    mapper_stats,
+                    getattr(exc, "stats", {}),
+                    {"solver_status": "INFEASIBLE", "coverage_ratio": 0, "normalized_solver_status": "INFEASIBLE"},
+                )
                 session.commit()
-            except TimeoutError:
+            except TimeoutError as exc:
                 logger.exception(
                     "planning_generation.run_job.failure",
                     extra={"draft_id": getattr(draft, "id", None), "job_id": normalized_job_id},
@@ -270,20 +288,11 @@ class PlanningGenerationService:
                     return
                 failed_draft.status = PlanningDraftStatus.FAILED.value
                 failed_draft.error = "timeout"
-                failed_draft.result_stats = {
-                    "absence_count": len(absences),
-                    "demand_count": len(coverage_demands),
-                    "tranche_count": len(tranches),
-                    "poste_count": len(poste_ids),
-                    "agent_count": len(team_agent_ids),
-                    "ignored_coverage_requirements_count": ignored_coverage_requirements_count,
-                    "covered_poste_ids_count": len(poste_ids),
-                    "ignored_poste_ids_sample": ignored_poste_ids_sample,
-                    "hard_infeasible_demands_count": hard_infeasible_count,
-                    "hard_infeasible_demands_sample": hard_infeasible_sample,
-                    "solver_status": "TIMEOUT",
-                    "coverage_ratio": 0,
-                }
+                failed_draft.result_stats = merge_stats(
+                    mapper_stats,
+                    getattr(exc, "stats", {}),
+                    {"solver_status": "TIMEOUT", "solver_status_raw": "UNKNOWN", "normalized_solver_status": "TIMEOUT", "coverage_ratio": 0},
+                )
                 session.commit()
             except Exception as exc:  # pragma: no cover
                 logger.exception(

@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date, time
 
 import pytest
+from ortools.sat.python import cp_model
 
 from backend.app.services.solver.models import (
     CoverageDemand,
@@ -32,6 +33,66 @@ def _build_input(**kwargs) -> SolverInput:
     )
     base.update(kwargs)
     return SolverInput(**base)
+
+
+class _FakeCpSolver:
+    status = None
+    wall_time = 0.0
+
+    def __init__(self):
+        self.parameters = type("P", (), {"max_time_in_seconds": None, "num_search_workers": None, "random_seed": None})()
+
+    def Solve(self, _model):
+        return self.status
+
+    def WallTime(self):
+        return self.wall_time
+
+    def Value(self, _var):
+        return 0
+
+
+def test_unknown_near_time_limit_maps_to_timeout(monkeypatch):
+    solver = OrtoolsSolver()
+    _FakeCpSolver.status = cp_model.UNKNOWN
+    _FakeCpSolver.wall_time = 5.0
+    monkeypatch.setattr(cp_model, "CpSolver", _FakeCpSolver)
+
+    with pytest.raises(TimeoutError) as exc_info:
+        solver.generate(_build_input(time_limit_seconds=5))
+
+    assert exc_info.value.stats["solver_status"] == "UNKNOWN"
+    assert exc_info.value.stats["solver_status_raw"] == "UNKNOWN"
+    assert exc_info.value.stats["normalized_solver_status"] == "TIMEOUT"
+    assert exc_info.value.stats["is_timeout"] is True
+
+
+def test_unknown_far_from_time_limit_maps_to_infeasible(monkeypatch):
+    solver = OrtoolsSolver()
+    _FakeCpSolver.status = cp_model.UNKNOWN
+    _FakeCpSolver.wall_time = 0.1
+    monkeypatch.setattr(cp_model, "CpSolver", _FakeCpSolver)
+
+    with pytest.raises(InfeasibleError) as exc_info:
+        solver.generate(_build_input(time_limit_seconds=60))
+
+    assert exc_info.value.stats["solver_status"] == "UNKNOWN"
+    assert exc_info.value.stats["normalized_solver_status"] == "UNKNOWN"
+    assert exc_info.value.stats["is_timeout"] is False
+    assert exc_info.value.stats["timeout_confidence"] == "low"
+
+
+def test_feasible_status_is_not_timeout_with_mocked_solver(monkeypatch):
+    solver = OrtoolsSolver()
+    _FakeCpSolver.status = cp_model.FEASIBLE
+    _FakeCpSolver.wall_time = 0.1
+    monkeypatch.setattr(cp_model, "CpSolver", _FakeCpSolver)
+
+    out = solver.generate(_build_input(time_limit_seconds=60))
+
+    assert out.stats["solver_status"] == "FEASIBLE"
+    assert out.stats["normalized_solver_status"] == "FEASIBLE"
+    assert out.stats["is_timeout"] is False
 
 
 def test_feasible_respects_qualification_date():
@@ -69,8 +130,16 @@ def test_infeasible_when_required_exceeds_capacity():
         ],
     )
 
-    with pytest.raises(InfeasibleError):
+    with pytest.raises(InfeasibleError) as exc_info:
         solver.generate(inp)
+
+    assert exc_info.value.stats["solver_status"] == "INFEASIBLE"
+    assert exc_info.value.stats["num_variables"] > 0
+    assert exc_info.value.stats["demand_count"] == 1
+    assert exc_info.value.stats["total_required_work_minutes"] == 720
+    assert exc_info.value.stats["variable_count_method"] == "internal_counter"
+    assert exc_info.value.stats["constraint_count_method"] == "internal_counter"
+    assert "required_minutes_estimate_method" in exc_info.value.stats
 
 
 @pytest.mark.skip(reason="CP-SAT timeout status is not stable in CI with tiny limits")

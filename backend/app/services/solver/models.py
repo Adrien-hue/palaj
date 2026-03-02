@@ -27,11 +27,17 @@ class SolverInput:
     existing_shift_start_end_by_agent_day_ctx: dict[tuple[int, date], tuple[int, int] | None] = field(default_factory=dict)
 
 
-class InfeasibleError(Exception):
+class SolverFailureError(Exception):
+    def __init__(self, message: str, stats: dict[str, Any] | None = None):
+        super().__init__(message)
+        self.stats = stats or {}
+
+
+class InfeasibleError(SolverFailureError):
     pass
 
 
-class TimeoutError(Exception):
+class TimeoutError(SolverFailureError):
     pass
 
 

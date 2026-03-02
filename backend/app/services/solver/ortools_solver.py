@@ -24,9 +24,22 @@ class OrtoolsSolver:
     RPDOUBLE_OFF_RULE = "rest_only"
     RPDOUBLE_OFF_DAY_TYPES = {DayType.REST.value}
 
+    @staticmethod
+    def _time_to_minutes(value) -> int:
+        return (value.hour * 60) + value.minute
+
+    @classmethod
+    def _tranche_duration_minutes(cls, tranche) -> int:
+        start = cls._time_to_minutes(tranche.heure_debut)
+        end = cls._time_to_minutes(tranche.heure_fin)
+        if end <= start:
+            end += 1440
+        return end - start
+
     def generate(self, solver_input: SolverInput) -> SolverOutput:
         model = cp_model.CpModel()
         num_constraints = 0
+        num_variables = 0
 
         ordered_agent_ids = sorted(solver_input.agent_ids)
         dates: list = []
@@ -49,6 +62,12 @@ class OrtoolsSolver:
             di = date_to_index[demand.day_date]
             demanded_tranche_ids_by_date_idx.setdefault(di, set()).add(demand.tranche_id)
         demanded_pairs_count = sum(len(tranche_ids) for tranche_ids in demanded_tranche_ids_by_date_idx.values())
+
+        tranche_duration_by_id = {tranche.id: self._tranche_duration_minutes(tranche) for tranche in solver_input.tranches}
+        total_required_work_minutes = sum(
+            max(0, demand.required_count) * tranche_duration_by_id.get(demand.tranche_id, 0)
+            for demand in solver_input.coverage_demands
+        )
 
         tranches_by_poste: dict[int, list] = {}
         for tranche in solver_input.tranches:
@@ -91,6 +110,48 @@ class OrtoolsSolver:
                 combo_ids_by_poste.setdefault(combo.poste_id, []).append(combo.id)
 
         compatible_pairs = build_rest_compatibility(combos=combos, rh_engine=rh_engine)
+        incompatible_pairs = {(c1, c2) for c1 in combo_by_id for c2 in combo_by_id if (c1, c2) not in compatible_pairs}
+        num_combos_total = len(combos)
+        num_incompatible_pairs = len(incompatible_pairs)
+        gpt_ctx_days_count = len(context_days) if apply_gpt_rules else 0
+        rpdouble_off_rule = self.RPDOUBLE_OFF_RULE if apply_gpt_rules else None
+        total_days = len(dates)
+        agent_count = len(ordered_agent_ids)
+        avg_required_minutes_per_day = (total_required_work_minutes / total_days) if total_days else 0.0
+        avg_required_minutes_per_agent_per_day = (
+            total_required_work_minutes / (total_days * agent_count)
+            if total_days and agent_count
+            else 0.0
+        )
+        stats = {
+            "solver_status": None,
+            "coverage_ratio": 0.0,
+            "soft_violations": 0,
+            "agent_count": agent_count,
+            "poste_count": len(solver_input.poste_ids),
+            "tranche_count": len(solver_input.tranches),
+            "demand_count": len(solver_input.coverage_demands),
+            "demanded_pairs_count": demanded_pairs_count,
+            "coverage_constraints_count": 0,
+            "num_combos_total": num_combos_total,
+            "num_combos_effective": 0,
+            "num_incompatible_pairs": num_incompatible_pairs,
+            "num_rest_constraints": 0,
+            "gpt_ctx_days_count": gpt_ctx_days_count,
+            "rpdouble_off_rule": rpdouble_off_rule,
+            "total_required_work_minutes": total_required_work_minutes,
+            "avg_required_minutes_per_day": avg_required_minutes_per_day,
+            "avg_required_minutes_per_agent_per_day": avg_required_minutes_per_agent_per_day,
+            "gpt_max_avg_minutes_per_day_if_6": 480,
+            # Heuristic estimation from demand volume; useful diagnostic signal, not a proof of feasibility.
+            "required_minutes_estimate_method": "sum(tranche_duration_minutes * required_count) over coverage_demands",
+            "total_required_work_minutes_estimate": total_required_work_minutes,
+            "avg_required_minutes_per_agent_per_day_estimate": avg_required_minutes_per_agent_per_day,
+            "variable_count_method": "internal_counter",
+            "constraint_count_method": "internal_counter",
+            "num_variables": 0,
+            "num_constraints": 0,
+        }
 
         y: dict[tuple[int, int, int], cp_model.IntVar] = {}
         vars_by_agent_day: dict[tuple[int, int], list[cp_model.IntVar]] = {}
@@ -101,6 +162,7 @@ class OrtoolsSolver:
                 key = (agent_id, day_date)
                 if key in solver_input.absences:
                     var = model.NewBoolVar(f"y_a{agent_id}_d{di}_c0")
+                    num_variables += 1
                     y[(agent_id, di, 0)] = var
                     vars_by_agent_day.setdefault((agent_id, di), []).append(var)
                     model.Add(var == 1)
@@ -116,6 +178,7 @@ class OrtoolsSolver:
 
                 for combo_id in sorted(allowed_combo_ids):
                     var = model.NewBoolVar(f"y_a{agent_id}_d{di}_c{combo_id}")
+                    num_variables += 1
                     y[(agent_id, di, combo_id)] = var
                     vars_by_agent_day.setdefault((agent_id, di), []).append(var)
                     combo = combo_by_id[combo_id]
@@ -134,12 +197,18 @@ class OrtoolsSolver:
             di = date_to_index[demand.day_date]
             demand_vars = vars_by_demand.get((di, demand.tranche_id), [])
             if len(demand_vars) < demand.required_count:
-                raise InfeasibleError("not enough available qualified agents")
+                stats["num_variables"] = num_variables
+                stats["num_constraints"] = num_constraints
+                stats["coverage_constraints_count"] = coverage_constraints_count
+                stats["solver_status"] = "INFEASIBLE"
+                stats["solver_status_raw"] = "INFEASIBLE"
+                stats["normalized_solver_status"] = "INFEASIBLE"
+                stats["is_timeout"] = False
+                raise InfeasibleError("not enough available qualified agents", stats=stats)
             model.Add(sum(demand_vars) == demand.required_count)
             num_constraints += 1
             coverage_constraints_count += 1
 
-        incompatible_pairs = {(c1, c2) for c1 in combo_by_id for c2 in combo_by_id if (c1, c2) not in compatible_pairs}
         rest_constraints_count = 0
         for agent_id in ordered_agent_ids:
             for di in range(1, len(dates)):
@@ -187,6 +256,7 @@ class OrtoolsSolver:
                     )
 
                     real_work = model.NewBoolVar(f"is_real_work_a{agent_id}_c{ci}")
+                    num_variables += 1
                     if non_empty_vars:
                         model.Add(real_work == sum(non_empty_vars))
                     else:
@@ -195,6 +265,7 @@ class OrtoolsSolver:
                     is_real_work_var[(agent_id, ci)] = real_work
 
                     worked_day = model.NewBoolVar(f"worked_day_a{agent_id}_c{ci}")
+                    num_variables += 1
                     is_zcot = 1 if day_type_ctx == DayType.ZCOT.value else 0
                     is_leave_absent = 1 if day_type_ctx in {DayType.LEAVE.value, DayType.ABSENT.value} else 0
                     model.Add(worked_day >= real_work)
@@ -205,11 +276,13 @@ class OrtoolsSolver:
                     worked_day_var[(agent_id, ci)] = worked_day
 
                     is_off_for_rpdouble = model.NewBoolVar(f"is_off_for_rpdouble_a{agent_id}_c{ci}")
+                    num_variables += 1
                     model.Add(is_off_for_rpdouble == (1 if day_type_ctx in self.RPDOUBLE_OFF_DAY_TYPES else 0))
                     num_constraints += 1
                     is_off_for_rpdouble_var[(agent_id, ci)] = is_off_for_rpdouble
 
                     work_minutes = model.NewIntVar(0, 6000, f"work_minutes_a{agent_id}_c{ci}")
+                    num_variables += 1
                     model.Add(work_minutes == combo_work_expr + (480 if is_zcot else 0))
                     num_constraints += 1
                     work_minutes_var[(agent_id, ci)] = work_minutes
@@ -244,6 +317,7 @@ class OrtoolsSolver:
                         if L < 3:
                             continue
                         run = model.NewBoolVar(f"run_a{agent_id}_s{s}_e{e}")
+                        num_variables += 1
                         run_vars[(agent_id, s, e)] = run
                         for i in range(s, e + 1):
                             model.Add(worked_expr(agent_id, i) == 1).OnlyEnforceIf(run)
@@ -287,6 +361,7 @@ class OrtoolsSolver:
                     if a == agent_id and d == di and combo_by_id[c].tranche_ids
                 ]
                 work_day = model.NewIntVar(0, 1, f"work_day_a{agent_id}_d{di}")
+                num_variables += 1
                 if non_empty_vars:
                     model.Add(work_day == sum(non_empty_vars))
                 else:
@@ -295,12 +370,14 @@ class OrtoolsSolver:
                 work_day_vars.append(work_day)
 
             work_days = model.NewIntVar(0, len(dates), f"work_days_a{agent_id}")
+            num_variables += 1
             model.Add(work_days == sum(work_day_vars))
             num_constraints += 1
             work_days_by_agent[agent_id] = work_days
 
         max_work_days = model.NewIntVar(0, len(dates), "max_work_days")
         min_work_days = model.NewIntVar(0, len(dates), "min_work_days")
+        num_variables += 2
         if work_days_by_agent:
             model.AddMaxEquality(max_work_days, list(work_days_by_agent.values()))
             model.AddMinEquality(min_work_days, list(work_days_by_agent.values()))
@@ -320,12 +397,42 @@ class OrtoolsSolver:
             solver.parameters.random_seed = solver_input.seed
 
         status = solver.Solve(model)
+        wall_time = solver.WallTime()
+        timeout_threshold = 0.99 * solver_input.time_limit_seconds
+        is_timeout = bool(solver_input.time_limit_seconds > 0 and wall_time >= timeout_threshold)
+
+        stats["solve_time_seconds"] = wall_time
+        stats["num_variables"] = num_variables
+        stats["num_constraints"] = num_constraints
+        stats["coverage_constraints_count"] = coverage_constraints_count
+        stats["num_rest_constraints"] = rest_constraints_count
+
+        if status == cp_model.OPTIMAL:
+            solver_status_raw = "OPTIMAL"
+        elif status == cp_model.FEASIBLE:
+            solver_status_raw = "FEASIBLE"
+        elif status == cp_model.INFEASIBLE:
+            solver_status_raw = "INFEASIBLE"
+        elif status == cp_model.UNKNOWN:
+            solver_status_raw = "UNKNOWN"
+        else:
+            solver_status_raw = "INFEASIBLE"
+
+        normalized_solver_status = "TIMEOUT" if solver_status_raw == "UNKNOWN" and is_timeout else solver_status_raw
+        stats["solver_status"] = solver_status_raw
+        stats["solver_status_raw"] = solver_status_raw
+        stats["normalized_solver_status"] = normalized_solver_status
+        stats["is_timeout"] = is_timeout
+
         if status == cp_model.INFEASIBLE:
-            raise InfeasibleError("infeasible")
-        if status == cp_model.UNKNOWN:
-            raise TimeoutError("timeout")
+            raise InfeasibleError("infeasible", stats=stats)
+        if status == cp_model.UNKNOWN and is_timeout:
+            raise TimeoutError("timeout", stats=stats)
+        if status == cp_model.UNKNOWN and not is_timeout:
+            stats["timeout_confidence"] = "low"
+            raise InfeasibleError("infeasible", stats=stats)
         if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-            raise InfeasibleError("infeasible")
+            raise InfeasibleError("infeasible", stats=stats)
 
         assignments: list[SolverAssignment] = []
         assigned_day_by_agent: set[tuple[int, int]] = set()
@@ -365,32 +472,27 @@ class OrtoolsSolver:
         workload_avg = (sum(work_values) / len(work_values)) if work_values else 0.0
 
         num_combos_effective = len({combo_id for (_a, _d, combo_id) in y.keys()})
-
-        return SolverOutput(
-            agent_days=agent_days,
-            assignments=assignments,
-            stats={
+        stats.update(
+            {
                 "solver_status": "OPTIMAL" if status == cp_model.OPTIMAL else "FEASIBLE",
+                "solver_status_raw": "OPTIMAL" if status == cp_model.OPTIMAL else "FEASIBLE",
+                "normalized_solver_status": "OPTIMAL" if status == cp_model.OPTIMAL else "FEASIBLE",
+                "is_timeout": False,
                 "score": objective_value,
                 "objective_value": objective_value,
                 "coverage_ratio": 1.0,
-                "soft_violations": 0,
-                "solve_time_seconds": solver.WallTime(),
-                "num_variables": len(y),
-                "num_constraints": num_constraints,
-                "demanded_pairs_count": demanded_pairs_count,
-                "coverage_constraints_count": coverage_constraints_count,
-                "num_combos_total": len(combos),
                 "num_combos_effective": num_combos_effective,
-                "num_incompatible_pairs": len(incompatible_pairs),
-                "num_rest_constraints": rest_constraints_count,
                 "workload_min": workload_min,
                 "workload_max": workload_max,
                 "workload_avg": workload_avg,
                 "max_work_days": solver.Value(max_work_days),
                 "min_work_days": solver.Value(min_work_days),
                 "num_assignments": len(assignments),
-                "rpdouble_off_rule": self.RPDOUBLE_OFF_RULE if apply_gpt_rules else None,
-                "gpt_ctx_days_count": len(context_days) if apply_gpt_rules else 0,
-            },
+            }
+        )
+
+        return SolverOutput(
+            agent_days=agent_days,
+            assignments=assignments,
+            stats=stats,
         )
