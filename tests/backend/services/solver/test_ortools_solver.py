@@ -277,3 +277,43 @@ def test_no_implicit_zero_demand_constraints_are_added():
 
     assert out.stats["coverage_constraints_count"] == 1
     assert any(a.tranche_id == 10 for a in out.assignments)
+
+
+def test_stats_missing_tranche_in_any_combo_precheck():
+    solver = OrtoolsSolver()
+    inp = _build_input(
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 1, 1),
+        agent_ids=[1],
+        qualified_postes_by_agent={1: (1,)},
+        qualification_date_by_agent_poste={(1, 1): None},
+        coverage_demands=[CoverageDemand(day_date=date(2026, 1, 1), tranche_id=9999, required_count=1)],
+    )
+
+    with pytest.raises(InfeasibleError) as exc_info:
+        solver.generate(inp)
+
+    assert exc_info.value.stats["missing_tranche_in_any_combo_count"] == 1
+    assert 9999 in exc_info.value.stats["missing_tranche_in_any_combo_sample"]
+    assert exc_info.value.stats["solver_status_raw"] == "PRECHECK_INFEASIBLE"
+
+
+def test_stats_combo_gating_counts_not_zero():
+    solver = OrtoolsSolver()
+    inp = _build_input(
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 1, 1),
+        agent_ids=[1],
+        qualified_postes_by_agent={1: ()},
+        qualification_date_by_agent_poste={},
+        coverage_demands=[CoverageDemand(day_date=date(2026, 1, 1), tranche_id=10, required_count=1)],
+    )
+
+    with pytest.raises(InfeasibleError) as exc_info:
+        solver.generate(inp)
+
+    assert exc_info.value.stats["combo_candidate_pairs_count"] > 0
+    assert exc_info.value.stats["combo_allowed_pairs_count"] == 0
+    assert exc_info.value.stats["combo_rejected_not_qualified_count"] > 0
+    assert exc_info.value.stats["combo_rejected_samples"]
+    assert any(sample["reason"] == "not_qualified" for sample in exc_info.value.stats["combo_rejected_samples"])
