@@ -11,6 +11,17 @@ from .rh_combos import DayCombo, DefaultRhComboRulesEngine, build_day_combos_for
 
 
 class OrtoolsSolver:
+    WEEKDAY_UNDERSTAFF_WEIGHT = 10
+    WEEKEND_UNDERSTAFF_WEIGHT = 1
+
+    W_COVER = 1_000_000
+    W_NIGHTS_TOTAL = 10_000
+    W_NIGHTS_SPREAD = 5_000
+    W_FAIR_MINUTES_SPREAD = 1_000
+    W_FAIR_DAYS_SPREAD = 500
+    W_AMPLITUDE = 10
+    W_USELESS_WORK = 50
+
     GPT_DAY_TYPES = {
         DayType.WORKING.value,
         DayType.ZCOT.value,
@@ -35,6 +46,10 @@ class OrtoolsSolver:
         if end <= start:
             end += 1440
         return end - start
+
+    @classmethod
+    def _understaff_weight_for_day(cls, day_date) -> int:
+        return cls.WEEKDAY_UNDERSTAFF_WEIGHT if day_date.weekday() < 5 else cls.WEEKEND_UNDERSTAFF_WEIGHT
 
     def generate(self, solver_input: SolverInput) -> SolverOutput:
         model = cp_model.CpModel()
@@ -62,6 +77,7 @@ class OrtoolsSolver:
             di = date_to_index[demand.day_date]
             demanded_tranche_ids_by_date_idx.setdefault(di, set()).add(demand.tranche_id)
         demanded_pairs_count = sum(len(tranche_ids) for tranche_ids in demanded_tranche_ids_by_date_idx.values())
+        demanded_day_idx_set = set(demanded_tranche_ids_by_date_idx)
 
         tranche_duration_by_id = {tranche.id: self._tranche_duration_minutes(tranche) for tranche in solver_input.tranches}
         total_required_work_minutes = sum(
@@ -125,9 +141,19 @@ class OrtoolsSolver:
             if total_days and agent_count
             else 0.0
         )
+        total_required_count = sum(max(0, demand.required_count) for demand in solver_input.coverage_demands)
+        total_required_weighted = sum(
+            self._understaff_weight_for_day(demand.day_date) * max(0, demand.required_count)
+            for demand in solver_input.coverage_demands
+        )
         stats = {
             "solver_status": None,
             "coverage_ratio": 0.0,
+            "total_required_count": total_required_count,
+            "total_required_weighted": total_required_weighted,
+            "understaff_total": 0,
+            "understaff_total_weighted": 0,
+            "coverage_ratio_weighted": 0.0,
             "soft_violations": 0,
             "agent_count": agent_count,
             "poste_count": len(solver_input.poste_ids),
@@ -169,6 +195,22 @@ class OrtoolsSolver:
             "constraint_count_method": "internal_counter",
             "num_variables": 0,
             "num_constraints": 0,
+            "demanded_days_count": len(demanded_day_idx_set),
+            "total_days_count": total_days,
+            "useless_work_total": 0,
+            "nights_total": 0,
+            "nights_min": 0,
+            "nights_max": 0,
+            "amplitude_cost_total": 0,
+            "objective_terms": {
+                "understaff_weighted": 0,
+                "nights_total": 0,
+                "nights_spread": 0,
+                "fair_minutes_spread": 0,
+                "fair_days_spread": 0,
+                "amplitude_cost": 0,
+                "useless_work": 0,
+            },
         }
 
         y: dict[tuple[int, int, int], cp_model.IntVar] = {}
@@ -305,20 +347,24 @@ class OrtoolsSolver:
                     num_constraints += 1
 
         coverage_constraints_count = 0
+        understaff_vars: list[cp_model.IntVar] = []
+        weighted_understaff_terms: list[cp_model.LinearExprT] = []
         for demand in solver_input.coverage_demands:
             di = date_to_index[demand.day_date]
             demand_vars = vars_by_demand.get((di, demand.tranche_id), [])
-            if len(demand_vars) < demand.required_count:
-                stats["num_variables"] = num_variables
-                stats["num_constraints"] = num_constraints
-                stats["coverage_constraints_count"] = coverage_constraints_count
-                stats["solver_status"] = "INFEASIBLE"
-                stats["solver_status_raw"] = "INFEASIBLE"
-                stats["normalized_solver_status"] = "INFEASIBLE"
-                stats["is_timeout"] = False
-                raise InfeasibleError("not enough available qualified agents", stats=stats)
-            model.Add(sum(demand_vars) == demand.required_count)
+            covered = model.NewIntVar(0, demand.required_count, f"covered_d{di}_t{demand.tranche_id}")
+            num_variables += 1
+            model.Add(covered == sum(demand_vars))
             num_constraints += 1
+            model.Add(covered <= demand.required_count)
+            num_constraints += 1
+
+            understaff = model.NewIntVar(0, demand.required_count, f"understaff_d{di}_t{demand.tranche_id}")
+            num_variables += 1
+            model.Add(understaff == demand.required_count - covered)
+            num_constraints += 1
+            understaff_vars.append(understaff)
+            weighted_understaff_terms.append(self._understaff_weight_for_day(demand.day_date) * understaff)
             coverage_constraints_count += 1
 
         rest_constraints_count = 0
@@ -464,8 +510,15 @@ class OrtoolsSolver:
                     num_constraints += 1
 
         work_days_by_agent: dict[int, cp_model.IntVar] = {}
+        work_minutes_by_agent: dict[int, cp_model.IntVar] = {}
+        night_days_by_agent: dict[int, cp_model.IntVar] = {}
+        amplitude_by_agent: dict[int, cp_model.IntVar] = {}
+        useless_work_vars: list[cp_model.IntVar] = []
         for agent_id in ordered_agent_ids:
             work_day_vars: list[cp_model.IntVar] = []
+            work_minutes_day_exprs = []
+            night_day_vars: list[cp_model.IntVar] = []
+            amplitude_day_exprs = []
             for di in range(len(dates)):
                 non_empty_vars = [
                     var
@@ -480,12 +533,63 @@ class OrtoolsSolver:
                     model.Add(work_day == 0)
                 num_constraints += 1
                 work_day_vars.append(work_day)
+                if di not in demanded_day_idx_set:
+                    useless_work_vars.append(work_day)
+
+                combo_work_expr = sum(
+                    y[(agent_id, di, combo_id)] * combo_by_id[combo_id].work_minutes
+                    for combo_id in combo_by_id
+                    if (agent_id, di, combo_id) in y
+                )
+                work_minutes_day_exprs.append(combo_work_expr)
+
+                night_day = model.NewIntVar(0, 1, f"night_day_a{agent_id}_d{di}")
+                num_variables += 1
+                night_vars = [
+                    var
+                    for (a, d, c), var in y.items()
+                    if a == agent_id and d == di and combo_by_id[c].involves_night
+                ]
+                if night_vars:
+                    model.Add(night_day == sum(night_vars))
+                else:
+                    model.Add(night_day == 0)
+                num_constraints += 1
+                night_day_vars.append(night_day)
+
+                amplitude_day_exprs.append(
+                    sum(
+                        y[(agent_id, di, combo_id)] * combo_by_id[combo_id].amplitude_minutes
+                        for combo_id in combo_by_id
+                        if (agent_id, di, combo_id) in y
+                    )
+                )
 
             work_days = model.NewIntVar(0, len(dates), f"work_days_a{agent_id}")
             num_variables += 1
             model.Add(work_days == sum(work_day_vars))
             num_constraints += 1
             work_days_by_agent[agent_id] = work_days
+
+            max_minutes = sum(combo.work_minutes for combo in combo_by_id.values())
+            work_minutes = model.NewIntVar(0, max_minutes, f"work_minutes_a{agent_id}")
+            num_variables += 1
+            model.Add(work_minutes == sum(work_minutes_day_exprs))
+            num_constraints += 1
+            work_minutes_by_agent[agent_id] = work_minutes
+
+            night_days = model.NewIntVar(0, len(dates), f"night_days_a{agent_id}")
+            num_variables += 1
+            model.Add(night_days == sum(night_day_vars))
+            num_constraints += 1
+            night_days_by_agent[agent_id] = night_days
+
+            max_amplitude = sum(combo.amplitude_minutes for combo in combo_by_id.values())
+            amplitude_sum = model.NewIntVar(0, max_amplitude, f"amplitude_sum_a{agent_id}")
+            num_variables += 1
+            model.Add(amplitude_sum == sum(amplitude_day_exprs))
+            num_constraints += 1
+            amplitude_by_agent[agent_id] = amplitude_sum
 
         max_work_days = model.NewIntVar(0, len(dates), "max_work_days")
         min_work_days = model.NewIntVar(0, len(dates), "min_work_days")
@@ -499,7 +603,67 @@ class OrtoolsSolver:
             model.Add(min_work_days == 0)
             num_constraints += 2
 
-        objective = max_work_days - min_work_days
+        max_work_minutes = model.NewIntVar(0, 60_000, "max_work_minutes")
+        min_work_minutes = model.NewIntVar(0, 60_000, "min_work_minutes")
+        max_nights = model.NewIntVar(0, len(dates), "max_nights")
+        min_nights = model.NewIntVar(0, len(dates), "min_nights")
+        total_night_days = model.NewIntVar(0, len(dates) * max(1, len(ordered_agent_ids)), "total_night_days")
+        total_amplitude_cost = model.NewIntVar(0, 60_000, "total_amplitude_cost")
+        useless_work_total = model.NewIntVar(0, len(useless_work_vars), "useless_work_total")
+        num_variables += 7
+        if work_minutes_by_agent:
+            model.AddMaxEquality(max_work_minutes, list(work_minutes_by_agent.values()))
+            model.AddMinEquality(min_work_minutes, list(work_minutes_by_agent.values()))
+            num_constraints += 2
+        else:
+            model.Add(max_work_minutes == 0)
+            model.Add(min_work_minutes == 0)
+            num_constraints += 2
+
+        if night_days_by_agent:
+            model.AddMaxEquality(max_nights, list(night_days_by_agent.values()))
+            model.AddMinEquality(min_nights, list(night_days_by_agent.values()))
+            model.Add(total_night_days == sum(night_days_by_agent.values()))
+            num_constraints += 3
+        else:
+            model.Add(max_nights == 0)
+            model.Add(min_nights == 0)
+            model.Add(total_night_days == 0)
+            num_constraints += 3
+
+        if amplitude_by_agent:
+            model.Add(total_amplitude_cost == sum(amplitude_by_agent.values()))
+        else:
+            model.Add(total_amplitude_cost == 0)
+        num_constraints += 1
+
+        understaff_weighted_sum = model.NewIntVar(0, max(0, total_required_count * self.WEEKDAY_UNDERSTAFF_WEIGHT), "understaff_weighted_sum")
+        num_variables += 1
+        if weighted_understaff_terms:
+            model.Add(understaff_weighted_sum == sum(weighted_understaff_terms))
+        else:
+            model.Add(understaff_weighted_sum == 0)
+        num_constraints += 1
+
+        if useless_work_vars:
+            model.Add(useless_work_total == sum(useless_work_vars))
+        else:
+            model.Add(useless_work_total == 0)
+        num_constraints += 1
+
+        # TODO(V2.2): penalize GPT lengths 3 and 6 for cleaner sequences.
+        # TODO(V2.2): penalize primary tranche changes inside GPT sequences.
+        # TODO(V2.2): add RP double bonus objective term.
+        # TODO(V2.2): add fairness objective term by tranche_id distribution.
+        objective = (
+            self.W_COVER * understaff_weighted_sum
+            + self.W_NIGHTS_TOTAL * total_night_days
+            + self.W_NIGHTS_SPREAD * (max_nights - min_nights)
+            + self.W_FAIR_MINUTES_SPREAD * (max_work_minutes - min_work_minutes)
+            + self.W_FAIR_DAYS_SPREAD * (max_work_days - min_work_days)
+            + self.W_AMPLITUDE * total_amplitude_cost
+            + self.W_USELESS_WORK * useless_work_total
+        )
         model.Minimize(objective)
 
         solver = cp_model.CpSolver()
@@ -578,6 +742,14 @@ class OrtoolsSolver:
                 )
 
         objective_value = solver.Value(objective)
+        understaff_total = sum(solver.Value(var) for var in understaff_vars)
+        understaff_total_weighted = solver.Value(understaff_weighted_sum)
+        coverage_ratio = 1.0
+        if total_required_count > 0:
+            coverage_ratio = max(0.0, 1.0 - (understaff_total / total_required_count))
+        coverage_ratio_weighted = 1.0
+        if total_required_weighted > 0:
+            coverage_ratio_weighted = max(0.0, 1.0 - (understaff_total_weighted / total_required_weighted))
         work_values = [solver.Value(work_days_by_agent[agent_id]) for agent_id in ordered_agent_ids]
         workload_min = min(work_values) if work_values else 0
         workload_max = max(work_values) if work_values else 0
@@ -596,13 +768,30 @@ class OrtoolsSolver:
                 "is_timeout": False,
                 "score": objective_value,
                 "objective_value": objective_value,
-                "coverage_ratio": 1.0,
+                "coverage_ratio": coverage_ratio,
+                "understaff_total": understaff_total,
+                "understaff_total_weighted": understaff_total_weighted,
+                "coverage_ratio_weighted": coverage_ratio_weighted,
+                "useless_work_total": solver.Value(useless_work_total),
                 "num_combos_used_in_solution": len(combo_ids_used),
                 "workload_min": workload_min,
                 "workload_max": workload_max,
                 "workload_avg": workload_avg,
                 "max_work_days": solver.Value(max_work_days),
                 "min_work_days": solver.Value(min_work_days),
+                "nights_total": solver.Value(total_night_days),
+                "nights_min": solver.Value(min_nights),
+                "nights_max": solver.Value(max_nights),
+                "amplitude_cost_total": solver.Value(total_amplitude_cost),
+                "objective_terms": {
+                    "understaff_weighted": understaff_total_weighted,
+                    "nights_total": solver.Value(total_night_days),
+                    "nights_spread": solver.Value(max_nights) - solver.Value(min_nights),
+                    "fair_minutes_spread": solver.Value(max_work_minutes) - solver.Value(min_work_minutes),
+                    "fair_days_spread": solver.Value(max_work_days) - solver.Value(min_work_days),
+                    "amplitude_cost": solver.Value(total_amplitude_cost),
+                    "useless_work": solver.Value(useless_work_total),
+                },
                 "num_assignments": len(assignments),
             }
         )
