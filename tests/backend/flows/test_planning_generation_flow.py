@@ -188,7 +188,7 @@ def test_runner_marks_timeout_when_solver_times_out(db_session: Session, monkeyp
     generation_service = _build_generation_service(db_session)
 
     def _raise_timeout(self, _solver_input):
-        raise TimeoutError("timeout")
+        raise TimeoutError("timeout", stats={"solver_status": "UNKNOWN", "solver_status_raw": "UNKNOWN", "normalized_solver_status": "TIMEOUT", "is_timeout": True})
 
     monkeypatch.setattr(OrtoolsSolver, "generate", _raise_timeout)
 
@@ -212,6 +212,7 @@ def test_runner_marks_timeout_when_solver_times_out(db_session: Session, monkeyp
     assert persisted_draft.result_stats is not None
     assert persisted_draft.result_stats["solver_status"] == "TIMEOUT"
     assert persisted_draft.result_stats["coverage_ratio"] == 0
+    assert persisted_draft.result_stats["solver_status_raw"] == "UNKNOWN"
 
 def test_runner_adds_hard_infeasible_stats_for_unreachable_demand(db_session: Session):
     team = _seed_team(db_session, agent_count=1)
@@ -267,6 +268,9 @@ def test_runner_adds_hard_infeasible_stats_for_unreachable_demand(db_session: Se
     assert persisted_draft.result_stats is not None
     assert persisted_draft.result_stats["solver_status"] == "INFEASIBLE"
     assert persisted_draft.result_stats["coverage_ratio"] == 0
+    assert persisted_draft.result_stats["coverage_constraints_count"] >= 0
+    assert persisted_draft.result_stats["num_variables"] > 0
+    assert persisted_draft.result_stats["total_required_work_minutes"] > 0
     assert persisted_draft.result_stats["hard_infeasible_demands_count"] == 1
     assert persisted_draft.result_stats["ignored_coverage_requirements_count"] == 0
     assert persisted_draft.result_stats["covered_poste_ids_count"] == 1
