@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session
 
 from backend.app.api.deps import get_db
 from backend.app.api.http_exceptions import bad_request, not_found, unprocessable_entity
+from backend.app.dto.team_planning import TeamPlanningResponseDTO
+from backend.app.services.planning_draft_read_service import get_draft_team_planning as get_draft_team_planning_service
 from backend.app.dto.planning_generate import (
     PlanningGenerateRequest,
     PlanningGenerateResponse,
@@ -78,3 +80,8 @@ def get_generation_status(job_id: str, session: Session = Depends(get_db)) -> Pl
         result_stats=draft.result_stats if draft_status == PlanningDraftStatus.SUCCESS else None,
         error=draft.error if draft_status == PlanningDraftStatus.FAILED else None,
     )
+
+
+@router.get("/drafts/{draft_id}/team-planning", response_model=TeamPlanningResponseDTO)
+def get_draft_team_planning(draft_id: int, session: Session = Depends(get_db)) -> TeamPlanningResponseDTO:
+    return get_draft_team_planning_service(session=session, draft_id=draft_id)
