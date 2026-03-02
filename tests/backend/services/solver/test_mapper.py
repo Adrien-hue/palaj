@@ -4,7 +4,9 @@ from datetime import date
 from uuid import uuid4
 
 from backend.app.services.solver.mapper import CoverageRequirementPattern, SolverInputMapper
-from db.models import Agent, AgentDay, AgentTeam, Poste, Qualification, Team
+from datetime import time
+
+from db.models import Agent, AgentDay, AgentDayAssignment, AgentTeam, Poste, Qualification, Team, Tranche
 
 
 def _create_team_with_agents(db_session, count: int = 2) -> tuple[Team, list[Agent]]:
@@ -267,3 +269,48 @@ def test_list_existing_day_types_returns_existing_rows(db_session):
         (agents[0].id, date(2026, 1, 5)): "zcot",
         (agents[1].id, date(2026, 1, 6)): "unknown",
     }
+
+
+def test_list_gpt_context_days_returns_plus_minus_7_days(db_session):
+    mapper = SolverInputMapper(session=db_session)
+    days = mapper.list_gpt_context_days(start_date=date(2026, 1, 10), end_date=date(2026, 1, 12))
+    assert days[0] == date(2026, 1, 3)
+    assert days[-1] == date(2026, 1, 19)
+    assert len(days) == 17
+
+
+def test_list_existing_work_context_builds_minutes_and_windows(db_session):
+    team, agents = _create_team_with_agents(db_session, count=1)
+    poste = Poste(nom=f"Poste-ctx-{team.id}")
+    db_session.add(poste)
+    db_session.flush()
+
+    tranche_1 = Tranche(nom="T1", poste_id=poste.id, heure_debut=time(8, 0), heure_fin=time(12, 0))
+    tranche_2 = Tranche(nom="T2", poste_id=poste.id, heure_debut=time(13, 0), heure_fin=time(17, 0))
+    db_session.add_all([tranche_1, tranche_2])
+    db_session.flush()
+
+    day = AgentDay(agent_id=agents[0].id, day_date=date(2026, 1, 6), day_type="working")
+    zcot_day = AgentDay(agent_id=agents[0].id, day_date=date(2026, 1, 7), day_type="zcot")
+    db_session.add_all([day, zcot_day])
+    db_session.flush()
+
+    db_session.add_all(
+        [
+            AgentDayAssignment(agent_day_id=day.id, tranche_id=tranche_1.id),
+            AgentDayAssignment(agent_day_id=day.id, tranche_id=tranche_2.id),
+        ]
+    )
+    db_session.commit()
+
+    mapper = SolverInputMapper(session=db_session)
+    minutes, windows = mapper.list_existing_work_context(
+        agent_ids=[agents[0].id],
+        start_date=date(2026, 1, 6),
+        end_date=date(2026, 1, 7),
+    )
+
+    assert minutes[(agents[0].id, date(2026, 1, 6))] == 480
+    assert windows[(agents[0].id, date(2026, 1, 6))] == (8 * 60, 17 * 60)
+    assert minutes[(agents[0].id, date(2026, 1, 7))] == 480
+    assert windows[(agents[0].id, date(2026, 1, 7))] is None

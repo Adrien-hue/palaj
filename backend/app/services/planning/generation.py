@@ -163,6 +163,20 @@ class PlanningGenerationService:
                     start_date=draft.start_date,
                     end_date=draft.end_date,
                 )
+                gpt_context_days = mapper.list_gpt_context_days(start_date=draft.start_date, end_date=draft.end_date)
+                existing_day_type_by_agent_day_ctx = mapper.list_existing_day_types_context(
+                    agent_ids=team_agent_ids,
+                    start_date=draft.start_date,
+                    end_date=draft.end_date,
+                )
+                (
+                    existing_work_minutes_by_agent_day_ctx,
+                    existing_shift_start_end_by_agent_day_ctx,
+                ) = mapper.list_existing_work_context(
+                    agent_ids=team_agent_ids,
+                    start_date=draft.start_date,
+                    end_date=draft.end_date,
+                )
 
                 hard_infeasible_count, hard_infeasible_sample = self._compute_hard_infeasible_stats(
                     demands=coverage_demands,
@@ -184,6 +198,10 @@ class PlanningGenerationService:
                         qualified_postes_by_agent=sorted_qualified_postes_by_agent,
                         qualification_date_by_agent_poste=qualification_date_by_agent_poste,
                         existing_day_type_by_agent_day=existing_day_type_by_agent_day,
+                        gpt_context_days=gpt_context_days,
+                        existing_day_type_by_agent_day_ctx=existing_day_type_by_agent_day_ctx,
+                        existing_work_minutes_by_agent_day_ctx=existing_work_minutes_by_agent_day_ctx,
+                        existing_shift_start_end_by_agent_day_ctx=existing_shift_start_end_by_agent_day_ctx,
                         poste_ids=poste_ids,
                         tranches=tranches,
                         coverage_demands=coverage_demands,
