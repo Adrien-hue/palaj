@@ -136,7 +136,10 @@ class OrtoolsSolver:
             "demanded_pairs_count": demanded_pairs_count,
             "coverage_constraints_count": 0,
             "num_combos_total": num_combos_total,
+            "num_combos_in_model": 0,
+            "num_combos_used_in_solution": None,
             "num_combos_effective": 0,
+            "y_variables_count": 0,
             "combo_candidate_pairs_count": 0,
             "combo_allowed_pairs_count": 0,
             "combo_rejected_absence_count": 0,
@@ -200,6 +203,8 @@ class OrtoolsSolver:
         combo_rejected_other_count = 0
         combo_rejected_samples: list[dict] = []
         combo_allowed_samples: list[dict] = []
+        y_variables_count = 0
+        combo_ids_in_model: set[int] = set()
 
         def _append_sample(samples: list[dict], *, agent_id: int, day_date, combo_id: int, poste_id: int | None, reason: str) -> None:
             if len(samples) >= 10:
@@ -220,14 +225,18 @@ class OrtoolsSolver:
                 if is_absent:
                     var = model.NewBoolVar(f"y_a{agent_id}_d{di}_c0")
                     num_variables += 1
+                    y_variables_count += 1
                     y[(agent_id, di, 0)] = var
+                    combo_ids_in_model.add(0)
                     vars_by_agent_day.setdefault((agent_id, di), []).append(var)
                     model.Add(var == 1)
                     num_constraints += 1
                 else:
                     var = model.NewBoolVar(f"y_a{agent_id}_d{di}_c0")
                     num_variables += 1
+                    y_variables_count += 1
                     y[(agent_id, di, 0)] = var
+                    combo_ids_in_model.add(0)
                     vars_by_agent_day.setdefault((agent_id, di), []).append(var)
 
                 for combo in sorted_work_combos:
@@ -268,7 +277,9 @@ class OrtoolsSolver:
                     )
                     var = model.NewBoolVar(f"y_a{agent_id}_d{di}_c{combo_id}")
                     num_variables += 1
+                    y_variables_count += 1
                     y[(agent_id, di, combo_id)] = var
+                    combo_ids_in_model.add(combo_id)
                     vars_by_agent_day.setdefault((agent_id, di), []).append(var)
                     for tranche_id in combo.tranche_ids:
                         vars_by_demand.setdefault((di, tranche_id), []).append(var)
@@ -282,6 +293,9 @@ class OrtoolsSolver:
         stats["combo_rejected_other_count"] = combo_rejected_other_count
         stats["combo_rejected_samples"] = combo_rejected_samples
         stats["combo_allowed_samples"] = combo_allowed_samples
+        stats["y_variables_count"] = y_variables_count
+        stats["num_combos_in_model"] = len(combo_ids_in_model)
+        stats["num_combos_effective"] = stats["num_combos_in_model"]
 
         for agent_id in ordered_agent_ids:
             for di in range(len(dates)):
@@ -569,7 +583,11 @@ class OrtoolsSolver:
         workload_max = max(work_values) if work_values else 0
         workload_avg = (sum(work_values) / len(work_values)) if work_values else 0.0
 
-        num_combos_effective = len({combo_id for (_a, _d, combo_id) in y.keys()})
+        combo_ids_used: set[int] = set()
+        for (_agent_id, _di, combo_id), var in y.items():
+            if solver.Value(var) == 1:
+                combo_ids_used.add(combo_id)
+
         stats.update(
             {
                 "solver_status": "OPTIMAL" if status == cp_model.OPTIMAL else "FEASIBLE",
@@ -579,7 +597,7 @@ class OrtoolsSolver:
                 "score": objective_value,
                 "objective_value": objective_value,
                 "coverage_ratio": 1.0,
-                "num_combos_effective": num_combos_effective,
+                "num_combos_used_in_solution": len(combo_ids_used),
                 "workload_min": workload_min,
                 "workload_max": workload_max,
                 "workload_avg": workload_avg,
