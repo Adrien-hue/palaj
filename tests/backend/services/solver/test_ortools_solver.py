@@ -829,6 +829,64 @@ def test_v3_lns_poste_priority_deterministic():
     assert out.stats["lns_last_selected_poste_id"] == 1
 
 
+
+
+def test_lns_iterations_do_not_spin_on_model_invalid(monkeypatch):
+    solver = OrtoolsSolver()
+
+    def _always_invalid(_self):
+        return "forced invalid model for test"
+
+    monkeypatch.setattr(cp_model.CpModel, "Validate", _always_invalid)
+
+    out = solver.generate(
+        _build_input(
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 2),
+            time_limit_seconds=4,
+            agent_ids=[1, 2],
+            qualified_postes_by_agent={1: (1,), 2: (1,)},
+            qualification_date_by_agent_poste={(1, 1): None, (2, 1): None},
+            coverage_demands=[
+                CoverageDemand(day_date=date(2026, 1, 1), tranche_id=10, required_count=1, poste_id=1),
+                CoverageDemand(day_date=date(2026, 1, 2), tranche_id=10, required_count=1, poste_id=1),
+            ],
+            v3_strategy="two_phase_lns",
+            lns_iter_seconds=2,
+            lns_min_remaining_seconds=0,
+            min_lns_seconds=0,
+        )
+    )
+
+    assert out.stats["lns_model_invalid"] is True
+    assert out.stats["lns_model_invalid_message"]
+    assert out.stats["lns_iterations"] <= 1
+    assert out.stats["lns_iterations_actual"] <= 1
+
+
+def test_lns_iteration_status_is_not_model_invalid_smoke():
+    solver = OrtoolsSolver()
+    out = solver.generate(
+        _build_input(
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 2),
+            time_limit_seconds=4,
+            agent_ids=[1, 2],
+            qualified_postes_by_agent={1: (1,), 2: (1,)},
+            qualification_date_by_agent_poste={(1, 1): None, (2, 1): None},
+            coverage_demands=[
+                CoverageDemand(day_date=date(2026, 1, 1), tranche_id=10, required_count=2, poste_id=1),
+                CoverageDemand(day_date=date(2026, 1, 2), tranche_id=10, required_count=2, poste_id=1),
+            ],
+            v3_strategy="two_phase_lns",
+            lns_iter_seconds=0.5,
+            lns_min_remaining_seconds=0,
+            min_lns_seconds=0,
+        )
+    )
+
+    for entry in out.stats["lns_iteration_history"]:
+        assert entry["status_raw"] != "MODEL_INVALID"
 def test_v3_lns_acceptance_strict_improve():
     solver = OrtoolsSolver()
     out = solver.generate(
@@ -877,6 +935,11 @@ def test_v3_stats_present():
         "lns_solve_wall_time_seconds_total",
         "lns_iteration_history",
         "lns_last_selected_poste_id",
+        "lns_model_invalid",
+        "lns_model_invalid_message",
+        "lns_model_invalid_iteration_index",
+        "lns_iterations_expected_max",
+        "lns_iterations_actual",
         "decision_strategy_enabled",
         "decision_strategy_prioritized_vars_count",
         "decision_strategy_day_scores_top",
