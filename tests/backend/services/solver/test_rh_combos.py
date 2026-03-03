@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from backend.app.services.solver.rh_combos import shift_involves_night
+from backend.app.services.solver.ortools_solver import OrtoolsSolver
+from backend.app.services.solver.rh_combos import DayCombo, DayKind, shift_involves_night
 
 
 def test_shift_involves_night_morning_window():
@@ -21,3 +22,21 @@ def test_shift_involves_night_crosses_midnight():
 
 def test_shift_involves_night_boundary_end_exclusive():
     assert shift_involves_night(6 * 60 + 30, 7 * 60) is False
+
+
+def test_day_kind_helpers_zcot_not_rest():
+    zcot_combo = DayCombo(
+        id=99,
+        poste_id=None,
+        tranche_ids=(),
+        start_min=None,
+        end_min=None,
+        work_minutes=0,
+        amplitude_minutes=0,
+        involves_night=False,
+        day_kind=DayKind.ZCOT,
+    )
+
+    assert OrtoolsSolver._is_rest_combo(zcot_combo) is False
+    assert OrtoolsSolver._is_work_combo(zcot_combo) is True
+    assert OrtoolsSolver._is_off_for_rpdouble_combo(zcot_combo) is False

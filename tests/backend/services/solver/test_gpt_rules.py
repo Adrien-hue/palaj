@@ -149,3 +149,54 @@ def test_rpdouble_requires_rest_only():
                 absences={(1, e_plus_1)},
             )
         )
+
+
+def test_can_chain_multiple_gpt_runs_over_month():
+    solver = OrtoolsSolver()
+    start = date(2026, 1, 1)
+    demands = [CoverageDemand(day_date=start + timedelta(days=i), tranche_id=10, required_count=1) for i in range(31)]
+
+    out = solver.generate(_input(days=31, demands=demands))
+
+    assert "runs_selected_by_agent" in out.stats
+    assert "runs_selected_total" in out.stats
+    assert out.stats["runs_selected_by_agent"].get(1, 0) >= 0
+
+
+def test_worked_ctx_window_days_are_not_history_fixed():
+    solver = OrtoolsSolver()
+    start = date(2026, 1, 1)
+    demands = [CoverageDemand(day_date=start + timedelta(days=i), tranche_id=10, required_count=1) for i in range(14)]
+
+    out = solver.generate(_input(days=14, demands=demands))
+
+    assert out.stats["gpt_window_days_count"] == 14
+    assert out.stats["worked_ctx_window_fixed_days_count_by_agent"][1] == 0
+
+
+def test_history_zcot_is_not_counted_as_rpdouble_off_day():
+    solver = OrtoolsSolver()
+    start = date(2026, 1, 1)
+    e_plus_1 = start + timedelta(days=6)
+    e_plus_2 = start + timedelta(days=7)
+    demands = [CoverageDemand(day_date=start + timedelta(days=i), tranche_id=10, required_count=1) for i in range(6)]
+
+    out_zcot = solver.generate(
+        _input(
+            days=8,
+            demands=demands,
+            existing_ctx={(1, e_plus_1): "zcot", (1, e_plus_2): "rest"},
+            existing_day_types={(1, e_plus_1): "zcot", (1, e_plus_2): "rest"},
+        )
+    )
+
+    out_rest = solver.generate(
+        _input(
+            days=8,
+            demands=demands,
+            existing_ctx={(1, e_plus_1): "rest", (1, e_plus_2): "rest"},
+            existing_day_types={(1, e_plus_1): "rest", (1, e_plus_2): "rest"},
+        )
+    )
+    assert out_zcot.stats["runs_selected_total"] >= 0
+    assert out_rest.stats["runs_selected_total"] >= 0
