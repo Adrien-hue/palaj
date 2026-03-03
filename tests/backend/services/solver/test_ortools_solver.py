@@ -82,7 +82,7 @@ def test_unknown_far_from_time_limit_maps_to_infeasible(monkeypatch):
     assert exc_info.value.stats["timeout_confidence"] == "low"
 
 
-def test_feasible_status_is_not_timeout_with_mocked_solver(monkeypatch):
+def test_feasible_status_with_time_limit_maps_to_timeout(monkeypatch):
     solver = OrtoolsSolver()
     _FakeCpSolver.status = cp_model.FEASIBLE
     _FakeCpSolver.wall_time = 0.1
@@ -91,8 +91,66 @@ def test_feasible_status_is_not_timeout_with_mocked_solver(monkeypatch):
     out = solver.generate(_build_input(time_limit_seconds=60))
 
     assert out.stats["solver_status"] == "FEASIBLE"
+    assert out.stats["solver_status_raw"] == "FEASIBLE"
+    assert out.stats["normalized_solver_status"] == "TIMEOUT"
+    assert out.stats["is_timeout"] is True
+    assert out.stats["time_limit_reached"] is True
+
+
+def test_feasible_status_without_time_limit_is_not_timeout(monkeypatch):
+    solver = OrtoolsSolver()
+    _FakeCpSolver.status = cp_model.FEASIBLE
+    _FakeCpSolver.wall_time = 0.1
+    monkeypatch.setattr(cp_model, "CpSolver", _FakeCpSolver)
+
+    out = solver.generate(_build_input(time_limit_seconds=0))
+
+    assert out.stats["solver_status"] == "FEASIBLE"
     assert out.stats["normalized_solver_status"] == "FEASIBLE"
     assert out.stats["is_timeout"] is False
+    assert out.stats["time_limit_reached"] is False
+
+
+
+
+def test_timeout_stats_debug_fields_present_in_failure_paths(monkeypatch):
+    solver = OrtoolsSolver()
+    _FakeCpSolver.status = cp_model.UNKNOWN
+    _FakeCpSolver.wall_time = 0.1
+    monkeypatch.setattr(cp_model, "CpSolver", _FakeCpSolver)
+
+    with pytest.raises(InfeasibleError) as exc_info:
+        solver.generate(_build_input(time_limit_seconds=60))
+
+    stats = exc_info.value.stats
+    assert stats["time_limit_seconds"] == 60.0
+    assert stats["solver_max_time_seconds_applied"] == 60.0
+    assert stats["solve_wall_time_seconds"] == pytest.approx(0.1)
+    assert stats["solver_status_int"] == int(cp_model.UNKNOWN)
+    assert stats["is_timeout"] == stats["time_limit_reached"]
+
+
+def test_precheck_failure_keeps_timeout_debug_defaults():
+    solver = OrtoolsSolver()
+    inp = _build_input(
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 1, 1),
+        agent_ids=[1],
+        qualified_postes_by_agent={1: (1,)},
+        qualification_date_by_agent_poste={(1, 1): None},
+        coverage_demands=[CoverageDemand(day_date=date(2026, 1, 1), tranche_id=9999, required_count=1)],
+    )
+
+    with pytest.raises(InfeasibleError) as exc_info:
+        solver.generate(inp)
+
+    stats = exc_info.value.stats
+    assert stats["time_limit_seconds"] == 5.0
+    assert stats["solver_max_time_seconds_applied"] == 0.0
+    assert stats["solve_wall_time_seconds"] == 0.0
+    assert stats["solver_status_int"] is None
+    assert stats["is_timeout"] is False
+    assert stats["time_limit_reached"] is False
 
 
 def test_feasible_respects_qualification_date():

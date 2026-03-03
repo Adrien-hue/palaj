@@ -207,8 +207,20 @@ class OrtoolsSolver:
             * max(0, demand.required_count)
             for demand in solver_input.coverage_demands
         )
+        time_limit_seconds = float(solver_input.time_limit_seconds or 0.0)
+
         stats = {
             "solver_status": None,
+            "solver_status_raw": None,
+            "normalized_solver_status": None,
+            "is_timeout": False,
+            "time_limit_reached": False,
+            "timeout_detection_method": "status_feasible_or_walltime_95pct",
+            "time_limit_seconds": time_limit_seconds,
+            "solver_max_time_seconds_applied": 0.0,
+            "solve_wall_time_seconds": 0.0,
+            "solver_status_int": None,
+            "solve_time_seconds": 0.0,
             "coverage_ratio": 0.0,
             "total_required_count": total_required_count,
             "total_required_weighted": total_required_weighted,
@@ -1073,17 +1085,26 @@ class OrtoolsSolver:
         model.Minimize(objective)
 
         solver = cp_model.CpSolver()
-        solver.parameters.max_time_in_seconds = solver_input.time_limit_seconds
+        if time_limit_seconds > 0:
+            solver.parameters.max_time_in_seconds = time_limit_seconds
+            stats["solver_max_time_seconds_applied"] = time_limit_seconds
         solver.parameters.num_search_workers = 1
         if solver_input.seed is not None:
             solver.parameters.random_seed = solver_input.seed
 
         status = solver.Solve(model)
         wall_time = solver.WallTime()
-        timeout_threshold = 0.99 * solver_input.time_limit_seconds
-        is_timeout = bool(solver_input.time_limit_seconds > 0 and wall_time >= timeout_threshold)
+        time_limit_reached = False
+        if time_limit_seconds > 0:
+            if status == cp_model.OPTIMAL:
+                time_limit_reached = False
+            else:
+                time_limit_reached = (status == cp_model.FEASIBLE) or (wall_time >= time_limit_seconds * 0.95)
 
+        stats["time_limit_seconds"] = time_limit_seconds
+        stats["solve_wall_time_seconds"] = wall_time
         stats["solve_time_seconds"] = wall_time
+        stats["solver_status_int"] = int(status)
         stats["num_variables"] = num_variables
         stats["num_constraints"] = num_constraints
         stats["coverage_constraints_count"] = coverage_constraints_count
@@ -1100,17 +1121,18 @@ class OrtoolsSolver:
         else:
             solver_status_raw = "INFEASIBLE"
 
-        normalized_solver_status = "TIMEOUT" if solver_status_raw == "UNKNOWN" and is_timeout else solver_status_raw
+        normalized_solver_status = "TIMEOUT" if time_limit_reached else solver_status_raw
         stats["solver_status"] = solver_status_raw
         stats["solver_status_raw"] = solver_status_raw
         stats["normalized_solver_status"] = normalized_solver_status
-        stats["is_timeout"] = is_timeout
+        stats["is_timeout"] = bool(time_limit_reached)
+        stats["time_limit_reached"] = bool(time_limit_reached)
 
         if status == cp_model.INFEASIBLE:
             raise InfeasibleError("infeasible", stats=stats)
-        if status == cp_model.UNKNOWN and is_timeout:
+        if status == cp_model.UNKNOWN and time_limit_reached:
             raise TimeoutError("timeout", stats=stats)
-        if status == cp_model.UNKNOWN and not is_timeout:
+        if status == cp_model.UNKNOWN and not time_limit_reached:
             stats["timeout_confidence"] = "low"
             raise InfeasibleError("infeasible", stats=stats)
         if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
@@ -1199,8 +1221,9 @@ class OrtoolsSolver:
             {
                 "solver_status": "OPTIMAL" if status == cp_model.OPTIMAL else "FEASIBLE",
                 "solver_status_raw": "OPTIMAL" if status == cp_model.OPTIMAL else "FEASIBLE",
-                "normalized_solver_status": "OPTIMAL" if status == cp_model.OPTIMAL else "FEASIBLE",
-                "is_timeout": False,
+                "normalized_solver_status": normalized_solver_status,
+                "is_timeout": bool(time_limit_reached),
+                "time_limit_reached": bool(time_limit_reached),
                 "score": objective_value,
                 "objective_value": objective_value,
                 "coverage_ratio": coverage_ratio,
