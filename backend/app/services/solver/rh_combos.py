@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from itertools import combinations
 from typing import Protocol
 
@@ -22,6 +23,14 @@ class RhComboRulesEngine(Protocol):
     def min_rest_required(self, *, involves_night: bool) -> int: ...
 
 
+class DayKind(Enum):
+    WORK = "work"
+    REST = "rest"
+    ZCOT = "zcot"
+    LEAVE = "leave"
+    ABSENT = "absent"
+
+
 @dataclass(frozen=True)
 class DayCombo:
     id: int
@@ -32,6 +41,7 @@ class DayCombo:
     work_minutes: int
     amplitude_minutes: int
     involves_night: bool
+    day_kind: DayKind
 
 
 @dataclass(frozen=True)
@@ -151,6 +161,7 @@ def build_day_combos_for_poste(
                     work_minutes=work_minutes,
                     amplitude_minutes=amplitude_minutes,
                     involves_night=involves_night,
+                    day_kind=DayKind.WORK,
                 )
             )
             combo_id += 1
