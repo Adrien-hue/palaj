@@ -91,6 +91,32 @@ function sortAndTrim(items: PlanningGenerateHistoryItem[]) {
     .slice(0, HISTORY_LIMIT);
 }
 
+function migrateToV1(parsed: unknown): StorageShapeV1 {
+  if (Array.isArray(parsed)) {
+    return {
+      version: 1,
+      items: sortAndTrim(
+        parsed
+          .map(normalizeItem)
+          .filter((i): i is PlanningGenerateHistoryItem => i !== null),
+      ),
+    };
+  }
+
+  if (isObject(parsed) && Array.isArray(parsed.items)) {
+    return {
+      version: 1,
+      items: sortAndTrim(
+        parsed.items
+          .map(normalizeItem)
+          .filter((i): i is PlanningGenerateHistoryItem => i !== null),
+      ),
+    };
+  }
+
+  return emptyStorage();
+}
+
 function safeRead(): StorageShapeV1 {
   if (typeof window === "undefined") return emptyStorage();
 
@@ -100,15 +126,19 @@ function safeRead(): StorageShapeV1 {
 
     const parsed = JSON.parse(raw) as unknown;
 
-    if (Array.isArray(parsed)) {
-      return { version: 1, items: sortAndTrim(parsed.map(normalizeItem).filter((i): i is PlanningGenerateHistoryItem => i !== null)) };
+    // Migration best-effort: anciens formats sans version (array direct ou {items})
+    if (!isObject(parsed) || parsed.version !== 1) {
+      return migrateToV1(parsed);
     }
 
-    if (!isObject(parsed) || parsed.version !== 1 || !Array.isArray(parsed.items)) {
+    if (!Array.isArray(parsed.items)) {
       return emptyStorage();
     }
 
-    const normalized = parsed.items.map(normalizeItem).filter((i): i is PlanningGenerateHistoryItem => i !== null);
+    const normalized = parsed.items
+      .map(normalizeItem)
+      .filter((i): i is PlanningGenerateHistoryItem => i !== null);
+
     return { version: 1, items: sortAndTrim(normalized) };
   } catch {
     return emptyStorage();
@@ -138,20 +168,22 @@ function upsertByJobId(
   return sortAndTrim(next);
 }
 
+function readLastJobId(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(LAST_JOB_STORAGE_KEY);
+}
+
 export function usePlanningGenerateHistory() {
-  const [storage, setStorage] = React.useState<StorageShapeV1>(emptyStorage());
-  const [lastJobId, setLastJobIdState] = React.useState<string | null>(null);
+  const [storage, setStorage] = React.useState<StorageShapeV1>(() => safeRead());
+  const [lastJobId, setLastJobIdState] = React.useState<string | null>(() => readLastJobId());
+  const itemsRef = React.useRef<PlanningGenerateHistoryItem[]>(storage.items);
 
   React.useEffect(() => {
-    const nextStorage = safeRead();
-    setStorage(nextStorage);
-
-    const storedLastJobId = window.localStorage.getItem(LAST_JOB_STORAGE_KEY);
-    setLastJobIdState(storedLastJobId);
-  }, []);
+    itemsRef.current = storage.items;
+  }, [storage.items]);
 
   const setLastJobId = React.useCallback((jobId: string | null) => {
-    setLastJobIdState(jobId);
+    setLastJobIdState((prev) => (prev === jobId ? prev : jobId));
 
     if (typeof window === "undefined") return;
 
@@ -165,10 +197,19 @@ export function usePlanningGenerateHistory() {
 
   const upsertHistoryItem = React.useCallback((item: PlanningGenerateHistoryItem) => {
     setStorage((prev) => {
+      const nextItems = upsertByJobId(prev.items, item);
+      if (nextItems === prev.items) return prev;
+
+      const unchanged =
+        nextItems.length === prev.items.length &&
+        nextItems.every((it, idx) => it === prev.items[idx]);
+      if (unchanged) return prev;
+
       const next: StorageShapeV1 = {
         version: 1,
-        items: upsertByJobId(prev.items, item),
+        items: nextItems,
       };
+      itemsRef.current = next.items;
       writeStorage(next);
       return next;
     });
@@ -194,30 +235,61 @@ export function usePlanningGenerateHistory() {
 
   const updateStatus = React.useCallback(
     (jobId: string, status: JobStatus, draftId?: number) => {
-      const current = storage.items.find((item) => item.job_id === jobId);
-      if (!current) return;
+      setStorage((prev) => {
+        const current = prev.items.find((item) => item.job_id === jobId);
+        if (!current) return prev;
 
-      const now = new Date().toISOString();
-      upsertHistoryItem({
-        ...current,
-        status_last_known: status,
-        draft_id: draftId ?? current.draft_id,
-        updated_at: now,
-        last_seen_at: now,
+        if (
+          current.status_last_known === status &&
+          (draftId == null || current.draft_id === draftId)
+        ) {
+          return prev;
+        }
+
+        const now = new Date().toISOString();
+        const next: StorageShapeV1 = {
+          version: 1,
+          items: upsertByJobId(prev.items, {
+            ...current,
+            status_last_known: status,
+            draft_id: draftId ?? current.draft_id,
+            updated_at: now,
+            last_seen_at: now,
+          }),
+        };
+
+        itemsRef.current = next.items;
+        writeStorage(next);
+        return next;
       });
     },
-    [storage.items, upsertHistoryItem],
+    [],
   );
 
   const select = React.useCallback(
-    (jobId: string) => storage.items.find((item) => item.job_id === jobId) ?? null,
-    [storage.items],
+    (jobId: string) => itemsRef.current.find((item) => item.job_id === jobId) ?? null,
+    [],
   );
 
   const selectDraft = React.useCallback(
-    (draftId: number) => storage.items.find((item) => item.draft_id === draftId) ?? null,
-    [storage.items],
+    (draftId: number) => itemsRef.current.find((item) => item.draft_id === draftId) ?? null,
+    [],
   );
+
+  const clear = React.useCallback(() => {
+    setStorage((prev) => {
+      const next = emptyStorage();
+      if (prev.items.length === 0) {
+        itemsRef.current = next.items;
+        return prev;
+      }
+
+      itemsRef.current = next.items;
+      writeStorage(next);
+      return next;
+    });
+    setLastJobId(null);
+  }, [setLastJobId]);
 
   return {
     history: storage.items,
@@ -228,5 +300,6 @@ export function usePlanningGenerateHistory() {
     updateStatus,
     select,
     selectDraft,
+    clear,
   };
 }

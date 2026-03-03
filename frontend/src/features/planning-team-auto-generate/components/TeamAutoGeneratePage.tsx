@@ -108,11 +108,17 @@ export function TeamAutoGeneratePage({ teams }: { teams: Team[] }) {
   const isBusy = generate.isSubmitting || isSubmittingLocal || isRunning;
   const canGenerate = teamId !== null && !isPeriodInvalid && !isBusy;
 
+  // Radix Select contrôlé: garder une string stable ("" quand null)
+  // + ignorer la même valeur dans onValueChange + guards d'égalité sur setState
+  // pour éviter les boucles de feedback (Maximum update depth).
+  const jobSelectValue = jobId ?? "";
+  const draftSelectValue = draftId != null ? String(draftId) : "";
+
   React.useEffect(() => {
     if (jobId || !lastJobId) return;
     setJobId(lastJobId);
-    setSelectionMode("job");
-  }, [jobId, lastJobId]);
+    if (selectionMode !== "job") setSelectionMode("job");
+  }, [jobId, lastJobId, selectionMode]);
 
   React.useEffect(() => {
     if (!jobId || !job.data) return;
@@ -120,25 +126,16 @@ export function TeamAutoGeneratePage({ teams }: { teams: Team[] }) {
     updateStatus(jobId, job.data.status, job.data.draft_id);
 
     if (job.data.status === "success" && job.data.draft_id) {
-      setDraftId(job.data.draft_id);
-      setDraftNotFound(false);
-      setSelectionMode("job");
+      if (draftId !== job.data.draft_id) setDraftId(job.data.draft_id);
+      if (draftNotFound) setDraftNotFound(false);
+      if (selectionMode !== "job") setSelectionMode("job");
     }
-  }, [jobId, job.data, updateStatus]);
+  }, [jobId, job.data, updateStatus, draftId, draftNotFound, selectionMode]);
 
   React.useEffect(() => {
-    if (!draft.error) {
-      setDraftNotFound(false);
-      return;
-    }
-
-    if (draft.error instanceof ApiError && draft.error.status === 404) {
-      setDraftNotFound(true);
-      return;
-    }
-
-    setDraftNotFound(false);
-  }, [draft.error]);
+    const isDraft404 = draft.error instanceof ApiError && draft.error.status === 404;
+    if (draftNotFound !== isDraft404) setDraftNotFound(isDraft404);
+  }, [draft.error, draftNotFound]);
 
   const planningVm = React.useMemo(() => {
     if (!draft.data) return null;
@@ -146,9 +143,9 @@ export function TeamAutoGeneratePage({ teams }: { teams: Team[] }) {
   }, [draft.data]);
 
   const resetViewState = React.useCallback(() => {
-    setShowConflictAlert(false);
-    setDraftNotFound(false);
-  }, []);
+    if (showConflictAlert) setShowConflictAlert(false);
+    if (draftNotFound) setDraftNotFound(false);
+  }, [showConflictAlert, draftNotFound]);
 
   const clearSWRLocalViews = React.useCallback(async () => {
     await Promise.all([job.clearJobCache(), draft.clearDraftCache()]);
@@ -222,45 +219,50 @@ export function TeamAutoGeneratePage({ teams }: { teams: Team[] }) {
 
   const onSelectJob = React.useCallback(
     async (value: string) => {
+      if (!value || value === jobId) return;
+
+      // Guard contre boucle Select contrôlé: ignorer la même valeur et ne set que si changement réel.
       resetViewState();
-      setSelectionMode("job");
-      setDraftId(null);
+      if (selectionMode !== "job") setSelectionMode("job");
+      if (draftId !== null) setDraftId(null);
       await clearSWRLocalViews();
 
       setJobId(value);
       setLastJobId(value);
 
       const selected = select(value);
-      if (selected?.draft_id) {
+      if (selected?.draft_id && selected.draft_id !== draftId) {
         setDraftId(selected.draft_id);
       }
     },
-    [resetViewState, clearSWRLocalViews, setLastJobId, select],
+    [resetViewState, selectionMode, draftId, clearSWRLocalViews, setLastJobId, select, jobId],
   );
 
   const onSelectDraft = React.useCallback(
     async (value: string) => {
+      const parsedDraft = Number(value);
+      if (!Number.isFinite(parsedDraft) || parsedDraft <= 0 || parsedDraft === draftId) return;
+
       resetViewState();
-      setSelectionMode("draft");
-      setJobId(null);
+      if (selectionMode !== "draft") setSelectionMode("draft");
+      if (jobId !== null) setJobId(null);
       await clearSWRLocalViews();
 
-      const parsedDraft = Number(value);
       setDraftId(parsedDraft);
 
       const item = selectDraft(parsedDraft);
-      if (item?.job_id) setLastJobId(item.job_id);
+      if (item?.job_id && item.job_id !== lastJobId) setLastJobId(item.job_id);
     },
-    [resetViewState, clearSWRLocalViews, selectDraft, setLastJobId],
+    [resetViewState, selectionMode, jobId, draftId, clearSWRLocalViews, selectDraft, setLastJobId, lastJobId],
   );
 
   const clearSelection = React.useCallback(async () => {
-    setJobId(null);
-    setDraftId(null);
-    setSelectionMode("job");
+    if (jobId !== null) setJobId(null);
+    if (draftId !== null) setDraftId(null);
+    if (selectionMode !== "job") setSelectionMode("job");
     resetViewState();
     await clearSWRLocalViews();
-  }, [resetViewState, clearSWRLocalViews]);
+  }, [jobId, draftId, selectionMode, resetViewState, clearSWRLocalViews]);
 
   return (
     <div className="space-y-6 p-4 md:p-6">
@@ -363,7 +365,7 @@ export function TeamAutoGeneratePage({ teams }: { teams: Team[] }) {
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label>Recharger un job</Label>
-              <Select value={jobId ?? undefined} onValueChange={(value) => void onSelectJob(value)}>
+              <Select value={jobSelectValue} onValueChange={(value) => void onSelectJob(value)}>
                 <SelectTrigger>
                   <SelectValue placeholder="Sélectionner un job_id" />
                 </SelectTrigger>
@@ -379,7 +381,7 @@ export function TeamAutoGeneratePage({ teams }: { teams: Team[] }) {
 
             <div className="space-y-2">
               <Label>Afficher un draft</Label>
-              <Select value={draftId ? String(draftId) : undefined} onValueChange={(value) => void onSelectDraft(value)}>
+              <Select value={draftSelectValue} onValueChange={(value) => void onSelectDraft(value)}>
                 <SelectTrigger>
                   <SelectValue placeholder="Sélectionner un draft_id" />
                 </SelectTrigger>
