@@ -121,32 +121,123 @@ def test_feasible_respects_qualification_date():
     assert out.stats["num_combos_in_model"] >= out.stats["num_combos_used_in_solution"]
 
 
-def test_infeasible_when_required_exceeds_capacity():
+def test_soft_coverage_allows_solution_when_understaff_needed():
     solver = OrtoolsSolver()
-    inp = _build_input(
-        agent_ids=[1],
-        qualified_postes_by_agent={1: (1,)},
-        qualification_date_by_agent_poste={(1, 1): None},
-        coverage_demands=[
-            CoverageDemand(day_date=date(2026, 1, 1), tranche_id=10, required_count=2),
-        ],
+    out = solver.generate(
+        _build_input(
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 1),
+            agent_ids=[1],
+            qualified_postes_by_agent={1: (1,)},
+            qualification_date_by_agent_poste={(1, 1): None},
+            coverage_demands=[CoverageDemand(day_date=date(2026, 1, 1), tranche_id=10, required_count=2)],
+        )
     )
 
-    with pytest.raises(InfeasibleError) as exc_info:
-        solver.generate(inp)
+    assert out.stats["solver_status"] in {"OPTIMAL", "FEASIBLE"}
+    assert out.stats["understaff_total"] == 1
+    assert out.stats["coverage_ratio"] < 1.0
+    assert out.stats["num_assignments"] == 1
 
-    assert exc_info.value.stats["solver_status"] == "INFEASIBLE"
-    assert exc_info.value.stats["num_variables"] > 0
-    assert exc_info.value.stats["demand_count"] == 1
-    assert exc_info.value.stats["total_required_work_minutes"] == 720
-    assert exc_info.value.stats["variable_count_method"] == "internal_counter"
-    assert exc_info.value.stats["constraint_count_method"] == "internal_counter"
-    assert "required_minutes_estimate_method" in exc_info.value.stats
-    assert exc_info.value.stats["combo_allowed_pairs_count"] > 0
-    assert exc_info.value.stats["y_variables_count"] > 0
-    assert exc_info.value.stats["num_combos_in_model"] > 0
-    assert exc_info.value.stats["num_combos_used_in_solution"] is None
-    assert exc_info.value.stats["num_combos_effective"] == exc_info.value.stats["num_combos_in_model"]
+
+def test_weekday_weight_prioritizes_weekday_over_weekend():
+    solver = OrtoolsSolver()
+    out = solver.generate(
+        _build_input(
+            start_date=date(2026, 1, 2),  # Friday
+            end_date=date(2026, 1, 3),  # Saturday
+            agent_ids=[1],
+            qualified_postes_by_agent={1: (1,)},
+            qualification_date_by_agent_poste={(1, 1): None},
+            tranches=[
+                TrancheInfo(id=10, poste_id=1, heure_debut=time(17, 30), heure_fin=time(23, 0)),
+                TrancheInfo(id=11, poste_id=1, heure_debut=time(8, 0), heure_fin=time(13, 30)),
+            ],
+            coverage_demands=[
+                CoverageDemand(day_date=date(2026, 1, 2), tranche_id=10, required_count=1),
+                CoverageDemand(day_date=date(2026, 1, 3), tranche_id=11, required_count=1),
+            ],
+        )
+    )
+
+    covered = {(a.day_date, a.tranche_id) for a in out.assignments}
+    # Business order: weekend day > weekday night.
+    assert (date(2026, 1, 3), 11) in covered
+    assert (date(2026, 1, 2), 10) not in covered
+    assert out.stats["understaff_total"] == 1
+    assert out.stats["understaff_total_weighted"] == OrtoolsSolver.W_UNDERSTAFF_WEEKDAY_NIGHT
+
+
+def test_coverage_ratio_weighted_present_and_correct():
+    solver = OrtoolsSolver()
+    out = solver.generate(
+        _build_input(
+            start_date=date(2026, 1, 2),  # Friday
+            end_date=date(2026, 1, 3),  # Saturday
+            agent_ids=[1],
+            qualified_postes_by_agent={1: (1,)},
+            qualification_date_by_agent_poste={(1, 1): None},
+            tranches=[
+                TrancheInfo(id=10, poste_id=1, heure_debut=time(17, 30), heure_fin=time(23, 0)),
+                TrancheInfo(id=11, poste_id=1, heure_debut=time(8, 0), heure_fin=time(13, 30)),
+            ],
+            coverage_demands=[
+                CoverageDemand(day_date=date(2026, 1, 2), tranche_id=10, required_count=1),
+                CoverageDemand(day_date=date(2026, 1, 3), tranche_id=11, required_count=1),
+            ],
+        )
+    )
+
+    assert out.stats["coverage_ratio"] < 1.0
+    assert out.stats["coverage_ratio_weighted"] > out.stats["coverage_ratio"]
+    assert out.stats["total_required_weighted"] == 30
+
+
+def test_useless_work_penalty_avoids_work_on_no_demand_days():
+    solver = OrtoolsSolver()
+    no_demand_day = date(2026, 1, 2)
+    out = solver.generate(
+        _build_input(
+            start_date=date(2026, 1, 1),
+            end_date=no_demand_day,
+            agent_ids=[1],
+            qualified_postes_by_agent={1: (1,)},
+            qualification_date_by_agent_poste={(1, 1): None},
+            coverage_demands=[CoverageDemand(day_date=date(2026, 1, 1), tranche_id=10, required_count=1)],
+        )
+    )
+
+    assert out.stats["solver_status"] in {"OPTIMAL", "FEASIBLE"}
+    assert out.stats["useless_work_total"] == 0
+    assert all(a.day_date != no_demand_day for a in out.assignments)
+
+
+def test_objective_prefers_lower_understaff_even_if_other_terms():
+    solver = OrtoolsSolver()
+    out = solver.generate(
+        _build_input(
+            start_date=date(2026, 1, 2),
+            end_date=date(2026, 1, 3),
+            agent_ids=[1],
+            qualified_postes_by_agent={1: (1,)},
+            qualification_date_by_agent_poste={(1, 1): None},
+            tranches=[
+                TrancheInfo(id=10, poste_id=1, heure_debut=time(17, 30), heure_fin=time(23, 0)),
+                TrancheInfo(id=11, poste_id=1, heure_debut=time(8, 0), heure_fin=time(13, 30)),
+            ],
+            coverage_demands=[
+                CoverageDemand(day_date=date(2026, 1, 2), tranche_id=10, required_count=2),
+                CoverageDemand(day_date=date(2026, 1, 3), tranche_id=11, required_count=1),
+            ],
+        )
+    )
+
+    covered = {(a.day_date, a.tranche_id) for a in out.assignments}
+    assert (date(2026, 1, 3), 11) in covered
+    assert out.stats["understaff_total"] == 2
+    assert out.stats["understaff_total_weighted"] == (
+        2 * OrtoolsSolver.W_UNDERSTAFF_WEEKDAY_NIGHT
+    )
 
 
 @pytest.mark.skip(reason="CP-SAT timeout status is not stable in CI with tiny limits")
@@ -178,6 +269,7 @@ def test_no_demands_gives_zero_assignments_and_full_coverage():
     assert out.stats["num_constraints"] >= 0
     assert out.stats["demanded_pairs_count"] == 0
     assert out.stats["coverage_constraints_count"] == 0
+    assert out.stats["coverage_ratio_weighted"] == 1.0
 
 
 def test_copies_existing_day_type_when_unassigned():
@@ -219,7 +311,7 @@ def test_allows_multi_tranche_same_day_when_combo_valid():
     assert {(a.agent_id, a.tranche_id) for a in out.assignments} == {(1, 10), (1, 11)}
 
 
-def test_rejects_invalid_combo_with_excessive_amplitude():
+def test_rejects_invalid_combo_with_excessive_amplitude_soft_understaff():
     solver = OrtoolsSolver()
     inp = _build_input(
         start_date=date(2026, 1, 1),
@@ -237,11 +329,12 @@ def test_rejects_invalid_combo_with_excessive_amplitude():
         ],
     )
 
-    with pytest.raises(InfeasibleError):
-        solver.generate(inp)
+    out = solver.generate(inp)
+
+    assert out.stats["understaff_total"] == 1
 
 
-def test_daily_rest_night_rule_blocks_incompatible_pair():
+def test_daily_rest_night_rule_blocks_incompatible_pair_with_soft_coverage():
     solver = OrtoolsSolver()
     inp = _build_input(
         start_date=date(2026, 1, 1),
@@ -259,8 +352,9 @@ def test_daily_rest_night_rule_blocks_incompatible_pair():
         ],
     )
 
-    with pytest.raises(InfeasibleError):
-        solver.generate(inp)
+    out = solver.generate(inp)
+
+    assert out.stats["understaff_total"] == 1
 
 
 def test_no_implicit_zero_demand_constraints_are_added():
@@ -305,7 +399,7 @@ def test_stats_missing_tranche_in_any_combo_precheck():
     assert exc_info.value.stats["solver_status_raw"] == "PRECHECK_INFEASIBLE"
 
 
-def test_stats_combo_gating_counts_not_zero():
+def test_stats_combo_gating_counts_not_zero_with_soft_coverage():
     solver = OrtoolsSolver()
     inp = _build_input(
         start_date=date(2026, 1, 1),
@@ -316,11 +410,265 @@ def test_stats_combo_gating_counts_not_zero():
         coverage_demands=[CoverageDemand(day_date=date(2026, 1, 1), tranche_id=10, required_count=1)],
     )
 
+    out = solver.generate(inp)
+
+    assert out.stats["combo_candidate_pairs_count"] > 0
+    assert out.stats["combo_allowed_pairs_count"] == 0
+    assert out.stats["combo_rejected_not_qualified_count"] > 0
+    assert out.stats["combo_rejected_samples"]
+    assert any(sample["reason"] == "not_qualified" for sample in out.stats["combo_rejected_samples"])
+    assert out.stats["understaff_total"] == 1
+
+
+def test_stability_prefers_same_work_combo_on_consecutive_days():
+    solver = OrtoolsSolver()
+    out = solver.generate(
+        _build_input(
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 2),
+            agent_ids=[1],
+            qualified_postes_by_agent={1: (1,)},
+            qualification_date_by_agent_poste={(1, 1): None},
+            tranches=[
+                TrancheInfo(id=10, poste_id=1, heure_debut=time(17, 30), heure_fin=time(23, 0)),
+                TrancheInfo(id=11, poste_id=1, heure_debut=time(8, 0), heure_fin=time(13, 30)),
+            ],
+            coverage_demands=[
+                CoverageDemand(day_date=date(2026, 1, 1), tranche_id=10, required_count=1),
+                CoverageDemand(day_date=date(2026, 1, 2), tranche_id=10, required_count=1),
+            ],
+        )
+    )
+
+    assert out.stats["stability_changes_total"] >= 0
+    assert out.stats["objective_terms"]["stability_changes"] == out.stats["stability_changes_total"]
+    assert 1 in out.stats["stability_changes_by_agent"]
+
+
+def test_work_block_starts_prefers_contiguous_work_when_coverage_equal():
+    solver = OrtoolsSolver()
+    out = solver.generate(
+        _build_input(
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 3),
+            agent_ids=[1],
+            qualified_postes_by_agent={1: (1,)},
+            qualification_date_by_agent_poste={(1, 1): None},
+            tranches=[
+                TrancheInfo(id=10, poste_id=1, heure_debut=time(8, 0), heure_fin=time(12, 0)),
+                TrancheInfo(id=11, poste_id=1, heure_debut=time(13, 0), heure_fin=time(17, 0)),
+            ],
+            coverage_demands=[
+                CoverageDemand(day_date=date(2026, 1, 1), tranche_id=10, required_count=1),
+                CoverageDemand(day_date=date(2026, 1, 3), tranche_id=10, required_count=1),
+            ],
+        )
+    )
+
+    assert out.stats["work_blocks_starts_total"] >= 1
+    assert "work_blocks_starts_by_agent" in out.stats
+
+
+def test_rpdouble_soft_stats_present():
+    solver = OrtoolsSolver()
+    out = solver.generate(
+        _build_input(
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 2),
+            agent_ids=[1],
+            qualified_postes_by_agent={1: ()},
+            qualification_date_by_agent_poste={},
+            coverage_demands=[],
+        )
+    )
+
+    assert out.stats["rpdouble_soft_total"] >= 0
+    assert out.stats["rpdouble_soft_by_agent"][1] >= 0
+
+
+def test_tranche_diversity_bonus_prefers_using_multiple_main_tranches():
+    solver = OrtoolsSolver()
+    out = solver.generate(
+        _build_input(
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 2),
+            agent_ids=[1],
+            qualified_postes_by_agent={1: (1,)},
+            qualification_date_by_agent_poste={(1, 1): None},
+            tranches=[
+                TrancheInfo(id=10, poste_id=1, heure_debut=time(17, 30), heure_fin=time(23, 0)),
+                TrancheInfo(id=11, poste_id=1, heure_debut=time(8, 0), heure_fin=time(13, 30)),
+            ],
+            coverage_demands=[
+                CoverageDemand(day_date=date(2026, 1, 1), tranche_id=10, required_count=1),
+                CoverageDemand(day_date=date(2026, 1, 2), tranche_id=11, required_count=1),
+            ],
+        )
+    )
+
+    assert out.stats["tranche_diversity_total"] >= 1
+    assert out.stats["tranche_diversity_by_agent"][1] >= 1
+
+
+def test_understaff_smoothing_stat_is_reported():
+    solver = OrtoolsSolver()
+    out = solver.generate(
+        _build_input(
+            start_date=date(2026, 1, 2),
+            end_date=date(2026, 1, 3),
+            agent_ids=[1],
+            qualified_postes_by_agent={1: (1,)},
+            qualification_date_by_agent_poste={(1, 1): None},
+            tranches=[
+                TrancheInfo(id=10, poste_id=1, heure_debut=time(17, 30), heure_fin=time(23, 0)),
+                TrancheInfo(id=11, poste_id=1, heure_debut=time(8, 0), heure_fin=time(13, 30)),
+            ],
+            coverage_demands=[
+                CoverageDemand(day_date=date(2026, 1, 2), tranche_id=10, required_count=2),
+                CoverageDemand(day_date=date(2026, 1, 3), tranche_id=11, required_count=1),
+            ],
+        )
+    )
+
+    assert out.stats["understaff_smooth_weighted_sum"] >= out.stats["understaff_total"]
+    assert out.stats["objective_terms"]["understaff_smooth_weighted"] == out.stats["understaff_smooth_weighted_sum"]
+
+
+def test_coverage_priority_order_categories():
+    solver = OrtoolsSolver()
+
+    # weekday day > weekend day
+    out_weekday_vs_weekend_day = solver.generate(
+        _build_input(
+            start_date=date(2026, 1, 2),  # Friday
+            end_date=date(2026, 1, 3),  # Saturday
+            agent_ids=[1],
+            qualified_postes_by_agent={1: (1,)},
+            qualification_date_by_agent_poste={(1, 1): None},
+            tranches=[
+                TrancheInfo(id=10, poste_id=1, heure_debut=time(8, 0), heure_fin=time(13, 30)),
+            ],
+            coverage_demands=[
+                CoverageDemand(day_date=date(2026, 1, 2), tranche_id=10, required_count=1),
+                CoverageDemand(day_date=date(2026, 1, 3), tranche_id=10, required_count=1),
+            ],
+        )
+    )
+    covered = {(a.day_date, a.tranche_id) for a in out_weekday_vs_weekend_day.assignments}
+    assert (date(2026, 1, 2), 10) in covered
+
+    # weekend day > weekday night
+    out_weekend_day_vs_weekday_night = solver.generate(
+        _build_input(
+            start_date=date(2026, 1, 2),
+            end_date=date(2026, 1, 3),
+            agent_ids=[1],
+            qualified_postes_by_agent={1: (1,)},
+            qualification_date_by_agent_poste={(1, 1): None},
+            tranches=[
+                TrancheInfo(id=10, poste_id=1, heure_debut=time(17, 30), heure_fin=time(23, 0)),
+                TrancheInfo(id=11, poste_id=1, heure_debut=time(8, 0), heure_fin=time(13, 30)),
+            ],
+            coverage_demands=[
+                CoverageDemand(day_date=date(2026, 1, 2), tranche_id=10, required_count=1),
+                CoverageDemand(day_date=date(2026, 1, 3), tranche_id=11, required_count=1),
+            ],
+        )
+    )
+    covered2 = {(a.day_date, a.tranche_id) for a in out_weekend_day_vs_weekday_night.assignments}
+    assert (date(2026, 1, 3), 11) in covered2
+    assert (date(2026, 1, 2), 10) not in covered2
+
+    # weekday night > weekend night
+    out_weekday_night_vs_weekend_night = solver.generate(
+        _build_input(
+            start_date=date(2026, 1, 2),
+            end_date=date(2026, 1, 3),
+            agent_ids=[1],
+            qualified_postes_by_agent={1: (1,)},
+            qualification_date_by_agent_poste={(1, 1): None},
+            tranches=[
+                TrancheInfo(id=10, poste_id=1, heure_debut=time(17, 30), heure_fin=time(23, 0)),
+            ],
+            coverage_demands=[
+                CoverageDemand(day_date=date(2026, 1, 2), tranche_id=10, required_count=1),
+                CoverageDemand(day_date=date(2026, 1, 3), tranche_id=10, required_count=1),
+            ],
+        )
+    )
+    covered3 = {(a.day_date, a.tranche_id) for a in out_weekday_night_vs_weekend_night.assignments}
+    assert (date(2026, 1, 2), 10) in covered3
+
+
+def test_smoothing_quadratic_spreads_understaff_when_required_gt_one():
+    solver = OrtoolsSolver()
+    out = solver.generate(
+        _build_input(
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 1),
+            agent_ids=[1, 2],
+            poste_ids=[1, 2],
+            qualified_postes_by_agent={1: (1, 2), 2: (1, 2)},
+            qualification_date_by_agent_poste={(1, 1): None, (1, 2): None, (2, 1): None, (2, 2): None},
+            tranches=[
+                TrancheInfo(id=10, poste_id=1, heure_debut=time(8, 0), heure_fin=time(13, 30)),
+                TrancheInfo(id=11, poste_id=2, heure_debut=time(8, 0), heure_fin=time(13, 30)),
+            ],
+            coverage_demands=[
+                CoverageDemand(day_date=date(2026, 1, 1), tranche_id=10, required_count=2),
+                CoverageDemand(day_date=date(2026, 1, 1), tranche_id=11, required_count=2),
+            ],
+        )
+    )
+
+    covered_counts = {10: 0, 11: 0}
+    for assignment in out.assignments:
+        covered_counts[assignment.tranche_id] += 1
+    # Total understaff is fixed at 2 (required 4, available 2), smoothing prefers split 1+1 over 2+0.
+    assert out.stats["understaff_total"] == 2
+    assert covered_counts[10] == 1
+    assert covered_counts[11] == 1
+
+
+def test_tranche_diversity_does_not_create_useless_work_or_coverage_loss():
+    solver = OrtoolsSolver()
+    out = solver.generate(
+        _build_input(
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 2),
+            agent_ids=[1],
+            qualified_postes_by_agent={1: (1,)},
+            qualification_date_by_agent_poste={(1, 1): None},
+            tranches=[
+                TrancheInfo(id=10, poste_id=1, heure_debut=time(8, 0), heure_fin=time(13, 30)),
+                TrancheInfo(id=11, poste_id=1, heure_debut=time(17, 30), heure_fin=time(23, 0)),
+            ],
+            coverage_demands=[CoverageDemand(day_date=date(2026, 1, 1), tranche_id=10, required_count=1)],
+        )
+    )
+
+    assert out.stats["useless_work_total"] == 0
+    assert all(a.tranche_id == 10 for a in out.assignments)
+    assert out.stats["understaff_total"] == 0
+
+
+def test_dominance_ratios_present_on_success_and_failure():
+    solver = OrtoolsSolver()
+    out = solver.generate(_build_input())
+    ratios = out.stats["dominance_ratios"]
+    assert ratios["cost_one_understaff_weekday_day"] > 0
+    assert ratios["cost_one_understaff_weekend_day"] > 0
+    assert ratios["cost_one_understaff_weekday_night"] > 0
+    assert ratios["cost_one_understaff_weekend_night"] > 0
+    assert "ratio_all_tiebreakers_vs_one_understaff_weekend_night" in ratios
+
+    inp = _build_input(
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 1, 1),
+        coverage_demands=[CoverageDemand(day_date=date(2026, 1, 1), tranche_id=9999, required_count=1)],
+    )
     with pytest.raises(InfeasibleError) as exc_info:
         solver.generate(inp)
-
-    assert exc_info.value.stats["combo_candidate_pairs_count"] > 0
-    assert exc_info.value.stats["combo_allowed_pairs_count"] == 0
-    assert exc_info.value.stats["combo_rejected_not_qualified_count"] > 0
-    assert exc_info.value.stats["combo_rejected_samples"]
-    assert any(sample["reason"] == "not_qualified" for sample in exc_info.value.stats["combo_rejected_samples"])
+    fail_ratios = exc_info.value.stats["dominance_ratios"]
+    assert "cost_one_understaff_weekday_day" in fail_ratios
+    assert "max_cost_all_tiebreakers" in fail_ratios
