@@ -730,3 +730,214 @@ def test_dominance_ratios_present_on_success_and_failure():
     fail_ratios = exc_info.value.stats["dominance_ratios"]
     assert "cost_one_understaff_weekday_day" in fail_ratios
     assert "max_cost_all_tiebreakers" in fail_ratios
+
+def test_v3_two_phase_non_regression_unweighted():
+    solver = OrtoolsSolver()
+    out = solver.generate(
+        _build_input(
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 4),
+            time_limit_seconds=3,
+            agent_ids=[1, 2],
+            coverage_demands=[
+                CoverageDemand(day_date=date(2026, 1, 1), tranche_id=10, required_count=2),
+                CoverageDemand(day_date=date(2026, 1, 2), tranche_id=10, required_count=2),
+                CoverageDemand(day_date=date(2026, 1, 3), tranche_id=10, required_count=2),
+                CoverageDemand(day_date=date(2026, 1, 4), tranche_id=10, required_count=2),
+            ],
+            v3_strategy="two_phase",
+        )
+    )
+    p1 = out.stats.get("phase1_understaff_total_unweighted")
+    p2 = out.stats.get("phase2_understaff_total_unweighted")
+    if p1 is not None and p2 is not None:
+        assert p2 <= p1
+
+
+def test_v3_improves_raw_coverage_under_timeout_smoke():
+    solver = OrtoolsSolver()
+    baseline = solver.generate(
+        _build_input(
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 5),
+            time_limit_seconds=2,
+            agent_ids=[1, 2],
+            coverage_demands=[CoverageDemand(day_date=date(2026, 1, d), tranche_id=10, required_count=2) for d in range(1, 6)],
+            quality_profile="fast",
+            v3_strategy="two_phase",
+        )
+    )
+    balanced = solver.generate(
+        _build_input(
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 5),
+            time_limit_seconds=2,
+            agent_ids=[1, 2],
+            coverage_demands=[CoverageDemand(day_date=date(2026, 1, d), tranche_id=10, required_count=2) for d in range(1, 6)],
+            quality_profile="balanced",
+            v3_strategy="two_phase_lns",
+        )
+    )
+    assert balanced.stats["understaff_total"] <= baseline.stats["understaff_total"]
+
+
+def test_v3_determinism_seed():
+    solver = OrtoolsSolver()
+    inp = _build_input(
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 1, 4),
+        time_limit_seconds=2,
+        coverage_demands=[CoverageDemand(day_date=date(2026, 1, d), tranche_id=10, required_count=1) for d in range(1, 5)],
+        seed=42,
+        v3_strategy="two_phase",
+    )
+    out1 = solver.generate(inp)
+    out2 = solver.generate(inp)
+    assert out1.stats["understaff_total"] == out2.stats["understaff_total"]
+    assert out1.stats["objective_value"] == out2.stats["objective_value"]
+    sig1 = [(a.agent_id, a.day_date.isoformat(), a.tranche_id) for a in out1.assignments]
+    sig2 = [(a.agent_id, a.day_date.isoformat(), a.tranche_id) for a in out2.assignments]
+    assert sig1 == sig2
+
+
+def test_v3_lns_poste_priority_deterministic():
+    solver = OrtoolsSolver()
+    out = solver.generate(
+        _build_input(
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 1),
+            time_limit_seconds=2,
+            agent_ids=[1, 2],
+            qualified_postes_by_agent={1: (1, 2), 2: (1, 2)},
+            qualification_date_by_agent_poste={(1, 1): None, (1, 2): None, (2, 1): None, (2, 2): None},
+            poste_ids=[1, 2],
+            tranches=[
+                TrancheInfo(id=10, poste_id=1, heure_debut=time(8, 0), heure_fin=time(14, 0)),
+                TrancheInfo(id=11, poste_id=2, heure_debut=time(8, 0), heure_fin=time(14, 0)),
+            ],
+            coverage_demands=[
+                CoverageDemand(day_date=date(2026, 1, 1), tranche_id=10, required_count=2, poste_id=1),
+                CoverageDemand(day_date=date(2026, 1, 1), tranche_id=11, required_count=1, poste_id=2),
+            ],
+            v3_strategy="two_phase_lns",
+            lns_iter_seconds=0.5,
+            lns_min_remaining_seconds=0,
+            min_lns_seconds=0,
+        )
+    )
+    assert out.stats["lns_iterations"] >= 1
+    assert out.stats["lns_last_selected_poste_id"] == 1
+
+
+def test_v3_lns_acceptance_strict_improve():
+    solver = OrtoolsSolver()
+    out = solver.generate(
+        _build_input(
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 1),
+            time_limit_seconds=2,
+            agent_ids=[1],
+            qualified_postes_by_agent={1: (1,)},
+            qualification_date_by_agent_poste={(1, 1): None},
+            coverage_demands=[CoverageDemand(day_date=date(2026, 1, 1), tranche_id=10, required_count=1, poste_id=1)],
+            v3_strategy="two_phase_lns",
+            lns_strict_improve=True,
+            lns_iter_seconds=0.5,
+            lns_min_remaining_seconds=0,
+            min_lns_seconds=0,
+        )
+    )
+    assert out.stats["lns_strict_improve"] is True
+    assert out.stats["lns_accept_count"] == 0
+    assert out.stats["lns_accept_count"] <= out.stats["lns_iterations"]
+
+
+def test_v3_stats_present():
+    solver = OrtoolsSolver()
+    out = solver.generate(_build_input(v3_strategy="two_phase_lns", time_limit_seconds=2, coverage_demands=[CoverageDemand(day_date=date(2026, 1, 1), tranche_id=10, required_count=1)]))
+    for key in [
+        "phase1_time_limit_seconds",
+        "phase1_wall_time_seconds",
+        "phase1_status_raw",
+        "phase1_understaff_total_unweighted",
+        "phase2_non_regression_constraint_applied",
+        "lns_enabled",
+        "lns_iterations",
+        "lns_neighborhoods_tried_by_poste",
+        "time_to_first_feasible_seconds",
+        "best_objective_over_time_points",
+        "top_understaff_days",
+        "understaff_by_day_weighted",
+        "smoothing_term_components_count",
+        "model_build_wall_time_seconds",
+        "phase2_model_rebuild_wall_time_seconds",
+        "phase2_solve_wall_time_seconds",
+        "phase2_reused_model",
+        "lns_model_rebuild_wall_time_seconds_total",
+        "lns_solve_wall_time_seconds_total",
+        "lns_iteration_history",
+        "lns_last_selected_poste_id",
+        "decision_strategy_enabled",
+        "decision_strategy_prioritized_vars_count",
+        "decision_strategy_day_scores_top",
+        "symmetry_breaking_enabled",
+        "symmetry_constraints_count",
+    ]:
+        assert key in out.stats
+
+
+def test_v3_decision_strategy_stats_present():
+    solver = OrtoolsSolver()
+    out = solver.generate(
+        _build_input(
+            coverage_demands=[CoverageDemand(day_date=date(2026, 1, 1), tranche_id=10, required_count=1)],
+            enable_decision_strategy=True,
+            v3_strategy="two_phase",
+        )
+    )
+    assert "decision_strategy_enabled" in out.stats
+    assert "decision_strategy_prioritized_vars_count" in out.stats
+    assert "decision_strategy_day_scores_top" in out.stats
+
+
+def test_v3_symmetry_breaking_determinism_smoke():
+    solver = OrtoolsSolver()
+    inp = _build_input(
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 1, 3),
+        coverage_demands=[CoverageDemand(day_date=date(2026, 1, d), tranche_id=10, required_count=1) for d in range(1, 4)],
+        enable_symmetry_breaking=True,
+        seed=7,
+        v3_strategy="two_phase",
+    )
+    out1 = solver.generate(inp)
+    out2 = solver.generate(inp)
+    assert out1.stats["understaff_total"] == out2.stats["understaff_total"]
+    assert out1.stats["objective_value"] == out2.stats["objective_value"]
+
+
+def test_v32_smoke_not_worse_than_v31_profile():
+    solver = OrtoolsSolver()
+    base = solver.generate(
+        _build_input(
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 2),
+            coverage_demands=[CoverageDemand(day_date=date(2026, 1, d), tranche_id=10, required_count=2) for d in range(1, 3)],
+            time_limit_seconds=1,
+            enable_decision_strategy=False,
+            enable_symmetry_breaking=False,
+            v3_strategy="two_phase",
+        )
+    )
+    guided = solver.generate(
+        _build_input(
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 2),
+            coverage_demands=[CoverageDemand(day_date=date(2026, 1, d), tranche_id=10, required_count=2) for d in range(1, 3)],
+            time_limit_seconds=1,
+            enable_decision_strategy=True,
+            enable_symmetry_breaking=True,
+            v3_strategy="two_phase",
+        )
+    )
+    assert guided.stats["understaff_total"] <= base.stats["understaff_total"]

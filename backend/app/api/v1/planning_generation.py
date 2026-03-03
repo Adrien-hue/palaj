@@ -43,6 +43,19 @@ def generate_planning(
             end_date=payload.end_date,
             seed=payload.seed,
             time_limit_seconds=payload.time_limit_seconds,
+            quality_profile=payload.quality_profile,
+            v3_strategy=payload.v3_strategy,
+            phase1_fraction=payload.phase1_fraction,
+            phase1_seconds=payload.phase1_seconds,
+            lns_iter_seconds=payload.lns_iter_seconds,
+            lns_min_remaining_seconds=payload.lns_min_remaining_seconds,
+            lns_strict_improve=payload.lns_strict_improve,
+            lns_max_days_to_relax=payload.lns_max_days_to_relax,
+            min_lns_seconds=payload.min_lns_seconds,
+            phase2_max_fraction_of_remaining=payload.phase2_max_fraction_of_remaining,
+            phase2_no_improve_seconds=payload.phase2_no_improve_seconds,
+            enable_decision_strategy=payload.enable_decision_strategy,
+            enable_symmetry_breaking=payload.enable_symmetry_breaking,
         )
 
         session.commit()

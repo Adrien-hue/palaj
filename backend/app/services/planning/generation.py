@@ -63,6 +63,19 @@ class PlanningGenerationService:
         end_date: date,
         seed: int | None,
         time_limit_seconds: int,
+        quality_profile: str = "balanced",
+        v3_strategy: str = "two_phase_lns",
+        phase1_fraction: float | None = None,
+        phase1_seconds: float | None = None,
+        lns_iter_seconds: float | None = None,
+        lns_min_remaining_seconds: float | None = None,
+        lns_strict_improve: bool = True,
+        lns_max_days_to_relax: int | None = None,
+        min_lns_seconds: float | None = None,
+        phase2_max_fraction_of_remaining: float | None = None,
+        phase2_no_improve_seconds: float | None = None,
+        enable_decision_strategy: bool | None = None,
+        enable_symmetry_breaking: bool | None = None,
     ) -> PlanningDraft:
         team = session.get(Team, team_id)
         if team is None:
@@ -76,6 +89,21 @@ class PlanningGenerationService:
             status=PlanningDraftStatus.QUEUED.value,
             seed=seed,
             time_limit_seconds=time_limit_seconds,
+            solver_options={
+                "quality_profile": quality_profile,
+                "v3_strategy": v3_strategy,
+                "phase1_fraction": phase1_fraction,
+                "phase1_seconds": phase1_seconds,
+                "lns_iter_seconds": lns_iter_seconds,
+                "lns_min_remaining_seconds": lns_min_remaining_seconds,
+                "lns_strict_improve": lns_strict_improve,
+                "lns_max_days_to_relax": lns_max_days_to_relax,
+                "min_lns_seconds": min_lns_seconds,
+                "phase2_max_fraction_of_remaining": phase2_max_fraction_of_remaining,
+                "phase2_no_improve_seconds": phase2_no_improve_seconds,
+                "enable_decision_strategy": enable_decision_strategy,
+                "enable_symmetry_breaking": enable_symmetry_breaking,
+            },
         )
         session.add(draft)
         session.flush()
@@ -223,6 +251,7 @@ class PlanningGenerationService:
                     "hard_infeasible_demands_sample": hard_infeasible_sample,
                 }
 
+                solver_opts = draft.solver_options or {}
                 solver_output = self.solver.generate(
                     SolverInput(
                         team_id=draft.team_id,
@@ -242,6 +271,19 @@ class PlanningGenerationService:
                         poste_ids=poste_ids,
                         tranches=tranches,
                         coverage_demands=coverage_demands,
+                        quality_profile=str(solver_opts.get("quality_profile", "balanced")),
+                        v3_strategy=str(solver_opts.get("v3_strategy", "two_phase_lns")),
+                        phase1_fraction=solver_opts.get("phase1_fraction"),
+                        phase1_seconds=solver_opts.get("phase1_seconds"),
+                        lns_iter_seconds=solver_opts.get("lns_iter_seconds"),
+                        lns_min_remaining_seconds=solver_opts.get("lns_min_remaining_seconds"),
+                        lns_strict_improve=bool(solver_opts.get("lns_strict_improve", True)),
+                        lns_max_days_to_relax=solver_opts.get("lns_max_days_to_relax"),
+                        min_lns_seconds=solver_opts.get("min_lns_seconds"),
+                        phase2_max_fraction_of_remaining=solver_opts.get("phase2_max_fraction_of_remaining"),
+                        phase2_no_improve_seconds=solver_opts.get("phase2_no_improve_seconds"),
+                        enable_decision_strategy=solver_opts.get("enable_decision_strategy"),
+                        enable_symmetry_breaking=solver_opts.get("enable_symmetry_breaking"),
                     )
                 )
 

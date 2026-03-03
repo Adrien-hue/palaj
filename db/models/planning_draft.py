@@ -25,6 +25,7 @@ class PlanningDraft(Base):
     time_limit_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
 
     result_stats: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    solver_options: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
     error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.current_timestamp())
