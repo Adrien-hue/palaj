@@ -331,9 +331,14 @@ class OrtoolsSolver:
             "lns_solve_wall_time_seconds_total": 0.0,
             "lns_iteration_history": [],
             "lns_last_selected_poste_id": None,
+            "lns_model_invalid": False,
+            "lns_model_invalid_message": None,
+            "lns_model_invalid_iteration_index": None,
             "lns_strict_improve": True,
             "lns_max_days_to_relax": 14,
             "min_lns_seconds": 0.0,
+            "lns_iterations_expected_max": 0,
+            "lns_iterations_actual": 0,
             "decision_strategy_enabled": False,
             "decision_strategy_prioritized_vars_count": 0,
             "decision_strategy_day_scores_top": [],
@@ -1137,6 +1142,8 @@ class OrtoolsSolver:
                 raw = "FEASIBLE"
             elif raw_status == cp_model.INFEASIBLE:
                 raw = "INFEASIBLE"
+            elif raw_status == cp_model.MODEL_INVALID:
+                raw = "MODEL_INVALID"
             elif raw_status == cp_model.UNKNOWN:
                 raw = "UNKNOWN"
             else:
@@ -1187,6 +1194,7 @@ class OrtoolsSolver:
                     self.StopSearch()
 
         y_keys = sorted(y.keys())
+        y_proto_idx = {key: y[key].Index() for key in y_keys}
 
         default_enable_decision_strategy = profile in {"balanced", "high"}
         enable_decision_strategy = default_enable_decision_strategy if solver_input.enable_decision_strategy is None else bool(solver_input.enable_decision_strategy)
@@ -1455,20 +1463,45 @@ class OrtoolsSolver:
 
                 rebuild_started = time.monotonic()
                 lns_model = model.Clone()
+                lns_y = {key: lns_model.GetBoolVarFromProtoIndex(y_proto_idx[key]) for key in y_keys}
                 for key in y_keys:
                     if key in relaxed:
                         continue
-                    lns_model.Add(y[key] == int(best_solution["assignment_map"][key]))
-                lns_model.Minimize(objective)
+                    lns_model.Add(lns_y[key] == int(best_solution["assignment_map"][key]))
+                lns_model.ClearHints()
                 for key in y_keys:
-                    lns_model.AddHint(y[key], int(best_solution["assignment_map"][key]))
+                    lns_model.AddHint(lns_y[key], int(best_solution["assignment_map"][key]))
                 lns_model_rebuild_total += (time.monotonic() - rebuild_started)
+
+                validate_message = lns_model.Validate()
+                validate_message_present = bool(validate_message)
+                if validate_message_present:
+                    msg = str(validate_message).strip()
+                    stats["lns_model_invalid"] = True
+                    stats["lns_model_invalid_message"] = msg[:1000]
+                    stats["lns_model_invalid_iteration_index"] = lns_iterations
+                    if len(lns_iteration_history) < 200:
+                        lns_iteration_history.append(
+                            {
+                                "t": round(float(time.monotonic() - started_at), 3),
+                                "poste_id": poste_id,
+                                "relaxed_days_count": len(selected_days),
+                                "status_raw": "MODEL_INVALID",
+                                "status_int": int(cp_model.MODEL_INVALID),
+                                "validate_message_present": True,
+                                "solve_wall_time_seconds_iter": 0.0,
+                                "accepted": False,
+                            }
+                        )
+                    break
 
                 lns_solver = _new_solver(budget)
                 lns_solve_started = time.monotonic()
                 status_lns = lns_solver.Solve(lns_model)
-                lns_solve_total += (time.monotonic() - lns_solve_started)
+                iter_solve_wall = float(time.monotonic() - lns_solve_started)
+                lns_solve_total += iter_solve_wall
                 lns_iterations += 1
+                raw_lns, _normalized_lns, _timeout_lns = _normalize_status(status_lns, iter_solve_wall, budget)
 
                 accepted = False
                 cand_understaff = None
@@ -1495,7 +1528,10 @@ class OrtoolsSolver:
                             "t": round(float(time.monotonic() - started_at), 3),
                             "poste_id": poste_id,
                             "relaxed_days_count": len(selected_days),
-                            "status": int(status_lns),
+                            "status_raw": raw_lns,
+                            "status_int": int(status_lns),
+                            "validate_message_present": validate_message_present,
+                            "solve_wall_time_seconds_iter": round(iter_solve_wall, 6),
                             "accepted": accepted,
                             "understaff_total_unweighted": cand_understaff,
                             "objective_value": cand_obj,
@@ -1505,6 +1541,8 @@ class OrtoolsSolver:
         stats["lns_iteration_history"] = lns_iteration_history
         stats["lns_model_rebuild_wall_time_seconds_total"] = float(lns_model_rebuild_total)
         stats["lns_solve_wall_time_seconds_total"] = float(lns_solve_total)
+        stats["lns_iterations_expected_max"] = int(lns_solve_total // lns_iter_seconds) if lns_enabled and lns_iter_seconds > 0 else 0
+        stats["lns_iterations_actual"] = int(lns_iterations)
 
         if best_solution is None:
             stats["solve_wall_time_seconds"] = float(last_wall_time)
