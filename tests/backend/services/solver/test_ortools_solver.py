@@ -737,6 +737,65 @@ def test_dominance_ratios_present_on_success_and_failure():
     assert "cost_one_understaff_weekday_day" in fail_ratios
     assert "max_cost_all_tiebreakers" in fail_ratios
 
+def test_flat_stats_non_regression():
+    solver = OrtoolsSolver()
+    out = solver.generate(_build_input())
+
+    for key in [
+        "objective_terms",
+        "dominance_ratios",
+        "lns_iteration_history",
+        "coverage_ratio",
+        "num_variables",
+    ]:
+        assert key in out.stats
+
+
+def test_grouped_stats_presence():
+    solver = OrtoolsSolver()
+    out = solver.generate(_build_input())
+
+    assert "stats" in out.stats
+    grouped = out.stats["stats"]
+    for family in ["meta", "timing", "model", "coverage", "objective", "solution_quality", "lns", "cp_sat"]:
+        assert family in grouped
+
+
+def test_objective_group_contains_dominance_ratios_and_objective_terms():
+    solver = OrtoolsSolver()
+    out = solver.generate(_build_input())
+
+    assert out.stats["stats"]["objective"]["dominance_ratios"] == out.stats["dominance_ratios"]
+    assert out.stats["stats"]["objective"]["objective_terms"] == out.stats["objective_terms"]
+
+
+def test_compact_mode_truncation(monkeypatch):
+    solver = OrtoolsSolver()
+    monkeypatch.setenv("PLANNING_STATS_VERBOSITY", "compact")
+
+    out = solver.generate(
+        _build_input(
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 6),
+            time_limit_seconds=5,
+            coverage_demands=[CoverageDemand(day_date=date(2026, 1, d), tranche_id=10, required_count=2) for d in range(1, 7)],
+            v3_strategy="two_phase_lns",
+            lns_neighborhood_mode="top_days_global",
+            lns_iter_seconds=0.3,
+            lns_min_remaining_seconds=0,
+            min_lns_seconds=0,
+        )
+    )
+
+    grouped = out.stats["stats"]
+    assert grouped["meta"]["verbosity"] == "compact"
+    assert isinstance(out.stats["lns_iteration_history"], list)
+    assert isinstance(grouped["lns"]["iteration_history"], list)
+    assert grouped["lns"]["iteration_history_total"] == len(out.stats["lns_iteration_history"])
+    assert grouped["lns"]["iteration_history_truncated"] == (len(out.stats["lns_iteration_history"]) > len(grouped["lns"]["iteration_history"]))
+    assert len(out.stats["lns_iteration_history"]) >= len(grouped["lns"]["iteration_history"])
+    assert grouped["lns"]["iteration_history"] == out.stats["lns_iteration_history"][: len(grouped["lns"]["iteration_history"])]
+
 def test_v3_two_phase_non_regression_unweighted():
     solver = OrtoolsSolver()
     out = solver.generate(

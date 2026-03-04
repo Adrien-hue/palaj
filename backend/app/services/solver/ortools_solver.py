@@ -11,6 +11,7 @@ from core.domain.enums.day_type import DayType
 
 from .models import InfeasibleError, SolverAgentDay, SolverAssignment, SolverInput, SolverOutput, TimeoutError
 from .rh_combos import DayCombo, DayKind, DefaultRhComboRulesEngine, build_day_combos_for_poste, build_rest_compatibility
+from .stats import StatsCollector
 
 
 MIN_LNS_REMAINING_SECONDS_TO_RUN_ITER = 0.2
@@ -113,6 +114,7 @@ class OrtoolsSolver:
         )
 
     def generate(self, solver_input: SolverInput) -> SolverOutput:
+        stats_collector = StatsCollector.from_env()
         solve_started_at = time.monotonic()
         model = cp_model.CpModel()
         num_constraints = 0
@@ -492,7 +494,7 @@ class OrtoolsSolver:
             stats["solver_status_raw"] = "PRECHECK_INFEASIBLE"
             stats["normalized_solver_status"] = "INFEASIBLE"
             stats["is_timeout"] = False
-            raise InfeasibleError("infeasible", stats=stats)
+            raise InfeasibleError("infeasible", stats=stats_collector.finalize(stats))
 
         combo_candidate_pairs_count = 0
         combo_allowed_pairs_count = 0
@@ -1921,9 +1923,9 @@ class OrtoolsSolver:
             stats["is_timeout"] = (last_normalized_status == "TIMEOUT")
             stats["time_limit_reached"] = stats["is_timeout"]
             if last_normalized_status == "TIMEOUT":
-                raise TimeoutError("timeout", stats=stats)
+                raise TimeoutError("timeout", stats=stats_collector.finalize(stats))
             stats["timeout_confidence"] = "low"
-            raise InfeasibleError("infeasible", stats=stats)
+            raise InfeasibleError("infeasible", stats=stats_collector.finalize(stats))
 
         # Evaluate final incumbent for reporting and extraction.
         eval_model = model.Clone()
@@ -1932,7 +1934,7 @@ class OrtoolsSolver:
         eval_solver = _new_solver(1.0)
         eval_status = eval_solver.Solve(eval_model)
         if eval_status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-            raise InfeasibleError("infeasible", stats=stats)
+            raise InfeasibleError("infeasible", stats=stats_collector.finalize(stats))
 
         status = eval_status
         wall_time = float(time.monotonic() - started_at)
@@ -2116,6 +2118,8 @@ class OrtoolsSolver:
                 "num_assignments": len(assignments),
             }
         )
+
+        stats = stats_collector.finalize(stats)
 
         return SolverOutput(
             agent_days=agent_days,

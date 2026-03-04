@@ -4,7 +4,7 @@ from datetime import date
 from uuid import UUID
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from core.domain.enums.planning_draft_status import PlanningDraftStatus
 
@@ -63,6 +63,25 @@ class PlanningGenerateRequest(BaseModel):
         return value
 
 
+class StatsMetaPayload(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    verbosity: str | None = None
+
+
+class GroupedStatsPayload(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    meta: StatsMetaPayload | None = None
+
+
+class ResultStatsPayload(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    result_stats_schema_version: int | None = None
+    stats: GroupedStatsPayload | dict[str, Any] | None = None
+
+
 class PlanningGenerateResponse(BaseModel):
     job_id: UUID
     draft_id: int
@@ -74,5 +93,5 @@ class PlanningGenerateStatusResponse(BaseModel):
     draft_id: int
     status: PlanningDraftStatus
     progress: float = Field(ge=0, le=1)
-    result_stats: dict[str, Any] | None = None
+    result_stats: ResultStatsPayload | dict[str, Any] | None = None
     error: str | None = None
