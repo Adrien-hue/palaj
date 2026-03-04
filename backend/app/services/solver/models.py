@@ -25,6 +25,20 @@ class SolverInput:
     existing_day_type_by_agent_day_ctx: dict[tuple[int, date], str] = field(default_factory=dict)
     existing_work_minutes_by_agent_day_ctx: dict[tuple[int, date], int] = field(default_factory=dict)
     existing_shift_start_end_by_agent_day_ctx: dict[tuple[int, date], tuple[int, int] | None] = field(default_factory=dict)
+    quality_profile: str = "balanced"
+    v3_strategy: str = "two_phase_lns"
+    phase1_fraction: float | None = None
+    phase1_seconds: float | None = None
+    lns_iter_seconds: float | None = None
+    lns_min_remaining_seconds: float | None = None
+    lns_strict_improve: bool = True
+    lns_max_days_to_relax: int | None = None
+    lns_neighborhood_mode: str = "poste_only"
+    min_lns_seconds: float | None = None
+    phase2_max_fraction_of_remaining: float | None = None
+    phase2_no_improve_seconds: float | None = None
+    enable_decision_strategy: bool | None = None
+    enable_symmetry_breaking: bool | None = None
 
 
 class SolverFailureError(Exception):
