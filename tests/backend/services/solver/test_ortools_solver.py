@@ -1131,6 +1131,78 @@ def test_v3_stats_present():
         assert "lns" in out.stats["cp_sat_params_effective"]
 
 
+def test_lns_stats_contract_invariants_on_deterministic_run(monkeypatch):
+    monkeypatch.setenv("PLANNING_STATS_VERBOSITY", "debug")
+    solver = OrtoolsSolver()
+    out = solver.generate(
+        _build_input(
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 6),
+            time_limit_seconds=5,
+            seed=42,
+            agent_ids=[1, 2],
+            qualified_postes_by_agent={1: (1, 2), 2: (1, 2)},
+            qualification_date_by_agent_poste={(1, 1): None, (1, 2): None, (2, 1): None, (2, 2): None},
+            poste_ids=[1, 2],
+            tranches=[
+                TrancheInfo(id=10, poste_id=1, heure_debut=time(8, 0), heure_fin=time(14, 0)),
+                TrancheInfo(id=11, poste_id=2, heure_debut=time(8, 0), heure_fin=time(14, 0)),
+            ],
+            coverage_demands=[
+                CoverageDemand(day_date=date(2026, 1, d), tranche_id=10, required_count=1, poste_id=1)
+                for d in range(1, 7)
+            ]
+            + [CoverageDemand(day_date=date(2026, 1, d), tranche_id=11, required_count=1, poste_id=2) for d in range(1, 7)],
+            v3_strategy="two_phase_lns",
+            lns_neighborhood_mode="poste_only",
+            lns_iter_seconds=0.4,
+            lns_min_remaining_seconds=0,
+            min_lns_seconds=0,
+        )
+    )
+
+    stats = out.stats
+    grouped_lns = stats["stats"]["lns"]
+
+    contract_keys = {
+        "lns_enabled",
+        "lns_iterations",
+        "lns_total_wall_time_seconds",
+        "lns_iter_time_seconds",
+        "lns_accept_count",
+        "lns_accept_count_total",
+        "lns_early_stop_triggered",
+        "lns_early_stop_reason",
+        "lns_remaining_budget_seconds_at_stop",
+        "lns_min_remaining_seconds_to_run_iter",
+        "lns_iter_overhead_seconds",
+        "lns_required_budget_seconds_to_start_iter",
+        "lns_intended_iter_time_limit_seconds_last",
+        "lns_iter_time_limit_seconds_effective_last",
+        "lns_iter_time_limit_seconds_min",
+        "lns_iteration_history",
+        "lns_neighborhood_mode_effective",
+        "lns_last_accept_t",
+        "lns_last_accept_iteration_index",
+    }
+    for key in contract_keys:
+        assert key in stats
+
+    flat_history = stats["lns_iteration_history"]
+    grouped_history = grouped_lns["iteration_history"]
+    assert isinstance(flat_history, list)
+    assert isinstance(grouped_history, list)
+    assert grouped_history == flat_history
+
+    if stats["lns_early_stop_triggered"] and stats["lns_early_stop_reason"] == "remaining_budget_too_small_for_iter":
+        assert stats["lns_iter_time_limit_seconds_effective_last"] is None
+
+    intended_last = stats["lns_intended_iter_time_limit_seconds_last"]
+    effective_last = stats["lns_iter_time_limit_seconds_effective_last"]
+    if intended_last is not None and effective_last is not None:
+        assert effective_last <= intended_last
+
+
 def test_lns_top_days_global_produces_solutions():
     solver = OrtoolsSolver()
     out = solver.generate(
@@ -1298,7 +1370,10 @@ def test_lns_early_stop_when_remaining_budget_too_small(monkeypatch):
     stats = out.stats
     assert stats["lns_early_stop_triggered"] is True
     assert stats["lns_early_stop_reason"] == "remaining_budget_too_small_for_iter"
-    assert stats["lns_remaining_budget_seconds_at_stop"] is not None
+    if stats["lns_early_stop_triggered"]:
+        assert stats["lns_early_stop_reason"]
+        assert stats["lns_remaining_budget_seconds_at_stop"] is not None
+        assert stats["lns_remaining_budget_seconds_at_stop"] >= 0
     assert stats["lns_required_budget_seconds_to_start_iter"] is not None
     assert stats["lns_intended_iter_time_limit_seconds_last"] is not None
     assert stats["lns_remaining_budget_seconds_at_stop"] < stats["lns_required_budget_seconds_to_start_iter"]
@@ -1309,6 +1384,10 @@ def test_lns_early_stop_when_remaining_budget_too_small(monkeypatch):
         assert stats["lns_iter_time_limit_seconds_effective_last"] <= stats["lns_intended_iter_time_limit_seconds_last"]
     assert stats["lns_iterations_actual"] >= 1
     assert stats["lns_iter_time_limit_seconds_effective_last"] is None
+    grouped_lns = stats["stats"]["lns"]
+    assert isinstance(stats["lns_iteration_history"], list)
+    assert isinstance(grouped_lns["iteration_history"], list)
+
     if stats["lns_iteration_history"]:
         last = stats["lns_iteration_history"][-1]
         assert not (last["lns_iter_has_solution"] is False and last["status_raw"] == "UNKNOWN")
