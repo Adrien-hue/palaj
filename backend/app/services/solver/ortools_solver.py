@@ -14,6 +14,8 @@ from .rh_combos import DayCombo, DayKind, DefaultRhComboRulesEngine, build_day_c
 
 
 MIN_LNS_REMAINING_SECONDS_TO_RUN_ITER = 0.2
+LNS_ITER_OVERHEAD_SECONDS = 0.05
+MIN_LNS_CP_SAT_TIME_LIMIT_SECONDS = 0.2
 
 
 class OrtoolsSolver:
@@ -380,6 +382,11 @@ class OrtoolsSolver:
             "lns_early_stop_reason": None,
             "lns_remaining_budget_seconds_at_stop": None,
             "lns_min_remaining_seconds_to_run_iter": float(MIN_LNS_REMAINING_SECONDS_TO_RUN_ITER),
+            "lns_iter_overhead_seconds": float(LNS_ITER_OVERHEAD_SECONDS),
+            "lns_required_budget_seconds_to_start_iter": None,
+            "lns_intended_iter_time_limit_seconds_last": None,
+            "lns_iter_time_limit_seconds_effective_last": None,
+            "lns_iter_time_limit_seconds_min": float(MIN_LNS_CP_SAT_TIME_LIMIT_SECONDS),
             "lns_neighborhood_mode_effective": None,
             "lns_poste_plus_one_top_days_k": 0,
             "lns_poste_plus_one_top_days_selected_sample": [],
@@ -1519,6 +1526,9 @@ class OrtoolsSolver:
         lns_early_stop_triggered = False
         lns_early_stop_reason = None
         lns_remaining_budget_seconds_at_stop: float | None = None
+        lns_required_budget_seconds_to_start_iter: float | None = None
+        lns_intended_iter_time_limit_seconds_last: float | None = None
+        lns_iter_time_limit_seconds_effective_last: float | None = None
         lns_debug_full_history = os.getenv("PLANNING_DEBUG", "0") == "1"
         lns_history_max_items = self.MAX_LNS_HISTORY_ITEMS
         lns_history_truncated = False
@@ -1597,12 +1607,31 @@ class OrtoolsSolver:
                 remaining = (time_limit_seconds - elapsed) if time_limit_seconds > 0 else 0.0
                 if remaining <= max(lns_min_remaining_seconds, 0.0):
                     break
-                if remaining < MIN_LNS_REMAINING_SECONDS_TO_RUN_ITER:
+
+                intended_iter_time_limit_seconds = min(lns_iter_seconds, remaining)
+                lns_intended_iter_time_limit_seconds_last = float(intended_iter_time_limit_seconds)
+                required_budget_to_start_iter = max(
+                    MIN_LNS_REMAINING_SECONDS_TO_RUN_ITER,
+                    intended_iter_time_limit_seconds + LNS_ITER_OVERHEAD_SECONDS,
+                )
+                lns_required_budget_seconds_to_start_iter = float(required_budget_to_start_iter)
+
+                if remaining < required_budget_to_start_iter:
                     lns_early_stop_triggered = True
-                    lns_early_stop_reason = "remaining_budget_too_small"
+                    lns_early_stop_reason = "remaining_budget_too_small_for_iter"
                     lns_remaining_budget_seconds_at_stop = float(remaining)
                     break
-                budget = min(lns_iter_seconds, remaining)
+
+                budget = min(
+                    intended_iter_time_limit_seconds,
+                    max(0.0, remaining - LNS_ITER_OVERHEAD_SECONDS),
+                )
+                lns_iter_time_limit_seconds_effective_last = float(budget)
+                if budget < MIN_LNS_CP_SAT_TIME_LIMIT_SECONDS:
+                    lns_early_stop_triggered = True
+                    lns_early_stop_reason = "remaining_budget_too_small_for_iter"
+                    lns_remaining_budget_seconds_at_stop = float(remaining)
+                    break
                 if budget <= 0:
                     break
 
@@ -1854,6 +1883,23 @@ class OrtoolsSolver:
         stats["lns_early_stop_reason"] = lns_early_stop_reason
         stats["lns_remaining_budget_seconds_at_stop"] = float(lns_remaining_budget_seconds_at_stop) if lns_remaining_budget_seconds_at_stop is not None else None
         stats["lns_min_remaining_seconds_to_run_iter"] = float(MIN_LNS_REMAINING_SECONDS_TO_RUN_ITER)
+        stats["lns_iter_overhead_seconds"] = float(LNS_ITER_OVERHEAD_SECONDS)
+        stats["lns_required_budget_seconds_to_start_iter"] = (
+            float(lns_required_budget_seconds_to_start_iter)
+            if lns_required_budget_seconds_to_start_iter is not None
+            else None
+        )
+        stats["lns_intended_iter_time_limit_seconds_last"] = (
+            float(lns_intended_iter_time_limit_seconds_last)
+            if lns_intended_iter_time_limit_seconds_last is not None
+            else None
+        )
+        stats["lns_iter_time_limit_seconds_effective_last"] = (
+            float(lns_iter_time_limit_seconds_effective_last)
+            if lns_iter_time_limit_seconds_effective_last is not None
+            else None
+        )
+        stats["lns_iter_time_limit_seconds_min"] = float(MIN_LNS_CP_SAT_TIME_LIMIT_SECONDS)
         stats["lns_neighborhood_mode_effective"] = lns_effective_mode_last
         stats["lns_neighborhood_mode_requested"] = lns_neighborhood_mode
         stats["lns_poste_plus_one_top_days_k"] = int(lns_poste_plus_one_top_days_k)
