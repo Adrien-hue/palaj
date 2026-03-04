@@ -33,6 +33,7 @@ class SolverInput:
     lns_min_remaining_seconds: float | None = None
     lns_strict_improve: bool = True
     lns_max_days_to_relax: int | None = None
+    lns_neighborhood_mode: str = "poste_only"
     min_lns_seconds: float | None = None
     phase2_max_fraction_of_remaining: float | None = None
     phase2_no_improve_seconds: float | None = None

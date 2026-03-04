@@ -51,6 +51,7 @@ def generate_planning(
             lns_min_remaining_seconds=payload.lns_min_remaining_seconds,
             lns_strict_improve=payload.lns_strict_improve,
             lns_max_days_to_relax=payload.lns_max_days_to_relax,
+            lns_neighborhood_mode=payload.lns_neighborhood_mode,
             min_lns_seconds=payload.min_lns_seconds,
             phase2_max_fraction_of_remaining=payload.phase2_max_fraction_of_remaining,
             phase2_no_improve_seconds=payload.phase2_no_improve_seconds,

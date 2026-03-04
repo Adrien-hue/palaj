@@ -23,6 +23,7 @@ class PlanningGenerateRequest(BaseModel):
     lns_min_remaining_seconds: float | None = Field(default=None, ge=0)
     lns_strict_improve: bool = Field(default=True)
     lns_max_days_to_relax: int | None = Field(default=None, ge=1)
+    lns_neighborhood_mode: str = Field(default="poste_only")
     min_lns_seconds: float | None = Field(default=None, ge=0)
     phase2_max_fraction_of_remaining: float | None = Field(default=None, gt=0, le=1)
     phase2_no_improve_seconds: float | None = Field(default=None, ge=0)
@@ -43,6 +44,14 @@ class PlanningGenerateRequest(BaseModel):
         allowed = {"fast", "balanced", "high"}
         if value not in allowed:
             raise ValueError(f"quality_profile must be one of {sorted(allowed)}")
+        return value
+
+    @field_validator("lns_neighborhood_mode")
+    @classmethod
+    def validate_lns_neighborhood_mode(cls, value: str) -> str:
+        allowed = {"poste_only", "poste_plus_one", "top_days_global", "mixed"}
+        if value not in allowed:
+            raise ValueError(f"lns_neighborhood_mode must be one of {sorted(allowed)}")
         return value
 
     @field_validator("v3_strategy")
