@@ -19,6 +19,7 @@ from backend.app.api.v1.teams import router as teams_router
 from backend.app.api.v1.team_planning import router as team_planning_router
 from backend.app.api.v1.tranches import router as tranches_router
 from backend.app.api.v1.rh import router as rh_router
+from backend.app.api.v1.users import router as users_router
 
 api_router = APIRouter()
 
@@ -43,3 +44,5 @@ api_router.include_router(teams_router, dependencies=protected)
 api_router.include_router(team_planning_router, dependencies=protected)
 api_router.include_router(tranches_router, dependencies=protected)
 api_router.include_router(rh_router, dependencies=protected)
+
+api_router.include_router(users_router, dependencies=protected)
