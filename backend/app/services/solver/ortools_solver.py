@@ -1608,6 +1608,9 @@ class OrtoolsSolver:
                 if remaining <= max(lns_min_remaining_seconds, 0.0):
                     break
 
+                # Reset per-attempt effective budget; only set once an iteration solve is launched.
+                lns_iter_time_limit_seconds_effective_last = None
+
                 intended_iter_time_limit_seconds = min(lns_iter_seconds, remaining)
                 lns_intended_iter_time_limit_seconds_last = float(intended_iter_time_limit_seconds)
                 required_budget_to_start_iter = max(
@@ -1626,7 +1629,6 @@ class OrtoolsSolver:
                     intended_iter_time_limit_seconds,
                     max(0.0, remaining - LNS_ITER_OVERHEAD_SECONDS),
                 )
-                lns_iter_time_limit_seconds_effective_last = float(budget)
                 if budget < MIN_LNS_CP_SAT_TIME_LIMIT_SECONDS:
                     lns_early_stop_triggered = True
                     lns_early_stop_reason = "remaining_budget_too_small_for_iter"
@@ -1777,6 +1779,7 @@ class OrtoolsSolver:
                         )
                     break
 
+                lns_iter_time_limit_seconds_effective_last = float(budget)
                 lns_solver = _new_solver(budget)
                 lns_solver_time_limit_seconds_applied = budget
                 stats.setdefault("cp_sat_params_effective", {})["lns"] = _effective_cp_sat_params(lns_solver, budget)
