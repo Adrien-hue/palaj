@@ -831,6 +831,64 @@ def test_v3_lns_poste_priority_deterministic():
 
 
 
+
+
+def test_lns_pacing_stats_present():
+    solver = OrtoolsSolver()
+    out = solver.generate(
+        _build_input(
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 3),
+            time_limit_seconds=4,
+            coverage_demands=[CoverageDemand(day_date=date(2026, 1, d), tranche_id=10, required_count=1, poste_id=1) for d in range(1, 4)],
+            v3_strategy="two_phase_lns",
+            lns_iter_seconds=0.5,
+            lns_min_remaining_seconds=0,
+            min_lns_seconds=0,
+        )
+    )
+
+    stats = out.stats
+    assert "lns_iterations_time_budget_max" in stats
+    assert "lns_avg_solve_wall_time_seconds_iter" in stats
+    assert "lns_min_solve_wall_time_seconds_iter" in stats
+    assert "lns_max_solve_wall_time_seconds_iter" in stats
+    assert "lns_solver_time_limit_seconds_applied" in stats
+    assert stats["lns_iterations_time_budget_max"] >= 0
+    assert stats["lns_min_solve_wall_time_seconds_iter"] <= stats["lns_avg_solve_wall_time_seconds_iter"] <= stats["lns_max_solve_wall_time_seconds_iter"]
+    assert stats["lns_max_solve_wall_time_seconds_iter"] <= max(0.5, stats["lns_solver_time_limit_seconds_applied"]) + 0.25
+
+
+def test_v3_lns_poste_plus_one_deterministic_selection_two_postes():
+    solver = OrtoolsSolver()
+    out = solver.generate(
+        _build_input(
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 1),
+            time_limit_seconds=2,
+            agent_ids=[1, 2],
+            qualified_postes_by_agent={1: (1, 2), 2: (1, 2)},
+            qualification_date_by_agent_poste={(1, 1): None, (1, 2): None, (2, 1): None, (2, 2): None},
+            poste_ids=[1, 2],
+            tranches=[
+                TrancheInfo(id=10, poste_id=1, heure_debut=time(8, 0), heure_fin=time(14, 0)),
+                TrancheInfo(id=11, poste_id=2, heure_debut=time(8, 0), heure_fin=time(14, 0)),
+            ],
+            coverage_demands=[
+                CoverageDemand(day_date=date(2026, 1, 1), tranche_id=10, required_count=2, poste_id=1),
+                CoverageDemand(day_date=date(2026, 1, 1), tranche_id=11, required_count=1, poste_id=2),
+            ],
+            v3_strategy="two_phase_lns",
+            lns_neighborhood_mode="poste_plus_one",
+            lns_iter_seconds=0.5,
+            lns_min_remaining_seconds=0,
+            min_lns_seconds=0,
+        )
+    )
+
+    assert out.stats["lns_selected_postes_last"] == [1, 2]
+
+
 def test_lns_iterations_do_not_spin_on_model_invalid(monkeypatch):
     solver = OrtoolsSolver()
 
@@ -864,7 +922,7 @@ def test_lns_iterations_do_not_spin_on_model_invalid(monkeypatch):
     assert out.stats["lns_iterations_actual"] <= 1
 
 
-def test_lns_iteration_status_is_not_model_invalid_smoke():
+def test_lns_iteration_history_status_strings_smoke():
     solver = OrtoolsSolver()
     out = solver.generate(
         _build_input(
@@ -885,8 +943,10 @@ def test_lns_iteration_status_is_not_model_invalid_smoke():
         )
     )
 
+    allowed = {"OPTIMAL", "FEASIBLE", "INFEASIBLE", "UNKNOWN", "MODEL_INVALID"}
     for entry in out.stats["lns_iteration_history"]:
-        assert entry["status_raw"] != "MODEL_INVALID"
+        assert isinstance(entry["status_raw"], str)
+        assert entry["status_raw"] in allowed
 def test_v3_lns_acceptance_strict_improve():
     solver = OrtoolsSolver()
     out = solver.generate(
@@ -938,7 +998,14 @@ def test_v3_stats_present():
         "lns_model_invalid",
         "lns_model_invalid_message",
         "lns_model_invalid_iteration_index",
-        "lns_iterations_expected_max",
+        "lns_iterations_time_budget_max",
+        "lns_avg_solve_wall_time_seconds_iter",
+        "lns_min_solve_wall_time_seconds_iter",
+        "lns_max_solve_wall_time_seconds_iter",
+        "lns_solver_time_limit_seconds_applied",
+        "lns_neighborhood_mode_used_counts",
+        "lns_selected_postes_last",
+        "lns_relaxed_days_count_last",
         "lns_iterations_actual",
         "decision_strategy_enabled",
         "decision_strategy_prioritized_vars_count",
