@@ -1246,7 +1246,10 @@ def test_lns_early_stop_when_remaining_budget_too_small(monkeypatch):
     assert stats["lns_min_remaining_seconds_to_run_iter"] == MIN_LNS_REMAINING_SECONDS_TO_RUN_ITER
     assert stats["lns_iter_overhead_seconds"] == LNS_ITER_OVERHEAD_SECONDS
     assert stats["lns_iter_time_limit_seconds_min"] == MIN_LNS_CP_SAT_TIME_LIMIT_SECONDS
+    if stats["lns_iter_time_limit_seconds_effective_last"] is not None:
+        assert stats["lns_iter_time_limit_seconds_effective_last"] <= stats["lns_intended_iter_time_limit_seconds_last"]
     assert stats["lns_iterations_actual"] >= 1
+    assert stats["lns_iter_time_limit_seconds_effective_last"] is None
     if stats["lns_iteration_history"]:
         last = stats["lns_iteration_history"][-1]
         assert not (last["lns_iter_has_solution"] is False and last["status_raw"] == "UNKNOWN")
