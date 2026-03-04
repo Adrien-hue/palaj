@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Users, Briefcase, BadgeCheck, ArrowLeft, CirclePile } from "lucide-react";
+import { Users, Briefcase, BadgeCheck, ArrowLeft, CirclePile, UserCog } from "lucide-react";
 
 import {
   Sidebar,
@@ -27,6 +27,7 @@ const nav = [
   { label: "Equipes", href: "/admin/teams", icon: CirclePile },
   { label: "Postes", href: "/admin/postes", icon: Briefcase },
   { label: "Régimes", href: "/admin/regimes", icon: BadgeCheck },
+  { label: "Utilisateurs", href: "/admin/users", icon: UserCog },
 ] as const;
 
 export function AdminSidebar() {
