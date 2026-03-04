@@ -947,6 +947,14 @@ def test_lns_iteration_history_status_strings_smoke():
     for entry in out.stats["lns_iteration_history"]:
         assert isinstance(entry["status_raw"], str)
         assert entry["status_raw"] in allowed
+        assert "lns_iter_has_solution" in entry
+        assert "lns_iter_status_raw" in entry
+        assert "lns_iter_status_int" in entry
+        assert "lns_iter_objective_value" in entry
+        assert "lns_iter_understaff_total_unweighted" in entry
+        assert "lns_iter_validate_message_present" in entry
+
+
 def test_v3_lns_acceptance_strict_improve():
     solver = OrtoolsSolver()
     out = solver.generate(
@@ -1006,6 +1014,30 @@ def test_v3_stats_present():
         "lns_neighborhood_mode_used_counts",
         "lns_selected_postes_last",
         "lns_relaxed_days_count_last",
+        "lns_fixed_days_count_last",
+        "lns_fixed_y_count_last",
+        "lns_relaxed_y_count_last",
+        "lns_fixed_runs_count_last",
+        "lns_relaxed_runs_count_last",
+        "lns_iter_has_solution",
+        "lns_iter_status_raw",
+        "lns_iter_status_int",
+        "lns_iter_objective_value",
+        "lns_iter_understaff_total_unweighted",
+        "lns_iter_validate_message_present",
+        "lns_unknown_count_total",
+        "lns_no_solution_count_total",
+        "lns_fallback_triggered",
+        "lns_fallback_reason",
+        "lns_neighborhood_mode_effective",
+        "lns_poste_plus_one_top_days_k",
+        "lns_poste_plus_one_top_days_selected_sample",
+        "lns_poste_plus_one_top_days_days_sample",
+        "lns_neighborhood_mode_requested",
+        "lns_fallback_after_iterations",
+        "lns_history_truncated",
+        "lns_history_max_items",
+        "cp_sat_params_effective",
         "lns_iterations_actual",
         "decision_strategy_enabled",
         "decision_strategy_prioritized_vars_count",
@@ -1014,6 +1046,117 @@ def test_v3_stats_present():
         "symmetry_constraints_count",
     ]:
         assert key in out.stats
+    assert isinstance(out.stats["cp_sat_params_effective"], dict)
+    assert "phase1" in out.stats["cp_sat_params_effective"]
+    if out.stats["lns_iterations"] > 0:
+        assert "lns" in out.stats["cp_sat_params_effective"]
+
+
+def test_lns_top_days_global_produces_solutions():
+    solver = OrtoolsSolver()
+    out = solver.generate(
+        _build_input(
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 6),
+            time_limit_seconds=5,
+            seed=42,
+            agent_ids=[1, 2],
+            qualified_postes_by_agent={1: (1, 2), 2: (1, 2)},
+            qualification_date_by_agent_poste={(1, 1): None, (1, 2): None, (2, 1): None, (2, 2): None},
+            poste_ids=[1, 2],
+            tranches=[
+                TrancheInfo(id=10, poste_id=1, heure_debut=time(8, 0), heure_fin=time(14, 0)),
+                TrancheInfo(id=11, poste_id=2, heure_debut=time(8, 0), heure_fin=time(14, 0)),
+            ],
+            coverage_demands=[
+                CoverageDemand(day_date=date(2026, 1, d), tranche_id=10, required_count=2, poste_id=1)
+                for d in range(1, 7)
+            ]
+            + [CoverageDemand(day_date=date(2026, 1, d), tranche_id=11, required_count=1, poste_id=2) for d in range(1, 7)],
+            v3_strategy="two_phase_lns",
+            lns_neighborhood_mode="top_days_global",
+            lns_iter_seconds=0.3,
+            lns_min_remaining_seconds=0,
+            min_lns_seconds=0,
+        )
+    )
+
+    stats = out.stats
+    assert stats["lns_iterations"] > 0
+    assert stats["lns_unknown_count_total"] < stats["lns_iterations"]
+    assert any(entry.get("lns_iter_has_solution") for entry in stats["lns_iteration_history"])
+    assert stats["lns_best_objective_value"] is not None
+
+
+def test_lns_fallback_triggers_on_no_solution_or_no_acceptance(monkeypatch):
+    solver = OrtoolsSolver()
+    original_solve = cp_model.CpSolver.Solve
+    call_counter = {"count": 0}
+
+    def _solve_with_unknown_in_lns(self, model, *args, **kwargs):
+        call_counter["count"] += 1
+        if call_counter["count"] >= 3:
+            return cp_model.UNKNOWN
+        return original_solve(self, model, *args, **kwargs)
+
+    monkeypatch.setattr(cp_model.CpSolver, "Solve", _solve_with_unknown_in_lns)
+
+    with pytest.raises(InfeasibleError) as exc_info:
+        solver.generate(
+            _build_input(
+                start_date=date(2026, 1, 1),
+                end_date=date(2026, 1, 8),
+                time_limit_seconds=8,
+                coverage_demands=[
+                    CoverageDemand(day_date=date(2026, 1, d), tranche_id=10, required_count=2, poste_id=1)
+                    for d in range(1, 9)
+                ],
+                v3_strategy="two_phase_lns",
+                lns_neighborhood_mode="top_days_global",
+                lns_iter_seconds=0.05,
+                lns_min_remaining_seconds=0,
+                min_lns_seconds=0,
+            )
+        )
+
+    stats = exc_info.value.stats
+    assert stats["lns_fallback_triggered"] is True
+    assert stats["lns_neighborhood_mode_effective"] == "poste_plus_one"
+    assert stats["lns_fallback_reason"] in {"too_many_unknown", "no_acceptance"}
+    assert isinstance(stats["lns_fallback_after_iterations"], int)
+
+
+def test_poste_plus_one_top_days_selects_expected_days():
+    solver = OrtoolsSolver()
+    out = solver.generate(
+        _build_input(
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 5),
+            time_limit_seconds=5,
+            seed=99,
+            agent_ids=[1, 2],
+            qualified_postes_by_agent={1: (1, 2), 2: (1, 2)},
+            qualification_date_by_agent_poste={(1, 1): None, (1, 2): None, (2, 1): None, (2, 2): None},
+            poste_ids=[1, 2],
+            tranches=[
+                TrancheInfo(id=10, poste_id=1, heure_debut=time(8, 0), heure_fin=time(14, 0)),
+                TrancheInfo(id=11, poste_id=2, heure_debut=time(8, 0), heure_fin=time(14, 0)),
+            ],
+            coverage_demands=[CoverageDemand(day_date=date(2026, 1, d), tranche_id=10, required_count=2, poste_id=1) for d in range(1, 6)],
+            v3_strategy="two_phase_lns",
+            lns_neighborhood_mode="poste_plus_one_top_days",
+            lns_max_days_to_relax=2,
+            lns_iter_seconds=0.3,
+            lns_min_remaining_seconds=0,
+            min_lns_seconds=0,
+        )
+    )
+
+    weighted = out.stats["understaff_by_day_weighted"]
+    expected_days = [day for day, _value in sorted(weighted.items(), key=lambda item: (-item[1], item[0]))[:2]]
+    assert out.stats["lns_poste_plus_one_top_days_k"] == 2
+    assert out.stats["lns_poste_plus_one_top_days_selected_sample"][:2] == expected_days
+    assert out.stats["lns_poste_plus_one_top_days_days_sample"][:2] == expected_days
 
 
 def test_v3_decision_strategy_stats_present():
