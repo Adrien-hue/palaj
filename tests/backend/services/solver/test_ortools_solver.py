@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, time
+import time as time_module
 
 import pytest
 from ortools.sat.python import cp_model
@@ -12,7 +13,7 @@ from backend.app.services.solver.models import (
     TimeoutError,
     TrancheInfo,
 )
-from backend.app.services.solver.ortools_solver import OrtoolsSolver
+from backend.app.services.solver.ortools_solver import MIN_LNS_REMAINING_SECONDS_TO_RUN_ITER, OrtoolsSolver
 
 
 def _build_input(**kwargs) -> SolverInput:
@@ -1026,6 +1027,7 @@ def test_v3_stats_present():
         "lns_iter_understaff_total_unweighted",
         "lns_iter_validate_message_present",
         "lns_unknown_count_total",
+        "lns_accept_count_total",
         "lns_no_solution_count_total",
         "lns_fallback_triggered",
         "lns_fallback_reason",
@@ -1035,6 +1037,14 @@ def test_v3_stats_present():
         "lns_poste_plus_one_top_days_days_sample",
         "lns_neighborhood_mode_requested",
         "lns_fallback_after_iterations",
+        "lns_fallback_iteration_index",
+        "lns_accept_count_at_fallback",
+        "lns_last_accept_iteration_index",
+        "lns_last_accept_t",
+        "lns_early_stop_triggered",
+        "lns_early_stop_reason",
+        "lns_remaining_budget_seconds_at_stop",
+        "lns_min_remaining_seconds_to_run_iter",
         "lns_history_truncated",
         "lns_history_max_items",
         "cp_sat_params_effective",
@@ -1122,8 +1132,144 @@ def test_lns_fallback_triggers_on_no_solution_or_no_acceptance(monkeypatch):
     stats = exc_info.value.stats
     assert stats["lns_fallback_triggered"] is True
     assert stats["lns_neighborhood_mode_effective"] == "poste_plus_one"
-    assert stats["lns_fallback_reason"] in {"too_many_unknown", "no_acceptance"}
+    assert stats["lns_fallback_reason"] in {"too_many_unknown", "no_acceptance_in_requested_mode"}
     assert isinstance(stats["lns_fallback_after_iterations"], int)
+
+
+def test_lns_fallback_no_acceptance_reason_and_context_stats():
+    solver = OrtoolsSolver()
+    out = solver.generate(
+        _build_input(
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 12),
+            time_limit_seconds=8,
+            seed=101,
+            agent_ids=[1, 2],
+            qualified_postes_by_agent={1: (1, 2), 2: (1, 2)},
+            qualification_date_by_agent_poste={(1, 1): None, (1, 2): None, (2, 1): None, (2, 2): None},
+            poste_ids=[1, 2],
+            tranches=[
+                TrancheInfo(id=10, poste_id=1, heure_debut=time(8, 0), heure_fin=time(14, 0)),
+                TrancheInfo(id=11, poste_id=2, heure_debut=time(8, 0), heure_fin=time(14, 0)),
+            ],
+            coverage_demands=[
+                CoverageDemand(day_date=date(2026, 1, d), tranche_id=10, required_count=2, poste_id=1)
+                for d in range(1, 13)
+            ]
+            + [CoverageDemand(day_date=date(2026, 1, d), tranche_id=11, required_count=1, poste_id=2) for d in range(1, 13)],
+            v3_strategy="two_phase_lns",
+            lns_neighborhood_mode="top_days_global",
+            lns_iter_seconds=0.2,
+            lns_min_remaining_seconds=0,
+            min_lns_seconds=0,
+        )
+    )
+
+    stats = out.stats
+    assert stats["lns_fallback_triggered"] is True
+    assert stats["lns_fallback_reason"] != "no_acceptance"
+    assert stats["lns_fallback_reason"] in {"no_acceptance_over_last_k_iters", "no_acceptance_in_requested_mode", "too_many_unknown"}
+    assert stats["lns_fallback_iteration_index"] is not None
+    assert isinstance(stats["lns_accept_count_at_fallback"], int)
+    assert stats["lns_accept_count_at_fallback"] >= 0
+    assert (stats["lns_last_accept_iteration_index"] is None) or isinstance(stats["lns_last_accept_iteration_index"], int)
+    if stats["lns_fallback_reason"] in {"no_acceptance_over_last_k_iters", "no_acceptance_in_requested_mode"}:
+        assert stats["lns_fallback_reason"] == "no_acceptance_in_requested_mode"
+    if stats["lns_last_accept_iteration_index"] is not None:
+        assert stats["lns_last_accept_iteration_index"] < stats["lns_fallback_iteration_index"]
+
+
+def test_lns_early_stop_when_remaining_budget_too_small(monkeypatch):
+    solver = OrtoolsSolver()
+    ticks = iter([
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.21,
+    ])
+
+    def _fake_monotonic():
+        return next(ticks, 0.21)
+
+    monkeypatch.setattr(time_module, "monotonic", _fake_monotonic)
+
+    out = solver.generate(
+        _build_input(
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 4),
+            time_limit_seconds=0.25,
+            seed=7,
+            agent_ids=[1, 2],
+            qualified_postes_by_agent={1: (1,), 2: (1,)},
+            qualification_date_by_agent_poste={(1, 1): None, (2, 1): None},
+            poste_ids=[1],
+            tranches=[TrancheInfo(id=10, poste_id=1, heure_debut=time(8, 0), heure_fin=time(14, 0))],
+            coverage_demands=[CoverageDemand(day_date=date(2026, 1, d), tranche_id=10, required_count=1, poste_id=1) for d in range(1, 5)],
+            v3_strategy="two_phase_lns",
+            lns_neighborhood_mode="poste_only",
+            lns_iter_seconds=0.1,
+            lns_min_remaining_seconds=0,
+            min_lns_seconds=0,
+        )
+    )
+
+    stats = out.stats
+    assert stats["lns_early_stop_triggered"] is True
+    assert stats["lns_early_stop_reason"] == "remaining_budget_too_small"
+    assert stats["lns_remaining_budget_seconds_at_stop"] is not None
+    assert stats["lns_remaining_budget_seconds_at_stop"] < stats["lns_min_remaining_seconds_to_run_iter"]
+    assert stats["lns_min_remaining_seconds_to_run_iter"] == MIN_LNS_REMAINING_SECONDS_TO_RUN_ITER
+    assert stats["lns_iterations_actual"] <= 1
+    if stats["lns_iteration_history"]:
+        assert stats["lns_iteration_history"][-1]["status_raw"] != "UNKNOWN"
+
+
+def test_lns_new_stats_defaults_present_without_triggers():
+    solver = OrtoolsSolver()
+    out = solver.generate(
+        _build_input(
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 3),
+            time_limit_seconds=5,
+            seed=11,
+            v3_strategy="two_phase_lns",
+            lns_neighborhood_mode="poste_only",
+            lns_iter_seconds=0.3,
+            lns_min_remaining_seconds=0,
+            min_lns_seconds=0,
+            coverage_demands=[CoverageDemand(day_date=date(2026, 1, d), tranche_id=10, required_count=1, poste_id=1) for d in range(1, 4)],
+        )
+    )
+
+    stats = out.stats
+    for key in [
+        "lns_fallback_iteration_index",
+        "lns_accept_count_at_fallback",
+        "lns_last_accept_iteration_index",
+        "lns_last_accept_t",
+        "lns_early_stop_triggered",
+        "lns_early_stop_reason",
+        "lns_remaining_budget_seconds_at_stop",
+        "lns_min_remaining_seconds_to_run_iter",
+    ]:
+        assert key in stats
+    assert stats["lns_fallback_iteration_index"] is None
+    assert stats["lns_accept_count_at_fallback"] == stats["lns_accept_count_total"]
+    assert stats["lns_accept_count_total"] == stats["lns_accept_count"]
+    assert isinstance(stats["lns_early_stop_triggered"], bool)
+    if stats["lns_early_stop_triggered"]:
+        assert stats["lns_early_stop_reason"] == "remaining_budget_too_small"
+        assert stats["lns_remaining_budget_seconds_at_stop"] is not None
+    else:
+        assert stats["lns_early_stop_reason"] is None
+        assert stats["lns_remaining_budget_seconds_at_stop"] is None
+
 
 
 def test_poste_plus_one_top_days_selects_expected_days():
