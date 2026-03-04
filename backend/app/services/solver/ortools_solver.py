@@ -13,6 +13,9 @@ from .models import InfeasibleError, SolverAgentDay, SolverAssignment, SolverInp
 from .rh_combos import DayCombo, DayKind, DefaultRhComboRulesEngine, build_day_combos_for_poste, build_rest_compatibility
 
 
+MIN_LNS_REMAINING_SECONDS_TO_RUN_ITER = 0.2
+
+
 class OrtoolsSolver:
     # Explicit coverage-priority order (strict):
     # weekday day > weekend day > weekday night > weekend night.
@@ -369,6 +372,14 @@ class OrtoolsSolver:
             "lns_fallback_triggered": False,
             "lns_fallback_reason": None,
             "lns_fallback_after_iterations": None,
+            "lns_fallback_iteration_index": None,
+            "lns_accept_count_at_fallback": 0,
+            "lns_last_accept_iteration_index": None,
+            "lns_last_accept_t": None,
+            "lns_early_stop_triggered": False,
+            "lns_early_stop_reason": None,
+            "lns_remaining_budget_seconds_at_stop": None,
+            "lns_min_remaining_seconds_to_run_iter": float(MIN_LNS_REMAINING_SECONDS_TO_RUN_ITER),
             "lns_neighborhood_mode_effective": None,
             "lns_poste_plus_one_top_days_k": 0,
             "lns_poste_plus_one_top_days_selected_sample": [],
@@ -1501,6 +1512,13 @@ class OrtoolsSolver:
         lns_recent_statuses: deque[bool] = deque(maxlen=10)
         lns_recent_accepts: deque[bool] = deque(maxlen=10)
         lns_fallback_after_iterations: int | None = None
+        lns_fallback_iteration_index: int | None = None
+        lns_accept_count_at_fallback = 0
+        lns_last_accept_iteration_index: int | None = None
+        lns_last_accept_t: float | None = None
+        lns_early_stop_triggered = False
+        lns_early_stop_reason = None
+        lns_remaining_budget_seconds_at_stop: float | None = None
         lns_debug_full_history = os.getenv("PLANNING_DEBUG", "0") == "1"
         lns_history_max_items = self.MAX_LNS_HISTORY_ITEMS
         lns_history_truncated = False
@@ -1579,6 +1597,11 @@ class OrtoolsSolver:
                 remaining = (time_limit_seconds - elapsed) if time_limit_seconds > 0 else 0.0
                 if remaining <= max(lns_min_remaining_seconds, 0.0):
                     break
+                if remaining < MIN_LNS_REMAINING_SECONDS_TO_RUN_ITER:
+                    lns_early_stop_triggered = True
+                    lns_early_stop_reason = "remaining_budget_too_small"
+                    lns_remaining_budget_seconds_at_stop = float(remaining)
+                    break
                 budget = min(lns_iter_seconds, remaining)
                 if budget <= 0:
                     break
@@ -1596,12 +1619,18 @@ class OrtoolsSolver:
                         lns_fallback_reason = "too_many_unknown"
                         if lns_fallback_after_iterations is None:
                             lns_fallback_after_iterations = int(lns_iterations)
+                        if lns_fallback_iteration_index is None:
+                            lns_fallback_iteration_index = int(lns_iterations)
+                            lns_accept_count_at_fallback = int(lns_accept_count)
                     elif sum(1 for accepted in lns_recent_accepts if accepted) == 0 and requested_mode in {"top_days_global", "poste_plus_one_top_days"}:
                         effective_mode = "poste_plus_one"
                         lns_fallback_triggered = True
-                        lns_fallback_reason = "no_acceptance"
+                        lns_fallback_reason = "no_acceptance_in_requested_mode"
                         if lns_fallback_after_iterations is None:
                             lns_fallback_after_iterations = int(lns_iterations)
+                        if lns_fallback_iteration_index is None:
+                            lns_fallback_iteration_index = int(lns_iterations)
+                            lns_accept_count_at_fallback = int(lns_accept_count)
 
                 lns_effective_mode_last = effective_mode
                 lns_mode_used_counts[effective_mode] = lns_mode_used_counts.get(effective_mode, 0) + 1
@@ -1755,6 +1784,8 @@ class OrtoolsSolver:
                         best_solution = cand
                         accepted = True
                         lns_accept_count += 1
+                        lns_last_accept_iteration_index = int(lns_iterations - 1)
+                        lns_last_accept_t = float(time.monotonic() - started_at)
                         lns_best_improvement_understaff = max(lns_best_improvement_understaff, prev_u - cand["understaff_total_unweighted"])
                         lns_best_improvement_objective = max(lns_best_improvement_objective, prev_o - cand["objective_value"])
 
@@ -1815,6 +1846,14 @@ class OrtoolsSolver:
         stats["lns_fallback_triggered"] = bool(lns_fallback_triggered)
         stats["lns_fallback_reason"] = lns_fallback_reason
         stats["lns_fallback_after_iterations"] = lns_fallback_after_iterations
+        stats["lns_fallback_iteration_index"] = lns_fallback_iteration_index
+        stats["lns_accept_count_at_fallback"] = int(lns_accept_count_at_fallback if lns_fallback_iteration_index is not None else lns_accept_count)
+        stats["lns_last_accept_iteration_index"] = int(lns_last_accept_iteration_index) if lns_last_accept_iteration_index is not None else None
+        stats["lns_last_accept_t"] = float(lns_last_accept_t) if lns_last_accept_t is not None else None
+        stats["lns_early_stop_triggered"] = bool(lns_early_stop_triggered)
+        stats["lns_early_stop_reason"] = lns_early_stop_reason
+        stats["lns_remaining_budget_seconds_at_stop"] = float(lns_remaining_budget_seconds_at_stop) if lns_remaining_budget_seconds_at_stop is not None else None
+        stats["lns_min_remaining_seconds_to_run_iter"] = float(MIN_LNS_REMAINING_SECONDS_TO_RUN_ITER)
         stats["lns_neighborhood_mode_effective"] = lns_effective_mode_last
         stats["lns_neighborhood_mode_requested"] = lns_neighborhood_mode
         stats["lns_poste_plus_one_top_days_k"] = int(lns_poste_plus_one_top_days_k)
@@ -1876,6 +1915,7 @@ class OrtoolsSolver:
         stats["lns_best_understaff_total_unweighted"] = int(best_solution["understaff_total_unweighted"]) if best_solution is not None else None
         stats["lns_best_objective_value"] = int(best_solution["objective_value"]) if best_solution is not None else None
         stats["lns_accept_count"] = lns_accept_count
+        stats["lns_accept_count_total"] = lns_accept_count
         stats["lns_neighborhoods_tried_by_poste"] = lns_neighborhoods_tried
         stats["time_to_first_feasible_seconds"] = time_to_first_feasible_seconds
         stats["best_objective_over_time_points"] = [{"t": round(t, 3), "obj": obj, "understaff_unweighted": us} for (t, obj, us) in trace_points[:200]]
