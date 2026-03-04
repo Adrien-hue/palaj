@@ -49,7 +49,7 @@ class PlanningGenerateRequest(BaseModel):
     @field_validator("lns_neighborhood_mode")
     @classmethod
     def validate_lns_neighborhood_mode(cls, value: str) -> str:
-        allowed = {"poste_only", "poste_plus_one", "top_days_global", "mixed"}
+        allowed = {"poste_only", "poste_plus_one", "top_days_global", "poste_plus_one_top_days", "mixed"}
         if value not in allowed:
             raise ValueError(f"lns_neighborhood_mode must be one of {sorted(allowed)}")
         return value

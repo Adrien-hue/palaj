@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from collections import deque
 from datetime import timedelta
+import os
 import time
 
 from ortools.sat.python import cp_model
@@ -45,6 +47,7 @@ class OrtoolsSolver:
     }
     RPDOUBLE_OFF_RULE = "rest_only"
     RPDOUBLE_OFF_DAY_TYPES = {DayType.REST.value}
+    MAX_LNS_HISTORY_ITEMS = 200
 
     @staticmethod
     def _time_to_minutes(value) -> int:
@@ -344,9 +347,35 @@ class OrtoolsSolver:
             "lns_max_solve_wall_time_seconds_iter": 0.0,
             "lns_solver_time_limit_seconds_applied": 0.0,
             "lns_neighborhood_mode": "poste_only",
+            "lns_neighborhood_mode_requested": "poste_only",
             "lns_neighborhood_mode_used_counts": {},
             "lns_selected_postes_last": [],
             "lns_relaxed_days_count_last": 0,
+            "lns_fixed_days_count_last": 0,
+            "lns_fixed_y_count_last": 0,
+            "lns_relaxed_y_count_last": 0,
+            "lns_fixed_vars_count_last": 0,
+            "lns_relaxed_vars_count_last": 0,
+            "lns_fixed_runs_count_last": 0,
+            "lns_relaxed_runs_count_last": 0,
+            "lns_iter_has_solution": False,
+            "lns_iter_status_raw": None,
+            "lns_iter_status_int": None,
+            "lns_iter_objective_value": None,
+            "lns_iter_understaff_total_unweighted": None,
+            "lns_iter_validate_message_present": False,
+            "lns_unknown_count_total": 0,
+            "lns_no_solution_count_total": 0,
+            "lns_fallback_triggered": False,
+            "lns_fallback_reason": None,
+            "lns_fallback_after_iterations": None,
+            "lns_neighborhood_mode_effective": None,
+            "lns_poste_plus_one_top_days_k": 0,
+            "lns_poste_plus_one_top_days_selected_sample": [],
+            "lns_poste_plus_one_top_days_days_sample": [],
+            "lns_history_truncated": False,
+            "lns_history_max_items": int(self.MAX_LNS_HISTORY_ITEMS),
+            "cp_sat_params_effective": {},
             "decision_strategy_enabled": False,
             "decision_strategy_prioritized_vars_count": 0,
             "decision_strategy_day_scores_top": [],
@@ -1175,6 +1204,28 @@ class OrtoolsSolver:
             solver.parameters.random_seed = int(solver_input.seed or 0)
             return solver
 
+        def _effective_cp_sat_params(solver: cp_model.CpSolver, budget_seconds: float) -> dict[str, object]:
+            params: dict[str, object] = {
+                "max_time_in_seconds": float(getattr(solver.parameters, "max_time_in_seconds", 0.0) or 0.0),
+                "num_search_workers": int(getattr(solver.parameters, "num_search_workers", 0) or 0),
+                "random_seed": int(getattr(solver.parameters, "random_seed", 0) or 0),
+            }
+            optional_numeric = {
+                "max_number_of_conflicts": int(getattr(solver.parameters, "max_number_of_conflicts", 0) or 0),
+                "cp_model_probing_level": int(getattr(solver.parameters, "cp_model_probing_level", 0) or 0),
+                "symmetry_level": int(getattr(solver.parameters, "symmetry_level", 0) or 0),
+                "linearization_level": int(getattr(solver.parameters, "linearization_level", 0) or 0),
+            }
+            for key, value in optional_numeric.items():
+                if value != 0:
+                    params[key] = value
+            if bool(getattr(solver.parameters, "log_search_progress", False)):
+                params["log_search_progress"] = True
+            if bool(getattr(solver.parameters, "cp_model_presolve", True)) is False:
+                params["cp_model_presolve"] = False
+            params["budget_seconds_requested"] = float(budget_seconds)
+            return params
+
         class _TraceCallback(cp_model.CpSolverSolutionCallback):
             def __init__(self, understaff_var: cp_model.IntVar, stop_no_improve_after_seconds: float | None = None):
                 super().__init__()
@@ -1266,6 +1317,7 @@ class OrtoolsSolver:
 
         def _extract_solution(solver: cp_model.CpSolver):
             assign = {(aid, di, cid): int(solver.Value(y[(aid, di, cid)])) for (aid, di, cid) in y_keys}
+            run_assign = {(aid, si, ei): int(solver.Value(run_vars[(aid, si, ei)])) for (aid, si, ei) in sorted(run_vars.keys())} if run_vars else {}
             understaff_by_poste_unweighted: dict[int, int] = {}
             understaff_by_poste_weighted: dict[int, int] = {}
             understaff_by_poste_day: dict[tuple[int, int], int] = {}
@@ -1286,6 +1338,7 @@ class OrtoolsSolver:
                 understaff_by_day_weighted[di] = understaff_by_day_weighted.get(di, 0) + weighted_us
             return {
                 "assignment_map": assign,
+                "run_assignment_map": run_assign,
                 "understaff_total_unweighted": int(solver.Value(understaff_total_unweighted)),
                 "objective_value": int(solver.Value(objective)),
                 "understaff_total_weighted": int(solver.Value(understaff_weighted_sum)),
@@ -1310,7 +1363,7 @@ class OrtoolsSolver:
         lns_strict_improve = bool(solver_input.lns_strict_improve)
         lns_max_days_to_relax = int(solver_input.lns_max_days_to_relax) if solver_input.lns_max_days_to_relax is not None else 14
         lns_neighborhood_mode = str(getattr(solver_input, "lns_neighborhood_mode", "poste_only") or "poste_only").lower()
-        allowed_neighborhood_modes = {"poste_only", "poste_plus_one", "top_days_global", "mixed"}
+        allowed_neighborhood_modes = {"poste_only", "poste_plus_one", "top_days_global", "poste_plus_one_top_days", "mixed"}
         if lns_neighborhood_mode not in allowed_neighborhood_modes:
             lns_neighborhood_mode = "poste_only"
         min_lns_seconds = float(solver_input.min_lns_seconds if solver_input.min_lns_seconds is not None else (time_limit_seconds * 0.1 if time_limit_seconds > 0 else 0.0))
@@ -1320,6 +1373,7 @@ class OrtoolsSolver:
         stats["lns_strict_improve"] = lns_strict_improve
         stats["lns_max_days_to_relax"] = lns_max_days_to_relax
         stats["lns_neighborhood_mode"] = lns_neighborhood_mode
+        stats["lns_neighborhood_mode_requested"] = lns_neighborhood_mode
         stats["min_lns_seconds"] = min_lns_seconds
 
         started_at = time.monotonic()
@@ -1337,6 +1391,7 @@ class OrtoolsSolver:
         if strategy != "lns_only":
             model.Minimize(understaff_total_unweighted)
             solver1 = _new_solver(phase1_seconds)
+            stats.setdefault("cp_sat_params_effective", {})["phase1"] = _effective_cp_sat_params(solver1, phase1_seconds)
             cb1 = _TraceCallback(understaff_total_unweighted)
             status1 = _solve_with_trace(solver1, model, cb1)
             wall1 = float(solver1.WallTime())
@@ -1381,6 +1436,7 @@ class OrtoolsSolver:
                 stats["phase2_model_rebuild_wall_time_seconds"] = 0.0
                 stats["phase2_reused_model"] = True
                 solver2 = _new_solver(phase2_budget_cap)
+                stats.setdefault("cp_sat_params_effective", {})["phase2"] = _effective_cp_sat_params(solver2, phase2_budget_cap)
                 cb2 = _TraceCallback(understaff_total_unweighted, stop_no_improve_after_seconds=phase2_no_improve_seconds)
                 status2 = _solve_with_trace(solver2, model, cb2)
                 wall2 = float(solver2.WallTime())
@@ -1424,10 +1480,40 @@ class OrtoolsSolver:
         lns_model_rebuild_total = 0.0
         lns_solve_total = 0.0
         lns_iter_solve_walls: list[float] = []
-        lns_mode_used_counts = {"poste_only": 0, "poste_plus_one": 0, "top_days_global": 0, "mixed": 0}
+        lns_mode_used_counts = {"poste_only": 0, "poste_plus_one": 0, "top_days_global": 0, "poste_plus_one_top_days": 0, "mixed": 0}
         lns_selected_postes_last: list[int] = []
         lns_relaxed_days_count_last = 0
+        lns_fixed_days_count_last = 0
+        lns_fixed_y_count_last = 0
+        lns_relaxed_y_count_last = 0
+        lns_fixed_runs_count_last = 0
+        lns_relaxed_runs_count_last = 0
+        lns_fixed_vars_count_last = 0
+        lns_relaxed_vars_count_last = 0
         lns_solver_time_limit_seconds_applied = 0.0
+        lns_unknown_count_total = 0
+        lns_no_solution_count_total = 0
+        lns_fallback_triggered = False
+        lns_fallback_reason = None
+        lns_effective_mode_last = lns_neighborhood_mode
+        lns_poste_plus_one_top_days_selected_sample: list[str] = []
+        lns_poste_plus_one_top_days_k = 0
+        lns_recent_statuses: deque[bool] = deque(maxlen=10)
+        lns_recent_accepts: deque[bool] = deque(maxlen=10)
+        lns_fallback_after_iterations: int | None = None
+        lns_debug_full_history = os.getenv("PLANNING_DEBUG", "0") == "1"
+        lns_history_max_items = self.MAX_LNS_HISTORY_ITEMS
+        lns_history_truncated = False
+
+        def _append_lns_history(entry: dict[str, object]) -> None:
+            nonlocal lns_history_truncated
+            lns_iteration_history.append(entry)
+            if lns_debug_full_history:
+                return
+            while len(lns_iteration_history) > lns_history_max_items:
+                lns_iteration_history.pop(0)
+                lns_history_truncated = True
+
         lns_start_remaining = max(0.0, (time_limit_seconds - (time.monotonic() - started_at))) if lns_enabled and time_limit_seconds > 0 else 0.0
         if lns_enabled and best_solution is not None:
             poste_ids_sorted = sorted(set(solver_input.poste_ids))
@@ -1474,13 +1560,19 @@ class OrtoolsSolver:
                 base_days = [di for (u, _w, di) in day_scored if u > 0][:lns_max_days_to_relax]
                 if not base_days:
                     base_days = list(range(min(len(dates), lns_max_days_to_relax)))
-                selected_days: set[int] = set()
-                for di in base_days:
-                    for dd in range(max(0, di - 2), min(len(dates), di + 3)):
-                        selected_days.add(dd)
-                if len(selected_days) > lns_max_days_to_relax:
-                    selected_days = set(sorted(selected_days)[:lns_max_days_to_relax])
-                return selected_days
+                return set(base_days)
+
+            def _select_top_days_weighted(k: int) -> set[int]:
+                k = max(1, min(len(dates), int(k)))
+                day_scored = [
+                    (int(best_solution.get("understaff_by_day_weighted", {}).get(di, 0)), dates[di], di)
+                    for di in range(len(dates))
+                ]
+                day_scored.sort(key=lambda item: (-item[0], item[1]))
+                selected = [di for (_w, _date, di) in day_scored[:k]]
+                if not selected:
+                    selected = list(range(k))
+                return set(selected)
 
             while True:
                 elapsed = time.monotonic() - started_at
@@ -1491,9 +1583,27 @@ class OrtoolsSolver:
                 if budget <= 0:
                     break
 
-                effective_mode = lns_neighborhood_mode
-                if lns_neighborhood_mode == "mixed":
+                requested_mode = lns_neighborhood_mode
+                effective_mode = requested_mode
+                if requested_mode == "mixed":
                     effective_mode = mixed_cycle[lns_iterations % len(mixed_cycle)]
+
+                if len(lns_recent_statuses) == lns_recent_statuses.maxlen:
+                    unknown_ratio = sum(1 for has_solution in lns_recent_statuses if not has_solution) / len(lns_recent_statuses)
+                    if unknown_ratio > 0.8 and requested_mode != "poste_plus_one":
+                        effective_mode = "poste_plus_one"
+                        lns_fallback_triggered = True
+                        lns_fallback_reason = "too_many_unknown"
+                        if lns_fallback_after_iterations is None:
+                            lns_fallback_after_iterations = int(lns_iterations)
+                    elif sum(1 for accepted in lns_recent_accepts if accepted) == 0 and requested_mode in {"top_days_global", "poste_plus_one_top_days"}:
+                        effective_mode = "poste_plus_one"
+                        lns_fallback_triggered = True
+                        lns_fallback_reason = "no_acceptance"
+                        if lns_fallback_after_iterations is None:
+                            lns_fallback_after_iterations = int(lns_iterations)
+
+                lns_effective_mode_last = effective_mode
                 lns_mode_used_counts[effective_mode] = lns_mode_used_counts.get(effective_mode, 0) + 1
 
                 poste_priority = _poste_priority_order()
@@ -1501,7 +1611,7 @@ class OrtoolsSolver:
                     break
 
                 selected_postes: list[int]
-                if effective_mode == "poste_plus_one":
+                if effective_mode in {"poste_plus_one", "poste_plus_one_top_days"}:
                     selected_postes = poste_priority[:2]
                 elif effective_mode == "top_days_global":
                     selected_postes = poste_ids_sorted
@@ -1514,8 +1624,16 @@ class OrtoolsSolver:
                 for pid in selected_postes:
                     lns_neighborhoods_tried[str(pid)] = lns_neighborhoods_tried.get(str(pid), 0) + 1
 
-                selected_days = _select_days_global() if effective_mode == "top_days_global" else _select_days_for_postes(selected_postes)
+                if effective_mode == "top_days_global":
+                    selected_days = _select_days_global()
+                elif effective_mode == "poste_plus_one_top_days":
+                    selected_days = _select_top_days_weighted(lns_max_days_to_relax)
+                    lns_poste_plus_one_top_days_k = len(selected_days)
+                    lns_poste_plus_one_top_days_selected_sample = [dates[di].isoformat() for di in sorted(selected_days)[:10]]
+                else:
+                    selected_days = _select_days_for_postes(selected_postes)
                 lns_relaxed_days_count_last = len(selected_days)
+                lns_fixed_days_count_last = max(0, len(dates) - lns_relaxed_days_count_last)
 
                 relaxed = set()
                 for (aid, di, cid) in y_keys:
@@ -1524,6 +1642,18 @@ class OrtoolsSolver:
                         continue
                     if effective_mode == "top_days_global" or combo.poste_id in selected_postes:
                         relaxed.add((aid, di, cid))
+                lns_relaxed_y_count_last = len(relaxed)
+                lns_fixed_y_count_last = len(y_keys) - lns_relaxed_y_count_last
+
+                relaxed_runs = set()
+                if run_vars:
+                    for (aid, si, ei) in run_vars.keys():
+                        if any(di in selected_days for di in range(si, ei + 1)):
+                            relaxed_runs.add((aid, si, ei))
+                lns_relaxed_runs_count_last = len(relaxed_runs)
+                lns_fixed_runs_count_last = len(run_vars) - lns_relaxed_runs_count_last
+                lns_relaxed_vars_count_last = int(lns_relaxed_y_count_last + lns_relaxed_runs_count_last)
+                lns_fixed_vars_count_last = int(lns_fixed_y_count_last + lns_fixed_runs_count_last)
 
                 rebuild_started = time.monotonic()
                 lns_model = model.Clone()
@@ -1532,9 +1662,18 @@ class OrtoolsSolver:
                     if key in relaxed:
                         continue
                     lns_model.Add(lns_y[key] == int(best_solution["assignment_map"][key]))
+                if run_vars:
+                    lns_run = {(aid, si, ei): lns_model.GetBoolVarFromProtoIndex(run_vars[(aid, si, ei)].Index()) for (aid, si, ei) in run_vars}
+                    for key in sorted(run_vars.keys()):
+                        if key in relaxed_runs:
+                            continue
+                        lns_model.Add(lns_run[key] == int(best_solution.get("run_assignment_map", {}).get(key, 0)))
                 lns_model.ClearHints()
                 for key in y_keys:
                     lns_model.AddHint(lns_y[key], int(best_solution["assignment_map"][key]))
+                if run_vars:
+                    for key in sorted(run_vars.keys()):
+                        lns_model.AddHint(lns_run[key], int(best_solution.get("run_assignment_map", {}).get(key, 0)))
                 lns_model_rebuild_total += (time.monotonic() - rebuild_started)
 
                 validate_message = lns_model.Validate()
@@ -1542,10 +1681,16 @@ class OrtoolsSolver:
                 if validate_message_present:
                     msg = str(validate_message)
                     stats["lns_model_invalid"] = True
+                    lns_no_solution_count_total += 1
+                    stats["lns_iter_has_solution"] = False
+                    stats["lns_iter_status_raw"] = "MODEL_INVALID"
+                    stats["lns_iter_status_int"] = int(cp_model.MODEL_INVALID)
+                    stats["lns_iter_objective_value"] = None
+                    stats["lns_iter_understaff_total_unweighted"] = None
+                    stats["lns_iter_validate_message_present"] = True
                     stats["lns_model_invalid_message"] = msg[:1000]
                     stats["lns_model_invalid_iteration_index"] = lns_iterations
-                    if len(lns_iteration_history) < 200:
-                        lns_iteration_history.append(
+                    _append_lns_history(
                             {
                                 "t": round(float(time.monotonic() - started_at), 3),
                                 "poste_id": poste_id,
@@ -1553,15 +1698,30 @@ class OrtoolsSolver:
                                 "relaxed_days_count": len(selected_days),
                                 "status_raw": "MODEL_INVALID",
                                 "status_int": int(cp_model.MODEL_INVALID),
+                                "has_solution": False,
+                                "lns_iter_has_solution": False,
+                                "neighborhood_mode_effective": effective_mode,
+                                "lns_iter_status_raw": "MODEL_INVALID",
+                                "lns_iter_status_int": int(cp_model.MODEL_INVALID),
                                 "validate_message_present": True,
+                                "lns_iter_validate_message_present": True,
                                 "solve_wall_time_seconds_iter": 0.0,
                                 "accepted": False,
+                                "fixed_y_count": int(lns_fixed_y_count_last),
+                                "relaxed_y_count": int(lns_relaxed_y_count_last),
+                                "fixed_runs_count": int(lns_fixed_runs_count_last),
+                                "relaxed_runs_count": int(lns_relaxed_runs_count_last),
+                                "understaff_total_unweighted": None,
+                                "objective_value": None,
+                                "lns_iter_understaff_total_unweighted": None,
+                                "lns_iter_objective_value": None,
                             }
                         )
                     break
 
                 lns_solver = _new_solver(budget)
                 lns_solver_time_limit_seconds_applied = budget
+                stats.setdefault("cp_sat_params_effective", {})["lns"] = _effective_cp_sat_params(lns_solver, budget)
                 lns_solve_started = time.monotonic()
                 status_lns = lns_solver.Solve(lns_model)
                 iter_solve_wall = float(time.monotonic() - lns_solve_started)
@@ -1569,11 +1729,20 @@ class OrtoolsSolver:
                 lns_iter_solve_walls.append(iter_solve_wall)
                 lns_iterations += 1
                 raw_lns, _normalized_lns, _timeout_lns = _normalize_status(status_lns, iter_solve_wall, budget)
+                has_solution = status_lns in (cp_model.OPTIMAL, cp_model.FEASIBLE)
+                if raw_lns == "UNKNOWN":
+                    lns_unknown_count_total += 1
+                stats["lns_iter_has_solution"] = bool(has_solution)
+                stats["lns_iter_status_raw"] = raw_lns
+                stats["lns_iter_status_int"] = int(status_lns)
+                stats["lns_iter_validate_message_present"] = bool(validate_message_present)
+                if raw_lns in {"UNKNOWN", "INFEASIBLE"}:
+                    lns_no_solution_count_total += 1
 
                 accepted = False
                 cand_understaff = None
                 cand_obj = None
-                if status_lns in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+                if has_solution:
                     cand = _extract_solution(lns_solver)
                     cand_understaff = cand["understaff_total_unweighted"]
                     cand_obj = cand["objective_value"]
@@ -1589,8 +1758,12 @@ class OrtoolsSolver:
                         lns_best_improvement_understaff = max(lns_best_improvement_understaff, prev_u - cand["understaff_total_unweighted"])
                         lns_best_improvement_objective = max(lns_best_improvement_objective, prev_o - cand["objective_value"])
 
-                if len(lns_iteration_history) < 200:
-                    lns_iteration_history.append(
+                stats["lns_iter_objective_value"] = int(cand_obj) if cand_obj is not None else None
+                stats["lns_iter_understaff_total_unweighted"] = int(cand_understaff) if cand_understaff is not None else None
+                lns_recent_statuses.append(has_solution)
+                lns_recent_accepts.append(accepted)
+
+                _append_lns_history(
                         {
                             "t": round(float(time.monotonic() - started_at), 3),
                             "poste_id": poste_id,
@@ -1598,11 +1771,23 @@ class OrtoolsSolver:
                             "relaxed_days_count": len(selected_days),
                             "status_raw": raw_lns,
                             "status_int": int(status_lns),
+                            "lns_iter_status_raw": raw_lns,
+                            "lns_iter_status_int": int(status_lns),
+                            "has_solution": bool(has_solution),
+                            "lns_iter_has_solution": bool(has_solution),
+                            "neighborhood_mode_effective": effective_mode,
                             "validate_message_present": validate_message_present,
+                            "lns_iter_validate_message_present": bool(validate_message_present),
                             "solve_wall_time_seconds_iter": round(iter_solve_wall, 6),
                             "accepted": accepted,
+                            "fixed_y_count": int(lns_fixed_y_count_last),
+                            "relaxed_y_count": int(lns_relaxed_y_count_last),
+                            "fixed_runs_count": int(lns_fixed_runs_count_last),
+                            "relaxed_runs_count": int(lns_relaxed_runs_count_last),
                             "understaff_total_unweighted": cand_understaff,
                             "objective_value": cand_obj,
+                            "lns_iter_understaff_total_unweighted": cand_understaff,
+                            "lns_iter_objective_value": cand_obj,
                         }
                     )
 
@@ -1618,6 +1803,25 @@ class OrtoolsSolver:
         stats["lns_neighborhood_mode_used_counts"] = {k: int(v) for k, v in lns_mode_used_counts.items() if v > 0}
         stats["lns_selected_postes_last"] = lns_selected_postes_last
         stats["lns_relaxed_days_count_last"] = int(lns_relaxed_days_count_last)
+        stats["lns_fixed_days_count_last"] = int(lns_fixed_days_count_last)
+        stats["lns_fixed_y_count_last"] = int(lns_fixed_y_count_last)
+        stats["lns_relaxed_y_count_last"] = int(lns_relaxed_y_count_last)
+        stats["lns_fixed_vars_count_last"] = int(lns_fixed_vars_count_last)
+        stats["lns_relaxed_vars_count_last"] = int(lns_relaxed_vars_count_last)
+        stats["lns_fixed_runs_count_last"] = int(lns_fixed_runs_count_last)
+        stats["lns_relaxed_runs_count_last"] = int(lns_relaxed_runs_count_last)
+        stats["lns_unknown_count_total"] = int(lns_unknown_count_total)
+        stats["lns_no_solution_count_total"] = int(lns_no_solution_count_total)
+        stats["lns_fallback_triggered"] = bool(lns_fallback_triggered)
+        stats["lns_fallback_reason"] = lns_fallback_reason
+        stats["lns_fallback_after_iterations"] = lns_fallback_after_iterations
+        stats["lns_neighborhood_mode_effective"] = lns_effective_mode_last
+        stats["lns_neighborhood_mode_requested"] = lns_neighborhood_mode
+        stats["lns_poste_plus_one_top_days_k"] = int(lns_poste_plus_one_top_days_k)
+        stats["lns_poste_plus_one_top_days_selected_sample"] = lns_poste_plus_one_top_days_selected_sample
+        stats["lns_poste_plus_one_top_days_days_sample"] = lns_poste_plus_one_top_days_selected_sample
+        stats["lns_history_truncated"] = bool(lns_history_truncated)
+        stats["lns_history_max_items"] = int(lns_history_max_items)
 
         if best_solution is None:
             stats["solve_wall_time_seconds"] = float(last_wall_time)
