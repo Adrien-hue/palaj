@@ -14,3 +14,4 @@ export * from "./rhValidation";
 export * from "./team";
 export * from "./teamPlanning";
 export * from "./tranche";
+export * from "./user";
