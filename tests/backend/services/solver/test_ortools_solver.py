@@ -13,7 +13,12 @@ from backend.app.services.solver.models import (
     TimeoutError,
     TrancheInfo,
 )
-from backend.app.services.solver.ortools_solver import MIN_LNS_REMAINING_SECONDS_TO_RUN_ITER, OrtoolsSolver
+from backend.app.services.solver.ortools_solver import (
+    LNS_ITER_OVERHEAD_SECONDS,
+    MIN_LNS_CP_SAT_TIME_LIMIT_SECONDS,
+    MIN_LNS_REMAINING_SECONDS_TO_RUN_ITER,
+    OrtoolsSolver,
+)
 
 
 def _build_input(**kwargs) -> SolverInput:
@@ -1045,6 +1050,11 @@ def test_v3_stats_present():
         "lns_early_stop_reason",
         "lns_remaining_budget_seconds_at_stop",
         "lns_min_remaining_seconds_to_run_iter",
+        "lns_iter_overhead_seconds",
+        "lns_required_budget_seconds_to_start_iter",
+        "lns_intended_iter_time_limit_seconds_last",
+        "lns_iter_time_limit_seconds_effective_last",
+        "lns_iter_time_limit_seconds_min",
         "lns_history_truncated",
         "lns_history_max_items",
         "cp_sat_params_effective",
@@ -1123,7 +1133,7 @@ def test_lns_fallback_triggers_on_no_solution_or_no_acceptance(monkeypatch):
                 ],
                 v3_strategy="two_phase_lns",
                 lns_neighborhood_mode="top_days_global",
-                lns_iter_seconds=0.05,
+                lns_iter_seconds=0.3,
                 lns_min_remaining_seconds=0,
                 min_lns_seconds=0,
             )
@@ -1191,11 +1201,18 @@ def test_lns_early_stop_when_remaining_budget_too_small(monkeypatch):
         0.0,
         0.0,
         0.0,
-        0.21,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.61,
     ])
 
     def _fake_monotonic():
-        return next(ticks, 0.21)
+        return next(ticks, 0.61)
 
     monkeypatch.setattr(time_module, "monotonic", _fake_monotonic)
 
@@ -1203,7 +1220,7 @@ def test_lns_early_stop_when_remaining_budget_too_small(monkeypatch):
         _build_input(
             start_date=date(2026, 1, 1),
             end_date=date(2026, 1, 4),
-            time_limit_seconds=0.25,
+            time_limit_seconds=1.0,
             seed=7,
             agent_ids=[1, 2],
             qualified_postes_by_agent={1: (1,), 2: (1,)},
@@ -1213,7 +1230,7 @@ def test_lns_early_stop_when_remaining_budget_too_small(monkeypatch):
             coverage_demands=[CoverageDemand(day_date=date(2026, 1, d), tranche_id=10, required_count=1, poste_id=1) for d in range(1, 5)],
             v3_strategy="two_phase_lns",
             lns_neighborhood_mode="poste_only",
-            lns_iter_seconds=0.1,
+            lns_iter_seconds=0.5,
             lns_min_remaining_seconds=0,
             min_lns_seconds=0,
         )
@@ -1221,13 +1238,18 @@ def test_lns_early_stop_when_remaining_budget_too_small(monkeypatch):
 
     stats = out.stats
     assert stats["lns_early_stop_triggered"] is True
-    assert stats["lns_early_stop_reason"] == "remaining_budget_too_small"
+    assert stats["lns_early_stop_reason"] == "remaining_budget_too_small_for_iter"
     assert stats["lns_remaining_budget_seconds_at_stop"] is not None
-    assert stats["lns_remaining_budget_seconds_at_stop"] < stats["lns_min_remaining_seconds_to_run_iter"]
+    assert stats["lns_required_budget_seconds_to_start_iter"] is not None
+    assert stats["lns_intended_iter_time_limit_seconds_last"] is not None
+    assert stats["lns_remaining_budget_seconds_at_stop"] < stats["lns_required_budget_seconds_to_start_iter"]
     assert stats["lns_min_remaining_seconds_to_run_iter"] == MIN_LNS_REMAINING_SECONDS_TO_RUN_ITER
-    assert stats["lns_iterations_actual"] <= 1
+    assert stats["lns_iter_overhead_seconds"] == LNS_ITER_OVERHEAD_SECONDS
+    assert stats["lns_iter_time_limit_seconds_min"] == MIN_LNS_CP_SAT_TIME_LIMIT_SECONDS
+    assert stats["lns_iterations_actual"] >= 1
     if stats["lns_iteration_history"]:
-        assert stats["lns_iteration_history"][-1]["status_raw"] != "UNKNOWN"
+        last = stats["lns_iteration_history"][-1]
+        assert not (last["lns_iter_has_solution"] is False and last["status_raw"] == "UNKNOWN")
 
 
 def test_lns_new_stats_defaults_present_without_triggers():
@@ -1257,14 +1279,26 @@ def test_lns_new_stats_defaults_present_without_triggers():
         "lns_early_stop_reason",
         "lns_remaining_budget_seconds_at_stop",
         "lns_min_remaining_seconds_to_run_iter",
+        "lns_iter_overhead_seconds",
+        "lns_required_budget_seconds_to_start_iter",
+        "lns_intended_iter_time_limit_seconds_last",
+        "lns_iter_time_limit_seconds_effective_last",
+        "lns_iter_time_limit_seconds_min",
     ]:
         assert key in stats
     assert stats["lns_fallback_iteration_index"] is None
     assert stats["lns_accept_count_at_fallback"] == stats["lns_accept_count_total"]
     assert stats["lns_accept_count_total"] == stats["lns_accept_count"]
     assert isinstance(stats["lns_early_stop_triggered"], bool)
+    assert stats["lns_iter_overhead_seconds"] == LNS_ITER_OVERHEAD_SECONDS
+    assert stats["lns_iter_time_limit_seconds_min"] == MIN_LNS_CP_SAT_TIME_LIMIT_SECONDS
+    if stats["lns_intended_iter_time_limit_seconds_last"] is not None and stats["lns_iter_time_limit_seconds_effective_last"] is not None:
+        assert stats["lns_iter_time_limit_seconds_effective_last"] <= stats["lns_intended_iter_time_limit_seconds_last"]
     if stats["lns_early_stop_triggered"]:
-        assert stats["lns_early_stop_reason"] == "remaining_budget_too_small"
+        assert stats["lns_required_budget_seconds_to_start_iter"] is not None
+        assert stats["lns_remaining_budget_seconds_at_stop"] < stats["lns_required_budget_seconds_to_start_iter"]
+    if stats["lns_early_stop_triggered"]:
+        assert stats["lns_early_stop_reason"] == "remaining_budget_too_small_for_iter"
         assert stats["lns_remaining_budget_seconds_at_stop"] is not None
     else:
         assert stats["lns_early_stop_reason"] is None
