@@ -9,7 +9,13 @@ export const APP_TOP_NAV: AppNavItem[] = [
   {
     label: "Planning",
     href: "/app/planning/agents",
-    isActive: (pathname) => pathname.startsWith("/app/planning"),
+    isActive: (pathname) =>
+      pathname.startsWith("/app/planning") && !pathname.startsWith("/app/planning/generation"),
+  },
+  {
+    label: "Génération",
+    href: "/app/planning/generation",
+    isActive: (pathname) => pathname.startsWith("/app/planning/generation"),
   },
   // { label: "Référentiels", href: "/admin" },
   // { label: "Paramètres", href: "/app/settings" },
