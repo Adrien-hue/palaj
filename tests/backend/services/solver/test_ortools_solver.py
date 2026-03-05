@@ -467,3 +467,40 @@ def test_cp_sat_duplication_rules_and_canonical_locations():
     phase2 = cp_sat["phases"]["phase2"]
     for key in ["phase2_model_rebuild_wall_time_seconds", "phase2_reused_model", "phase2_solve_wall_time_seconds", "phase2_time_limit_seconds", "phase2_wall_time_seconds", "phase2_status_raw", "phase2_normalized_status", "phase2_best_objective_value", "phase2_non_regression_constraint_applied", "phase2_non_regression_bound", "phase2_understaff_total_unweighted", "phase2_coverage_ratio_unweighted"]:
         assert key in phase2
+
+
+def test_phase2_budget_reporting_and_solver_max_applied_are_sane():
+    grouped = _grouped(
+        OrtoolsSolver().generate(
+            _build_input(
+                start_date=date(2026, 1, 1),
+                end_date=date(2026, 1, 6),
+                time_limit_seconds=2,
+                coverage_demands=[CoverageDemand(day_date=date(2026, 1, d), tranche_id=10, required_count=2, poste_id=1) for d in range(1, 7)],
+                v3_strategy="two_phase_lns",
+                lns_iter_seconds=0.2,
+                lns_min_remaining_seconds=0,
+                min_lns_seconds=0,
+            )
+        )
+    )
+    phase2 = grouped["cp_sat"]["phases"]["phase2"]
+    assert phase2["phase2_time_limit_seconds"] >= 0
+    remaining = phase2.get("phase2_remaining_after_phase1_seconds")
+    if remaining is not None:
+        assert remaining >= phase2["phase2_time_limit_seconds"]
+
+    assert grouped["timing"]["global"]["solver_max_time_seconds_applied"] >= 0
+
+
+def test_solver_max_time_seconds_applied_not_overwritten_when_no_time_limit():
+    grouped = _grouped(
+        OrtoolsSolver().generate(
+            _build_input(
+                time_limit_seconds=0,
+                coverage_demands=[CoverageDemand(day_date=date(2026, 1, 1), tranche_id=10, required_count=1, poste_id=1)],
+                v3_strategy="two_phase",
+            )
+        )
+    )
+    assert grouped["timing"]["global"]["solver_max_time_seconds_applied"] > 0

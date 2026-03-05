@@ -44,9 +44,16 @@ from backend.app.services.solver.cp_sat import configure_solver, effective_cp_sa
 from backend.app.services.solver.lns_runner import LnsRunner
 from backend.app.services.solver.model_builder import build_solve_context
 from backend.app.services.solver.models import InfeasibleError, SolverInput, SolverOutput, TimeoutError
+from backend.app.services.solver.ortools_solver_builders import (
+    add_daily_choice_constraints,
+    add_rest_compat_constraints,
+    build_choice_vars_and_samples,
+    build_prioritized_decision_vars,
+)
 from backend.app.services.solver.phases import TraceCallback, solve_with_trace
 from backend.app.services.solver.rh_combos import DayCombo, DayKind, DefaultRhComboRulesEngine, build_day_combos_for_poste, build_rest_compatibility
 from backend.app.services.solver.solution_extractor import extract_solution
+from backend.app.services.solver.stats_defaults import make_base_stats
 from backend.app.services.solver.stats import StatsCollector
 
 
@@ -233,9 +240,8 @@ class OrtoolsSolver:
                 combo_ids_by_poste.setdefault(combo.poste_id, []).append(combo.id)
 
         compatible_pairs = build_rest_compatibility(combos=combos, rh_engine=rh_engine)
-        incompatible_pairs = {(c1, c2) for c1 in combo_by_id for c2 in combo_by_id if (c1, c2) not in compatible_pairs}
         num_combos_total = len(combos)
-        num_incompatible_pairs = len(incompatible_pairs)
+        num_incompatible_pairs = (num_combos_total * num_combos_total) - len(compatible_pairs)
         gpt_ctx_days_count = len(context_days) if apply_gpt_rules else 0
         rpdouble_off_rule = self.RPDOUBLE_OFF_RULE if apply_gpt_rules else None
         total_days = len(dates)
@@ -255,204 +261,26 @@ class OrtoolsSolver:
         time_limit_seconds = float(solver_input.time_limit_seconds or 0.0)
         profile = (solver_input.quality_profile or "balanced").lower()
 
-        stats = {
-            "solver_status": None,
-            "solver_status_raw": None,
-            "normalized_solver_status": None,
-            "is_timeout": False,
-            "time_limit_reached": False,
-            "timeout_detection_method": "status_feasible_or_walltime_95pct",
-            "time_limit_seconds": time_limit_seconds,
-            "solver_max_time_seconds_applied": 0.0,
-            "solve_wall_time_seconds": 0.0,
-            "solver_status_int": None,
-            "solve_time_seconds": 0.0,
-            "coverage_ratio": 0.0,
-            "total_required_count": total_required_count,
-            "total_required_weighted": total_required_weighted,
-            "understaff_total": 0,
-            "understaff_total_weighted": 0,
-            "coverage_ratio_weighted": 0.0,
-            "soft_violations": 0,
-            "agent_count": agent_count,
-            "poste_count": len(solver_input.poste_ids),
-            "tranche_count": len(solver_input.tranches),
-            "demand_count": len(solver_input.coverage_demands),
-            "demanded_pairs_count": demanded_pairs_count,
-            "coverage_constraints_count": 0,
-            "num_combos_total": num_combos_total,
-            "num_combos_in_model": 0,
-            "num_combos_used_in_solution": None,
-            "num_combos_effective": 0,
-            "y_variables_count": 0,
-            "combo_candidate_pairs_count": 0,
-            "combo_allowed_pairs_count": 0,
-            "combo_rejected_absence_count": 0,
-            "combo_rejected_not_qualified_count": 0,
-            "combo_rejected_qualification_date_count": 0,
-            "combo_rejected_unknown_daytype_forces_rest_count": 0,
-            "combo_rejected_other_count": 0,
-            "combo_rejected_samples": [],
-            "combo_allowed_samples": [],
-            "num_incompatible_pairs": num_incompatible_pairs,
-            "num_rest_constraints": 0,
-            "gpt_ctx_days_count": gpt_ctx_days_count,
-            "gpt_window_days_count": len(dates) if apply_gpt_rules else 0,
-            "worked_ctx_window_fixed_days_count_by_agent": {},
-            "runs_selected_total": 0,
-            "runs_selected_by_agent": {},
-            "runs_candidate_count_by_agent": {},
-            "max_possible_runs_by_agent": {},
-            "daily_choice_mode": "exactly_one",
-            "rest_combo_count_in_model": 0,
-            "rest_combo_allowed_count_sample": [],
-            "has_rest_choice_each_day_in_window_by_agent": {},
-            "has_work_choice_each_day_in_window_by_agent": {},
-            "worked_window_forced_zero_by_agent": {},
-            "run_feasible_candidate_count_by_agent": {},
-            "coverage_active": False,
-            "can_cover_any_demand_in_window": False,
-            "rpdouble_off_rule": rpdouble_off_rule,
-            "total_required_work_minutes": total_required_work_minutes,
-            "avg_required_minutes_per_day": avg_required_minutes_per_day,
-            "avg_required_minutes_per_agent_per_day": avg_required_minutes_per_agent_per_day,
-            "gpt_max_avg_minutes_per_day_if_6": 480,
-            "demanded_tranche_ids_count": 0,
-            "covered_tranche_ids_by_any_combo_count": 0,
-            "missing_tranche_in_any_combo_count": 0,
-            "missing_tranche_in_any_combo_sample": [],
-            # Heuristic estimation from demand volume; useful diagnostic signal, not a proof of feasibility.
-            "required_minutes_estimate_method": "sum(tranche_duration_minutes * required_count) over coverage_demands",
-            "total_required_work_minutes_estimate": total_required_work_minutes,
-            "avg_required_minutes_per_agent_per_day_estimate": avg_required_minutes_per_agent_per_day,
-            "variable_count_method": "internal_counter",
-            "constraint_count_method": "internal_counter",
-            "num_variables": 0,
-            "num_constraints": 0,
-            "demanded_days_count": len(demanded_day_idx_set),
-            "total_days_count": total_days,
-            "useless_work_total": 0,
-            "nights_total": 0,
-            "nights_min": 0,
-            "nights_max": 0,
-            "amplitude_cost_total": 0,
-            "stability_changes_total": 0,
-            "stability_changes_by_agent": {},
-            "work_blocks_starts_total": 0,
-            "work_blocks_starts_by_agent": {},
-            "rpdouble_soft_total": 0,
-            "rpdouble_soft_by_agent": {},
-            "tranche_diversity_total": 0,
-            "tranche_diversity_by_agent": {},
-            "understaff_smooth_weighted_sum": 0,
-            "dominance_ratios": {
-                "cost_one_understaff_weekday_day": 0,
-                "cost_one_understaff_weekend_day": 0,
-                "cost_one_understaff_weekday_night": 0,
-                "cost_one_understaff_weekend_night": 0,
-                "stability_changes_max": 0,
-                "work_block_starts_max": 0,
-                "rpdouble_soft_max": 0,
-                "tranche_diversity_max": 0,
-                "understaff_smooth_max": 0,
-                "max_cost_stability": 0,
-                "max_cost_blocks": 0,
-                "max_cost_rpdouble": 0,
-                "max_cost_diversity": 0,
-                "max_cost_smoothing": 0,
-                "max_cost_all_tiebreakers": 0,
-                "ratio_all_tiebreakers_vs_one_understaff_weekday_day": 0.0,
-                "ratio_all_tiebreakers_vs_one_understaff_weekend_day": 0.0,
-                "ratio_all_tiebreakers_vs_one_understaff_weekday_night": 0.0,
-                "ratio_all_tiebreakers_vs_one_understaff_weekend_night": 0.0,
-            },
-            "model_build_wall_time_seconds": 0.0,
-            "phase2_model_rebuild_wall_time_seconds": 0.0,
-            "phase2_reused_model": True,
-            "phase2_solve_wall_time_seconds": 0.0,
-            "lns_model_rebuild_wall_time_seconds_total": 0.0,
-            "lns_solve_wall_time_seconds_total": 0.0,
-            "lns_iteration_history": [],
-            "lns_last_selected_poste_id": None,
-            "lns_model_invalid": False,
-            "lns_model_invalid_message": None,
-            "lns_model_invalid_iteration_index": None,
-            "lns_strict_improve": True,
-            "lns_max_days_to_relax": 14,
-            "min_lns_seconds": 0.0,
-            "lns_iterations_time_budget_max": 0,
-            "lns_iterations_actual": 0,
-            "lns_avg_solve_wall_time_seconds_iter": 0.0,
-            "lns_min_solve_wall_time_seconds_iter": 0.0,
-            "lns_max_solve_wall_time_seconds_iter": 0.0,
-            "lns_solver_time_limit_seconds_applied": 0.0,
-            "lns_neighborhood_mode": "poste_only",
-            "lns_neighborhood_mode_requested": "poste_only",
-            "lns_neighborhood_mode_used_counts": {},
-            "lns_selected_postes_last": [],
-            "lns_relaxed_days_count_last": 0,
-            "lns_fixed_days_count_last": 0,
-            "lns_fixed_y_count_last": 0,
-            "lns_relaxed_y_count_last": 0,
-            "lns_fixed_vars_count_last": 0,
-            "lns_relaxed_vars_count_last": 0,
-            "lns_fixed_runs_count_last": 0,
-            "lns_relaxed_runs_count_last": 0,
-            "lns_iter_has_solution": False,
-            "lns_iter_status_raw": None,
-            "lns_iter_status_int": None,
-            "lns_iter_objective_value": None,
-            "lns_iter_understaff_total_unweighted": None,
-            "lns_iter_validate_message_present": False,
-            "lns_unknown_count_total": 0,
-            "lns_no_solution_count_total": 0,
-            "lns_fallback_triggered": False,
-            "lns_fallback_reason": None,
-            "lns_fallback_after_iterations": None,
-            "lns_fallback_iteration_index": None,
-            "lns_accept_count_at_fallback": 0,
-            "lns_last_accept_iteration_index": None,
-            "lns_last_accept_t": None,
-            "lns_early_stop_triggered": False,
-            "lns_early_stop_reason": None,
-            "lns_remaining_budget_seconds_at_stop": None,
-            "lns_min_remaining_seconds_to_run_iter": float(MIN_LNS_REMAINING_SECONDS_TO_RUN_ITER),
-            "lns_iter_overhead_seconds": float(LNS_ITER_OVERHEAD_SECONDS),
-            "lns_required_budget_seconds_to_start_iter": None,
-            "lns_intended_iter_time_limit_seconds_last": None,
-            "lns_iter_time_limit_seconds_effective_last": None,
-            "lns_iter_time_limit_seconds_min": float(MIN_LNS_CP_SAT_TIME_LIMIT_SECONDS),
-            "lns_neighborhood_mode_effective": None,
-            "lns_poste_plus_one_top_days_k": 0,
-            "lns_poste_plus_one_top_days_selected_sample": [],
-            "lns_poste_plus_one_top_days_days_sample": [],
-            "lns_history_truncated": False,
-            "lns_history_max_items": int(self.MAX_LNS_HISTORY_ITEMS),
-            "cp_sat_params_effective": {},
-            "decision_strategy_enabled": False,
-            "decision_strategy_prioritized_vars_count": 0,
-            "decision_strategy_day_scores_top": [],
-            "symmetry_breaking_enabled": False,
-            "symmetry_constraints_count": 0,
-            "objective_terms": {
-                "understaff_weighted": 0,
-                "understaff_smooth_weighted": 0,
-                "nights_total": 0,
-                "nights_spread": 0,
-                "fair_minutes_spread": 0,
-                "fair_days_spread": 0,
-                "amplitude_cost": 0,
-                "useless_work": 0,
-                "stability_changes": 0,
-                "work_blocks_starts": 0,
-                "rpdouble_soft_bonus": 0,
-                "tranche_diversity_bonus": 0,
-            },
-        }
-
-        y: dict[tuple[int, int, int], cp_model.IntVar] = {}
-        vars_by_agent_day: dict[tuple[int, int], list[cp_model.IntVar]] = {}
-        vars_by_demand: dict[tuple[int, int], list[cp_model.IntVar]] = {}
+        stats = make_base_stats(
+            time_limit_seconds=time_limit_seconds,
+            total_required_count=total_required_count,
+            total_required_weighted=total_required_weighted,
+            agent_count=agent_count,
+            solver_input=solver_input,
+            demanded_pairs_count=demanded_pairs_count,
+            num_combos_total=num_combos_total,
+            num_incompatible_pairs=num_incompatible_pairs,
+            gpt_ctx_days_count=gpt_ctx_days_count,
+            apply_gpt_rules=apply_gpt_rules,
+            dates=dates,
+            rpdouble_off_rule=rpdouble_off_rule,
+            total_required_work_minutes=total_required_work_minutes,
+            avg_required_minutes_per_day=avg_required_minutes_per_day,
+            avg_required_minutes_per_agent_per_day=avg_required_minutes_per_agent_per_day,
+            demanded_day_idx_set=demanded_day_idx_set,
+            total_days=total_days,
+            lns_history_max_items=int(self.MAX_LNS_HISTORY_ITEMS),
+        )
 
         covered_tranche_ids_by_any_combo = {
             tranche_id
@@ -530,115 +358,42 @@ class OrtoolsSolver:
             stats["is_timeout"] = False
             raise InfeasibleError("infeasible", stats=stats_collector.finalize(stats))
 
-        combo_candidate_pairs_count = 0
-        combo_allowed_pairs_count = 0
-        combo_rejected_absence_count = 0
-        combo_rejected_not_qualified_count = 0
-        combo_rejected_qualification_date_count = 0
-        combo_rejected_unknown_daytype_forces_rest_count = 0
-        combo_rejected_other_count = 0
-        combo_rejected_samples: list[dict] = []
-        combo_allowed_samples: list[dict] = []
-        y_variables_count = 0
-        combo_ids_in_model: set[int] = set()
+        choice_build = build_choice_vars_and_samples(
+            model=model,
+            ordered_agent_ids=ordered_agent_ids,
+            dates=dates,
+            solver_absences=solver_input.absences,
+            sorted_work_combos=sorted_work_combos,
+            qual_posts=qual_posts,
+            qual_date=qual_date,
+        )
+        y = choice_build.y
+        vars_by_agent_day = choice_build.vars_by_agent_day
+        vars_by_demand = choice_build.vars_by_demand
+        var_to_key = choice_build.var_to_key
+        combo_ids_in_model = choice_build.combo_ids_in_model
+        num_variables += choice_build.num_variables_delta
+        num_constraints += choice_build.num_constraints_delta
 
-        def _append_sample(samples: list[dict], *, agent_id: int, day_date, combo_id: int, poste_id: int | None, reason: str) -> None:
-            if len(samples) >= 10:
-                return
-            samples.append(
-                {
-                    "agent_id": agent_id,
-                    "day_date": day_date.isoformat(),
-                    "combo_id": combo_id,
-                    "poste_id": poste_id,
-                    "reason": reason,
-                }
-            )
-
-        for agent_id in ordered_agent_ids:
-            for di, day_date in enumerate(dates):
-                is_absent = (agent_id, day_date) in solver_input.absences
-                if is_absent:
-                    var = model.NewBoolVar(f"y_a{agent_id}_d{di}_c0")
-                    num_variables += 1
-                    y_variables_count += 1
-                    y[(agent_id, di, 0)] = var
-                    combo_ids_in_model.add(0)
-                    vars_by_agent_day.setdefault((agent_id, di), []).append(var)
-                    model.Add(var == 1)
-                    num_constraints += 1
-                else:
-                    var = model.NewBoolVar(f"y_a{agent_id}_d{di}_c0")
-                    num_variables += 1
-                    y_variables_count += 1
-                    y[(agent_id, di, 0)] = var
-                    combo_ids_in_model.add(0)
-                    vars_by_agent_day.setdefault((agent_id, di), []).append(var)
-
-                for combo in sorted_work_combos:
-                    combo_candidate_pairs_count += 1
-                    combo_id = combo.id
-                    reason = None
-                    if is_absent:
-                        combo_rejected_absence_count += 1
-                        reason = "absence"
-                    elif combo.poste_id not in qual_posts.get(agent_id, set()):
-                        combo_rejected_not_qualified_count += 1
-                        reason = "not_qualified"
-                    else:
-                        min_qual_date = qual_date.get((agent_id, combo.poste_id))
-                        if min_qual_date is not None and day_date < min_qual_date:
-                            combo_rejected_qualification_date_count += 1
-                            reason = "qualification_date"
-
-                    if reason is not None:
-                        _append_sample(
-                            combo_rejected_samples,
-                            agent_id=agent_id,
-                            day_date=day_date,
-                            combo_id=combo_id,
-                            poste_id=combo.poste_id,
-                            reason=reason,
-                        )
-                        continue
-
-                    combo_allowed_pairs_count += 1
-                    _append_sample(
-                        combo_allowed_samples,
-                        agent_id=agent_id,
-                        day_date=day_date,
-                        combo_id=combo_id,
-                        poste_id=combo.poste_id,
-                        reason="allowed",
-                    )
-                    var = model.NewBoolVar(f"y_a{agent_id}_d{di}_c{combo_id}")
-                    num_variables += 1
-                    y_variables_count += 1
-                    y[(agent_id, di, combo_id)] = var
-                    combo_ids_in_model.add(combo_id)
-                    vars_by_agent_day.setdefault((agent_id, di), []).append(var)
-                    for tranche_id in combo.tranche_ids:
-                        vars_by_demand.setdefault((di, tranche_id), []).append(var)
-
-        stats["combo_candidate_pairs_count"] = combo_candidate_pairs_count
-        stats["combo_allowed_pairs_count"] = combo_allowed_pairs_count
-        stats["combo_rejected_absence_count"] = combo_rejected_absence_count
-        stats["combo_rejected_not_qualified_count"] = combo_rejected_not_qualified_count
-        stats["combo_rejected_qualification_date_count"] = combo_rejected_qualification_date_count
-        stats["combo_rejected_unknown_daytype_forces_rest_count"] = combo_rejected_unknown_daytype_forces_rest_count
-        stats["combo_rejected_other_count"] = combo_rejected_other_count
-        stats["combo_rejected_samples"] = combo_rejected_samples
-        stats["combo_allowed_samples"] = combo_allowed_samples
-        stats["y_variables_count"] = y_variables_count
+        stats["combo_candidate_pairs_count"] = choice_build.combo_candidate_pairs_count
+        stats["combo_allowed_pairs_count"] = choice_build.combo_allowed_pairs_count
+        stats["combo_rejected_absence_count"] = choice_build.combo_rejected_absence_count
+        stats["combo_rejected_not_qualified_count"] = choice_build.combo_rejected_not_qualified_count
+        stats["combo_rejected_qualification_date_count"] = choice_build.combo_rejected_qualification_date_count
+        stats["combo_rejected_unknown_daytype_forces_rest_count"] = choice_build.combo_rejected_unknown_daytype_forces_rest_count
+        stats["combo_rejected_other_count"] = choice_build.combo_rejected_other_count
+        stats["combo_rejected_samples"] = choice_build.combo_rejected_samples
+        stats["combo_allowed_samples"] = choice_build.combo_allowed_samples
+        stats["y_variables_count"] = choice_build.y_variables_count
         stats["num_combos_in_model"] = len(combo_ids_in_model)
         stats["num_combos_effective"] = stats["num_combos_in_model"]
 
-        for agent_id in ordered_agent_ids:
-            for di in range(len(dates)):
-                day_vars = vars_by_agent_day.get((agent_id, di), [])
-                if day_vars:
-                    model.Add(sum(day_vars) == 1)
-                    num_constraints += 1
+        num_constraints += add_daily_choice_constraints(
+            model=model,
+            ordered_agent_ids=ordered_agent_ids,
+            dates=dates,
+            vars_by_agent_day=vars_by_agent_day,
+        )
 
         daily_choice_mode = "exactly_one"
         rest_combo_ids = [combo.id for combo in combos if combo.day_kind == DayKind.REST]
@@ -721,17 +476,15 @@ class OrtoolsSolver:
             if demand.day_date in date_to_index
         )
 
-        rest_constraints_count = 0
-        for agent_id in ordered_agent_ids:
-            for di in range(1, len(dates)):
-                for c1, c2 in incompatible_pairs:
-                    prev_var = y.get((agent_id, di - 1, c1))
-                    curr_var = y.get((agent_id, di, c2))
-                    if prev_var is None or curr_var is None:
-                        continue
-                    model.Add(prev_var + curr_var <= 1)
-                    num_constraints += 1
-                    rest_constraints_count += 1
+        num_constraints_delta, rest_constraints_count = add_rest_compat_constraints(
+            model=model,
+            y=y,
+            ordered_agent_ids=ordered_agent_ids,
+            dates=dates,
+            combo_ids=list(combo_by_id.keys()),
+            compatible_pairs=compatible_pairs,
+        )
+        num_constraints += num_constraints_delta
 
         run_vars: dict[tuple[int, int, int], cp_model.IntVar] = {}
         runs_candidate_count_by_agent: dict[int, int] = {agent_id: 0 for agent_id in ordered_agent_ids}
@@ -1256,43 +1009,15 @@ class OrtoolsSolver:
         enable_decision_strategy = default_enable_decision_strategy if solver_input.enable_decision_strategy is None else bool(solver_input.enable_decision_strategy)
         # Phase 1 is always guided by decision strategy in V3.2.
         enable_decision_strategy_phase1 = True
-        day_scores: list[tuple[int, object]] = []
-        required_by_day: dict[int, int] = {}
-        for demand in solver_input.coverage_demands:
-            di = date_to_index[demand.day_date]
-            required_by_day[di] = required_by_day.get(di, 0) + max(0, demand.required_count)
-        day_scores = sorted(required_by_day.items(), key=lambda item: (-item[1], dates[item[0]]))
-        prioritized_y: list[cp_model.IntVar] = []
-        seen_ids: set[int] = set()
-        for di, _score in day_scores:
-            demand_triplets = []
-            for demand in solver_input.coverage_demands:
-                ddi = date_to_index[demand.day_date]
-                if ddi != di:
-                    continue
-                demand_triplets.append((int(demand.poste_id or tranche_by_id[demand.tranche_id].poste_id), int(demand.tranche_id), vars_by_demand.get((ddi, demand.tranche_id), [])))
-            demand_triplets.sort(key=lambda x: (x[0], x[1]))
-            for poste_id, tranche_id, dvars in demand_triplets:
-                keys_for_vars = []
-                for v in dvars:
-                    key = next((k for k,val in y.items() if val is v), None)
-                    if key is None:
-                        continue
-                    aid, _di, cid = key
-                    keys_for_vars.append((aid, cid, v))
-                keys_for_vars.sort(key=lambda t: (t[0], t[1]))
-                for _aid,_cid,v in keys_for_vars:
-                    vid=id(v)
-                    if vid in seen_ids:
-                        continue
-                    seen_ids.add(vid)
-                    prioritized_y.append(v)
-                    if len(prioritized_y) >= 5000:
-                        break
-                if len(prioritized_y) >= 5000:
-                    break
-            if len(prioritized_y) >= 5000:
-                break
+        day_scores, prioritized_y = build_prioritized_decision_vars(
+            coverage_demands=solver_input.coverage_demands,
+            date_to_index=date_to_index,
+            dates=dates,
+            tranche_by_id=tranche_by_id,
+            vars_by_demand=vars_by_demand,
+            var_to_key=var_to_key,
+            max_vars=5000,
+        )
         if enable_decision_strategy_phase1 and prioritized_y:
             model.AddDecisionStrategy(prioritized_y, cp_model.CHOOSE_FIRST, cp_model.SELECT_MAX_VALUE)
             stats["decision_strategy_enabled"] = True
@@ -1436,7 +1161,8 @@ class OrtoolsSolver:
                 last_raw_status = raw2
                 last_normalized_status = normalized2
                 phase2_stats = {
-                    "phase2_time_limit_seconds": remaining_after_phase1,
+                    "phase2_time_limit_seconds": phase2_budget_cap,
+                    "phase2_remaining_after_phase1_seconds": remaining_after_phase1,
                     "phase2_wall_time_seconds": wall2,
                     "phase2_solve_wall_time_seconds": wall2,
                     "phase2_status_raw": raw2,
@@ -1534,7 +1260,6 @@ class OrtoolsSolver:
         stats["normalized_solver_status"] = normalized_solver_status
         stats["is_timeout"] = bool(time_limit_reached)
         stats["time_limit_reached"] = bool(time_limit_reached)
-        stats["solver_max_time_seconds_applied"] = time_limit_seconds
         stats.update(phase1_stats)
         stats.update(phase2_stats)
         stats["lns_enabled"] = bool(lns_enabled)
