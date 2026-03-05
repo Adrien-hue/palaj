@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 # Public grouped stats metadata.
-RESULT_STATS_SCHEMA_VERSION = 2
+RESULT_STATS_SCHEMA_VERSION = 3
 SOLVER_VERSION = "v3"
 
 # Compact stats verbosity caps.
