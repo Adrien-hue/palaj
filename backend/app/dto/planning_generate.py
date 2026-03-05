@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import date
 from uuid import UUID
-from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -63,23 +62,22 @@ class PlanningGenerateRequest(BaseModel):
         return value
 
 
-class StatsMetaPayload(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
-    verbosity: str | None = None
-
-
 class GroupedStatsPayload(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
-    meta: StatsMetaPayload | None = None
+    meta: dict
+    timing: dict
+    model: dict
+    coverage: dict
+    objective: dict
+    solution_quality: dict
+    lns: dict
+    cp_sat: dict
 
 
 class ResultStatsPayload(BaseModel):
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
-    result_stats_schema_version: int | None = None
-    stats: GroupedStatsPayload | dict[str, Any] | None = None
+    result_stats_schema_version: int
+    stats: GroupedStatsPayload
 
 
 class PlanningGenerateResponse(BaseModel):
@@ -93,5 +91,5 @@ class PlanningGenerateStatusResponse(BaseModel):
     draft_id: int
     status: PlanningDraftStatus
     progress: float = Field(ge=0, le=1)
-    result_stats: ResultStatsPayload | dict[str, Any] | None = None
+    result_stats: ResultStatsPayload | None = None
     error: str | None = None

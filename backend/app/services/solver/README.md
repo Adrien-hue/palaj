@@ -1,25 +1,31 @@
 # Solver OR-Tools (backend/app/services/solver)
 
-## CI note (PR4 scope)
+## CI note
 
-Cette zone contient la refacto non-breaking du solver (`constants.py`, `diagnostics.py`, docstrings d'architecture, invariants de tests).
-
-- Le run global `pytest -q` peut échouer **en collecte** sur ce repository à cause de modules manquants hors scope solver (état déjà présent sur `main`).
-- Cette PR **ne modifie pas** ces zones hors solver.
-- La validation pertinente pour cette PR est :
+Validation ciblée solver :
 
 ```bash
 pytest -q tests/backend/services/solver/test_ortools_solver.py
 ```
 
-- Pour un smoke ciblé architecture/stats :
+## v3 stats payload (breaking)
 
-```bash
-pytest -q tests/backend/services/solver/test_ortools_solver.py -k "architecture_modules_import_without_cycles or grouped_stats_meta_solver_version_v3"
-```
+Le payload `PlanningGenerateStatusResponse.result_stats` est désormais strict et minimal :
 
-## Invariants de contrat
+- `result_stats.result_stats_schema_version = 3`
+- `result_stats.stats` contient uniquement les familles groupées (`meta`, `timing`, `model`, `coverage`, `objective`, `solution_quality`, `lns`, `cp_sat`)
+- toutes les anciennes clés flat legacy à la racine de `result_stats` ont été supprimées
 
-- Clés `result_stats` flat conservées (non-breaking).
-- Grouped stats conservées, avec ajout additif : `stats.meta.solver_version = "v3"`.
-- `RESULT_STATS_SCHEMA_VERSION` est la source unique pour `meta.schema_version` et `result_stats_schema_version`.
+Canonical sources :
+
+- objectifs/score : `stats.objective`
+- couverture/sous-effectif : `stats.coverage`
+- itérations LNS : `stats.lns.iteration_history` (unique liste d'historique)
+- détails phases CP-SAT : `stats.cp_sat.phases`
+- trace CP-SAT : `stats.cp_sat.best_objective_over_time_points` (+ `time_to_first_feasible_seconds` dans `stats.cp_sat`)
+
+Verbosity/troncature :
+
+- priorité: `PLANNING_STATS_VERBOSITY`, sinon `PLANNING_STATS_DEFAULT_VERBOSITY`, sinon `debug`
+- en `compact`, les listes lourdes restent des listes mais sont tronquées avec métadonnées
+  `*_truncated` et `*_total` (modèle, couverture, historique LNS)
