@@ -5,7 +5,7 @@ from enum import Enum
 from itertools import combinations
 from typing import Protocol
 
-from .models import TrancheInfo
+from backend.app.services.solver.models import TrancheInfo
 
 DUREE_MIN_MIN = 330
 NIGHT_WINDOWS_DAY: tuple[tuple[int, int], ...] = ((21 * 60 + 30, 24 * 60), (0, 6 * 60 + 30))

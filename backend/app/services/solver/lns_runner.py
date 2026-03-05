@@ -8,7 +8,8 @@ from typing import Any, Callable
 
 from ortools.sat.python import cp_model
 
-from .models import SolverInput
+from backend.app.services.solver.constants import LNS_RECENT_STATUS_WINDOW
+from backend.app.services.solver.models import SolverInput
 
 
 @dataclass
@@ -117,8 +118,8 @@ class LnsRunner:
         lns_effective_mode_last = lns_neighborhood_mode
         lns_poste_plus_one_top_days_selected_sample: list[str] = []
         lns_poste_plus_one_top_days_k = 0
-        lns_recent_statuses: deque[bool] = deque(maxlen=10)
-        lns_recent_accepts: deque[bool] = deque(maxlen=10)
+        lns_recent_statuses: deque[bool] = deque(maxlen=LNS_RECENT_STATUS_WINDOW)
+        lns_recent_accepts: deque[bool] = deque(maxlen=LNS_RECENT_STATUS_WINDOW)
         lns_fallback_after_iterations: int | None = None
         lns_fallback_iteration_index: int | None = None
         lns_accept_count_at_fallback = 0

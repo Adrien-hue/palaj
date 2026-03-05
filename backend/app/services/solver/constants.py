@@ -1,0 +1,19 @@
+from __future__ import annotations
+
+# Public grouped stats metadata.
+RESULT_STATS_SCHEMA_VERSION = 2
+SOLVER_VERSION = "v3"
+
+# Compact stats verbosity caps.
+DEFAULT_COMPACT_MAX_ITEMS = 20
+
+# CP-SAT deterministic defaults.
+CP_SAT_DEFAULT_NUM_SEARCH_WORKERS = 1
+CP_SAT_DEFAULT_RANDOM_SEED = 0
+
+# LNS guardrails and history sizing.
+MIN_LNS_REMAINING_SECONDS_TO_RUN_ITER = 0.2
+LNS_ITER_OVERHEAD_SECONDS = 0.05
+MIN_LNS_CP_SAT_TIME_LIMIT_SECONDS = 0.2
+MAX_LNS_HISTORY_ITEMS = 200
+LNS_RECENT_STATUS_WINDOW = 10

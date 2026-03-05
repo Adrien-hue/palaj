@@ -13,6 +13,8 @@ from backend.app.services.solver.models import (
     TimeoutError,
     TrancheInfo,
 )
+from backend.app.services.solver.constants import SOLVER_VERSION
+from backend.app.services.solver.diagnostics import import_solver_modules
 from backend.app.services.solver.ortools_solver import (
     LNS_ITER_OVERHEAD_SECONDS,
     MIN_LNS_CP_SAT_TIME_LIMIT_SECONDS,
@@ -1644,3 +1646,31 @@ def test_best_objective_over_time_points_invariants():
         ttff = out.stats.get("time_to_first_feasible_seconds")
         assert ttff is not None
         assert abs(points[0]["t"] - ttff) <= 0.05 or (points[0]["obj"] >= 0 and points[0]["understaff_unweighted"] >= 0)
+
+
+def test_solver_architecture_modules_import_without_cycles():
+    # Explicit fixed list (no filesystem discovery): import-only smoke test for cycle regressions.
+    modules = [
+        "backend.app.services.solver.ortools_solver",
+        "backend.app.services.solver.lns_runner",
+        "backend.app.services.solver.cp_sat",
+        "backend.app.services.solver.model_builder",
+        "backend.app.services.solver.phases",
+        "backend.app.services.solver.solution_extractor",
+        "backend.app.services.solver.model_artifacts",
+        "backend.app.services.solver.stats",
+        "backend.app.services.solver.constants",
+        "backend.app.services.solver.diagnostics",
+    ]
+
+    imported = import_solver_modules(modules)
+
+    assert imported == modules
+
+
+def test_grouped_stats_meta_solver_version_v3():
+    solver = OrtoolsSolver()
+    out = solver.generate(_build_input())
+
+    assert out.stats["stats"]["meta"]["solver_version"] == SOLVER_VERSION
+    assert SOLVER_VERSION == "v3"
