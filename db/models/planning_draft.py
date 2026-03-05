@@ -28,6 +28,9 @@ class PlanningDraft(Base):
     solver_options: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
     error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    accepted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    rejected_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.current_timestamp())
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.current_timestamp())
 
