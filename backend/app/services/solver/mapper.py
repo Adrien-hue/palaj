@@ -116,6 +116,61 @@ class SolverInputMapper:
         ctx_end = end_date + timedelta(days=7)
         return self.list_existing_day_types(agent_ids=agent_ids, start_date=ctx_start, end_date=ctx_end)
 
+
+    def list_existing_assignments_context(
+        self,
+        agent_ids: list[int],
+        start_date: date,
+        end_date: date,
+    ) -> tuple[dict[tuple[int, date], str], dict[tuple[int, date], dict[str, int | tuple[int, ...] | None]]]:
+        if not agent_ids:
+            return {}, {}
+
+        ctx_start = start_date - timedelta(days=7)
+        ctx_end = end_date + timedelta(days=7)
+
+        rows = self.session.execute(
+            select(
+                AgentDay.agent_id,
+                AgentDay.day_date,
+                AgentDay.day_type,
+                Tranche.poste_id,
+                AgentDayAssignment.tranche_id,
+            )
+            .select_from(AgentDay)
+            .outerjoin(AgentDayAssignment, AgentDayAssignment.agent_day_id == AgentDay.id)
+            .outerjoin(Tranche, Tranche.id == AgentDayAssignment.tranche_id)
+            .where(AgentDay.agent_id.in_(agent_ids))
+            .where(AgentDay.day_date >= ctx_start, AgentDay.day_date <= ctx_end)
+            .order_by(AgentDay.agent_id, AgentDay.day_date, AgentDayAssignment.tranche_id)
+        ).all()
+
+        daytypes: dict[tuple[int, date], str] = {}
+        tranche_ids_by_key: dict[tuple[int, date], set[int]] = {}
+        poste_ids_by_key: dict[tuple[int, date], set[int]] = {}
+
+        for agent_id, day_date, day_type, poste_id, tranche_id in rows:
+            key = (agent_id, day_date)
+            daytypes[key] = day_type
+            if tranche_id is not None:
+                tranche_ids_by_key.setdefault(key, set()).add(int(tranche_id))
+            if poste_id is not None:
+                poste_ids_by_key.setdefault(key, set()).add(int(poste_id))
+
+        assignments: dict[tuple[int, date], dict[str, int | tuple[int, ...] | None]] = {}
+        for key, day_type in daytypes.items():
+            if day_type != "working":
+                continue
+            tranche_ids_sorted = tuple(sorted(tranche_ids_by_key.get(key, set())))
+            poste_ids = poste_ids_by_key.get(key, set())
+            poste_id = min(poste_ids) if poste_ids else None
+            assignments[key] = {
+                "poste_id": poste_id,
+                "tranche_ids": tranche_ids_sorted,
+            }
+
+        return daytypes, assignments
+
     def list_existing_work_context(
         self,
         agent_ids: list[int],

@@ -504,3 +504,98 @@ def test_solver_max_time_seconds_applied_not_overwritten_when_no_time_limit():
         )
     )
     assert grouped["timing"]["global"]["solver_max_time_seconds_applied"] > 0
+
+
+def test_existing_absent_and_leave_are_hard_overrides():
+    out = OrtoolsSolver().generate(
+        _build_input(
+            agent_ids=[1],
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 2),
+            existing_daytype_by_agent_day_ctx={
+                (1, date(2026, 1, 1)): "leave",
+                (1, date(2026, 1, 2)): "absent",
+            },
+            existing_day_type_by_agent_day={
+                (1, date(2026, 1, 1)): "leave",
+                (1, date(2026, 1, 2)): "absent",
+            },
+            coverage_demands=[CoverageDemand(day_date=date(2026, 1, 1), tranche_id=10, required_count=1, poste_id=1)],
+            qualified_postes_by_agent={1: (1,)},
+            qualification_date_by_agent_poste={(1, 1): None},
+            seed=42,
+        )
+    )
+    day_types = {(d.agent_id, d.day_date): d.day_type for d in out.agent_days}
+    assert day_types[(1, date(2026, 1, 1))] == "leave"
+    assert day_types[(1, date(2026, 1, 2))] == "absent"
+    assert all(a.day_date not in {date(2026, 1, 1), date(2026, 1, 2)} for a in out.assignments)
+
+
+def test_existing_change_penalties_and_feature_flag_toggle():
+    base_kwargs = dict(
+        agent_ids=[1],
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 1, 1),
+        seed=42,
+        qualified_postes_by_agent={1: (1,)},
+        qualification_date_by_agent_poste={(1, 1): None},
+        existing_daytype_by_agent_day_ctx={(1, date(2026, 1, 1)): "rest"},
+        coverage_demands=[CoverageDemand(day_date=date(2026, 1, 1), tranche_id=10, required_count=1, poste_id=1)],
+    )
+    with_flag = _grouped(OrtoolsSolver().generate(_build_input(**base_kwargs)))
+    no_flag = _grouped(OrtoolsSolver().generate(_build_input(**{**base_kwargs, "use_existing_assignments": False})))
+    assert with_flag["solution_quality"]["existing_change_strong_total"] >= 1
+    assert no_flag["solution_quality"]["existing_change_strong_total"] == 0
+
+
+def test_existing_working_combo_change_and_zcot_transitions_penalties():
+    day = date(2026, 1, 1)
+    # Unknown existing working signature + forced working day => medium change penalty.
+    inp = _build_input(
+        agent_ids=[1],
+        start_date=day,
+        end_date=day,
+        seed=42,
+        qualified_postes_by_agent={1: (1,)},
+        qualification_date_by_agent_poste={(1, 1): None},
+        existing_daytype_by_agent_day_ctx={(1, day): "working"},
+        existing_assignment_by_agent_day_ctx={(1, day): {"poste_id": 999, "tranche_ids": (999,)}},
+        coverage_demands=[CoverageDemand(day_date=day, tranche_id=10, required_count=1, poste_id=1)],
+    )
+    grouped = _grouped(OrtoolsSolver().generate(inp))
+    assert grouped["solution_quality"]["existing_change_medium_total"] >= 1
+
+    zcot_work = _grouped(
+        OrtoolsSolver().generate(
+            _build_input(
+                agent_ids=[1],
+                start_date=day,
+                end_date=day,
+                seed=42,
+                existing_daytype_by_agent_day_ctx={(1, day): "zcot"},
+                coverage_demands=[CoverageDemand(day_date=day, tranche_id=10, required_count=1, poste_id=1)],
+                qualified_postes_by_agent={1: (1,)},
+                qualification_date_by_agent_poste={(1, 1): None},
+            )
+        )
+    )
+    assert zcot_work["solution_quality"]["existing_change_strong_total"] == 0
+    assert zcot_work["solution_quality"]["existing_change_medium_total"] == 0
+
+    zcot_rest = _grouped(
+        OrtoolsSolver().generate(
+            _build_input(
+                agent_ids=[1],
+                start_date=day,
+                end_date=day,
+                seed=42,
+                existing_daytype_by_agent_day_ctx={(1, day): "zcot"},
+                coverage_demands=[],
+                absences={(1, day)},
+                qualified_postes_by_agent={1: (1,)},
+                qualification_date_by_agent_poste={(1, 1): None},
+            )
+        )
+    )
+    assert zcot_rest["solution_quality"]["existing_change_medium_total"] >= 1

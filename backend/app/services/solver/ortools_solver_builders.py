@@ -72,6 +72,8 @@ def build_choice_vars_and_samples(*, model: cp_model.CpModel, ordered_agent_ids:
                 if is_absent:
                     combo_rejected_absence_count += 1
                     reason = "absence"
+                elif combo.poste_id is None:
+                    pass
                 elif combo.poste_id not in qual_posts.get(agent_id, set()):
                     combo_rejected_not_qualified_count += 1
                     reason = "not_qualified"
