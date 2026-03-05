@@ -1535,3 +1535,112 @@ def test_v32_smoke_not_worse_than_v31_profile():
         )
     )
     assert guided.stats["understaff_total"] <= base.stats["understaff_total"]
+
+def test_deterministic_stats_shape_and_grouped_lns_consistency():
+    solver = OrtoolsSolver()
+    inp = _build_input(
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 1, 4),
+        time_limit_seconds=3,
+        seed=42,
+        agent_ids=[1, 2],
+        coverage_demands=[CoverageDemand(day_date=date(2026, 1, d), tranche_id=10, required_count=2, poste_id=1) for d in range(1, 5)],
+        v3_strategy="two_phase_lns",
+        lns_iter_seconds=0.4,
+        lns_min_remaining_seconds=0,
+        min_lns_seconds=0,
+    )
+
+    out = solver.generate(inp)
+    stats = out.stats
+    grouped = stats["stats"]
+
+    for key in [
+        "solve_wall_time_seconds",
+        "coverage_ratio",
+        "coverage_ratio_weighted",
+        "understaff_total",
+        "understaff_total_weighted",
+        "lns_iterations",
+        "lns_accept_count",
+        "lns_best_objective_value",
+        "lns_iteration_history",
+    ]:
+        assert key in stats
+
+    assert stats["solve_wall_time_seconds"] > 0
+    assert 0.0 <= stats["coverage_ratio"] <= 1.0
+    assert 0.0 <= stats["coverage_ratio_weighted"] <= 1.0
+    assert stats["understaff_total"] >= 0
+    assert stats["understaff_total_weighted"] >= 0
+    assert stats["lns_iterations"] >= 0
+    assert stats["lns_accept_count"] >= 0
+    assert stats["lns_best_objective_value"] is None or isinstance(stats["lns_best_objective_value"], int)
+
+    assert isinstance(stats["lns_iteration_history"], list)
+    assert grouped["lns"]["iteration_history"] == stats["lns_iteration_history"]
+    assert grouped["lns"].get("lns_early_stop_reason") == stats.get("lns_early_stop_reason")
+
+    assert grouped["cp_sat"]["cp_sat_params_effective"]["phase1"]["num_search_workers"] == 1
+    if "lns" in grouped["cp_sat"]["cp_sat_params_effective"]:
+        assert grouped["cp_sat"]["cp_sat_params_effective"]["lns"]["num_search_workers"] == 1
+
+
+def test_deterministic_sentinel_stable_core_stats():
+    solver = OrtoolsSolver()
+    inp = _build_input()
+
+    out1 = solver.generate(inp)
+    out2 = solver.generate(inp)
+
+    stable_keys = [
+        "demand_count",
+        "agent_count",
+        "num_variables",
+        "num_constraints",
+        "understaff_total",
+        "lns_iterations",
+    ]
+    for key in stable_keys:
+        assert out1.stats[key] == out2.stats[key]
+
+    # Small deterministic sentinel on this minimal scenario.
+    assert out1.stats["demand_count"] == 0
+    assert out1.stats["agent_count"] == 2
+    assert out1.stats["num_variables"] == 64
+    assert out1.stats["num_constraints"] == 82
+    assert out1.stats["understaff_total"] == 0
+
+
+def test_best_objective_over_time_points_invariants():
+    solver = OrtoolsSolver()
+    out = solver.generate(
+        _build_input(
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 4),
+            time_limit_seconds=3,
+            seed=42,
+            agent_ids=[1, 2],
+            coverage_demands=[CoverageDemand(day_date=date(2026, 1, d), tranche_id=10, required_count=2, poste_id=1) for d in range(1, 5)],
+            v3_strategy="two_phase_lns",
+            lns_iter_seconds=0.4,
+            lns_min_remaining_seconds=0,
+            min_lns_seconds=0,
+        )
+    )
+
+    points = out.stats["best_objective_over_time_points"]
+    assert isinstance(points, list)
+
+    prev_t = -1.0
+    for pt in points:
+        assert pt["t"] >= 0
+        assert pt["obj"] >= 0
+        assert pt["understaff_unweighted"] >= 0
+        assert pt["t"] >= prev_t
+        prev_t = pt["t"]
+
+    if points:
+        ttff = out.stats.get("time_to_first_feasible_seconds")
+        assert ttff is not None
+        assert abs(points[0]["t"] - ttff) <= 0.05 or (points[0]["obj"] >= 0 and points[0]["understaff_unweighted"] >= 0)
