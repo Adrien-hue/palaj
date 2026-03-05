@@ -93,3 +93,17 @@ class PlanningGenerateStatusResponse(BaseModel):
     progress: float = Field(ge=0, le=1)
     result_stats: ResultStatsPayload | None = None
     error: str | None = None
+
+
+class PlanningDraftAcceptResponse(BaseModel):
+    draft_id: int
+    status: PlanningDraftStatus
+    published: bool
+    team_id: int
+    start_date: date
+    end_date: date
+
+
+class PlanningDraftRejectResponse(BaseModel):
+    draft_id: int
+    status: PlanningDraftStatus
