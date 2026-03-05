@@ -1,16 +1,19 @@
 from __future__ import annotations
 
-from datetime import timedelta
 import time
 
 from ortools.sat.python import cp_model
 
 from core.domain.enums.day_type import DayType
 
-from .models import InfeasibleError, SolverAgentDay, SolverAssignment, SolverInput, SolverOutput, TimeoutError
-from .lns_runner import LnsRunner
-from .rh_combos import DayCombo, DayKind, DefaultRhComboRulesEngine, build_day_combos_for_poste, build_rest_compatibility
-from .stats import StatsCollector
+from backend.app.services.solver.cp_sat import configure_solver, effective_cp_sat_params, normalize_status
+from backend.app.services.solver.lns_runner import LnsRunner
+from backend.app.services.solver.model_builder import build_solve_context
+from backend.app.services.solver.models import InfeasibleError, SolverInput, SolverOutput, TimeoutError
+from backend.app.services.solver.phases import TraceCallback, solve_with_trace
+from backend.app.services.solver.rh_combos import DayCombo, DayKind, DefaultRhComboRulesEngine, build_day_combos_for_poste, build_rest_compatibility
+from backend.app.services.solver.solution_extractor import extract_solution
+from backend.app.services.solver.stats import StatsCollector
 
 
 MIN_LNS_REMAINING_SECONDS_TO_RUN_ITER = 0.2
@@ -119,19 +122,16 @@ class OrtoolsSolver:
         num_constraints = 0
         num_variables = 0
 
-        ordered_agent_ids = sorted(solver_input.agent_ids)
-        dates: list = []
-        cursor = solver_input.start_date
-        while cursor <= solver_input.end_date:
-            dates.append(cursor)
-            cursor += timedelta(days=1)
-        date_to_index = {d: i for i, d in enumerate(dates)}
+        solve_context = build_solve_context(solver_input)
+        ordered_agent_ids = solve_context.ordered_agent_ids
+        dates = solve_context.dates
+        date_to_index = solve_context.date_to_index
         date_to_period_index = {d: i for i, d in enumerate(dates)}
 
-        apply_gpt_rules = bool(solver_input.gpt_context_days)
-        context_days = list(solver_input.gpt_context_days) if apply_gpt_rules else list(dates)
-        ctx_date_to_index = {d: i for i, d in enumerate(context_days)}
-        in_window_ctx_indices = {ctx_date_to_index[d] for d in dates if d in ctx_date_to_index}
+        apply_gpt_rules = solve_context.apply_gpt_rules
+        context_days = solve_context.context_days
+        ctx_date_to_index = solve_context.ctx_date_to_index
+        in_window_ctx_indices = solve_context.in_window_ctx_indices
 
         qual_posts = {agent_id: set(postes) for agent_id, postes in solver_input.qualified_postes_by_agent.items()}
         qual_date = solver_input.qualification_date_by_agent_poste
@@ -1192,84 +1192,27 @@ class OrtoolsSolver:
         )
 
         def _normalize_status(raw_status: int, wall_time: float, budget_seconds: float) -> tuple[str, str, bool]:
-            if raw_status == cp_model.OPTIMAL:
-                raw = "OPTIMAL"
-            elif raw_status == cp_model.FEASIBLE:
-                raw = "FEASIBLE"
-            elif raw_status == cp_model.INFEASIBLE:
-                raw = "INFEASIBLE"
-            elif raw_status == cp_model.MODEL_INVALID:
-                raw = "MODEL_INVALID"
-            elif raw_status == cp_model.UNKNOWN:
-                raw = "UNKNOWN"
-            else:
-                raw = "INFEASIBLE"
-            time_limit_reached = False
-            if budget_seconds > 0:
-                if raw_status == cp_model.OPTIMAL:
-                    time_limit_reached = False
-                else:
-                    time_limit_reached = (raw_status == cp_model.FEASIBLE) or (wall_time >= budget_seconds * 0.95)
-            normalized = "TIMEOUT" if time_limit_reached else raw
-            return raw, normalized, bool(time_limit_reached)
+            return normalize_status(raw_status=raw_status, wall_time=wall_time, budget_seconds=budget_seconds)
 
         def _new_solver(budget_seconds: float) -> cp_model.CpSolver:
-            solver = cp_model.CpSolver()
+            solver = configure_solver(
+                budget_seconds=budget_seconds,
+                time_limit_seconds=time_limit_seconds,
+                seed=int(solver_input.seed or 0),
+            )
             if budget_seconds > 0:
-                solver.parameters.max_time_in_seconds = budget_seconds
                 applied = float(time_limit_seconds if time_limit_seconds > 0 else budget_seconds)
                 stats["solver_max_time_seconds_applied"] = max(float(stats.get("solver_max_time_seconds_applied", 0.0)), applied)
-            solver.parameters.num_search_workers = 1
-            solver.parameters.random_seed = int(solver_input.seed or 0)
             return solver
 
         def _effective_cp_sat_params(solver: cp_model.CpSolver, budget_seconds: float) -> dict[str, object]:
-            params: dict[str, object] = {
-                "max_time_in_seconds": float(getattr(solver.parameters, "max_time_in_seconds", 0.0) or 0.0),
-                "num_search_workers": int(getattr(solver.parameters, "num_search_workers", 0) or 0),
-                "random_seed": int(getattr(solver.parameters, "random_seed", 0) or 0),
-            }
-            optional_numeric = {
-                "max_number_of_conflicts": int(getattr(solver.parameters, "max_number_of_conflicts", 0) or 0),
-                "cp_model_probing_level": int(getattr(solver.parameters, "cp_model_probing_level", 0) or 0),
-                "symmetry_level": int(getattr(solver.parameters, "symmetry_level", 0) or 0),
-                "linearization_level": int(getattr(solver.parameters, "linearization_level", 0) or 0),
-            }
-            for key, value in optional_numeric.items():
-                if value != 0:
-                    params[key] = value
-            if bool(getattr(solver.parameters, "log_search_progress", False)):
-                params["log_search_progress"] = True
-            if bool(getattr(solver.parameters, "cp_model_presolve", True)) is False:
-                params["cp_model_presolve"] = False
-            params["budget_seconds_requested"] = float(budget_seconds)
-            return params
-
-        class _TraceCallback(cp_model.CpSolverSolutionCallback):
-            def __init__(self, understaff_var: cp_model.IntVar, stop_no_improve_after_seconds: float | None = None):
-                super().__init__()
-                self.understaff_var = understaff_var
-                self.first_feasible_time = None
-                self.points: list[tuple[float, float, int]] = []
-                self.stop_no_improve_after_seconds = stop_no_improve_after_seconds
-                self.last_improve_time = 0.0
-                self.best_obj = None
-
-            def on_solution_callback(self):
-                t = float(self.WallTime())
-                if self.first_feasible_time is None:
-                    self.first_feasible_time = t
-                    self.last_improve_time = t
-                obj = float(self.ObjectiveValue())
-                us = int(self.Value(self.understaff_var))
-                improved = self.best_obj is None or obj < self.best_obj
-                if improved:
-                    self.best_obj = obj
-                    self.last_improve_time = t
-                if len(self.points) < 200 and (not self.points or improved or us < self.points[-1][2]):
-                    self.points.append((t, obj, us))
-                if self.stop_no_improve_after_seconds is not None and (t - self.last_improve_time) >= self.stop_no_improve_after_seconds:
-                    self.StopSearch()
+            return effective_cp_sat_params(
+                solver=solver,
+                budget_seconds=budget_seconds,
+                profile=profile,
+                seed=int(solver_input.seed or 0),
+                time_limit_seconds=time_limit_seconds,
+            )
 
         y_keys = sorted(y.keys())
         y_proto_idx = {key: y[key].Index() for key in y_keys}
@@ -1325,14 +1268,6 @@ class OrtoolsSolver:
             {"day_date": dates[di].isoformat(), "score": int(score)}
             for di, score in day_scores[:5]
         ]
-
-        def _solve_with_trace(solver: cp_model.CpSolver, mdl: cp_model.CpModel, cb: _TraceCallback | None = None) -> int:
-            if cb is None:
-                return solver.Solve(mdl)
-            try:
-                return solver.Solve(mdl, cb)
-            except TypeError:
-                return solver.Solve(mdl)
 
         def _extract_solution(solver: cp_model.CpSolver):
             assign = {(aid, di, cid): int(solver.Value(y[(aid, di, cid)])) for (aid, di, cid) in y_keys}
@@ -1411,8 +1346,8 @@ class OrtoolsSolver:
             model.Minimize(understaff_total_unweighted)
             solver1 = _new_solver(phase1_seconds)
             stats.setdefault("cp_sat_params_effective", {})["phase1"] = _effective_cp_sat_params(solver1, phase1_seconds)
-            cb1 = _TraceCallback(understaff_total_unweighted)
-            status1 = _solve_with_trace(solver1, model, cb1)
+            cb1 = TraceCallback(understaff_total_unweighted)
+            status1 = solve_with_trace(solver1, model, cb1)
             wall1 = float(solver1.WallTime())
             raw1, normalized1, timeout1 = _normalize_status(status1, wall1, phase1_seconds)
             last_wall_time = wall1
@@ -1456,8 +1391,8 @@ class OrtoolsSolver:
                 stats["phase2_reused_model"] = True
                 solver2 = _new_solver(phase2_budget_cap)
                 stats.setdefault("cp_sat_params_effective", {})["phase2"] = _effective_cp_sat_params(solver2, phase2_budget_cap)
-                cb2 = _TraceCallback(understaff_total_unweighted, stop_no_improve_after_seconds=phase2_no_improve_seconds)
-                status2 = _solve_with_trace(solver2, model, cb2)
+                cb2 = TraceCallback(understaff_total_unweighted, stop_no_improve_after_seconds=phase2_no_improve_seconds)
+                status2 = solve_with_trace(solver2, model, cb2)
                 wall2 = float(solver2.WallTime())
                 stats["phase2_solve_wall_time_seconds"] = wall2
                 raw2, normalized2, timeout2 = _normalize_status(status2, wall2, phase2_budget_cap)
@@ -1580,36 +1515,15 @@ class OrtoolsSolver:
         stats["lns_neighborhoods_tried_by_poste"] = lns_neighborhoods_tried
         stats["time_to_first_feasible_seconds"] = time_to_first_feasible_seconds
         stats["best_objective_over_time_points"] = [{"t": round(t, 3), "obj": obj, "understaff_unweighted": us} for (t, obj, us) in trace_points[:200]]
-        assignments: list[SolverAssignment] = []
-        assigned_day_by_agent: set[tuple[int, int]] = set()
-        for (agent_id, di, combo_id), var in y.items():
-            if eval_solver.Value(var) != 1:
-                continue
-            combo = combo_by_id[combo_id]
-            if combo.tranche_ids:
-                assigned_day_by_agent.add((agent_id, di))
-                for tranche_id in combo.tranche_ids:
-                    assignments.append(SolverAssignment(agent_id=agent_id, day_date=dates[di], tranche_id=tranche_id))
-
-        assignments.sort(key=lambda item: (item.day_date, item.agent_id, item.tranche_id))
-
-        agent_days: list[SolverAgentDay] = []
-        for day_date in dates:
-            di = date_to_index[day_date]
-            for agent_id in ordered_agent_ids:
-                if (agent_id, di) in assigned_day_by_agent:
-                    day_type = DayType.WORKING.value
-                else:
-                    day_type = solver_input.existing_day_type_by_agent_day.get((agent_id, day_date), DayType.REST.value)
-                agent_days.append(
-                    SolverAgentDay(
-                        agent_id=agent_id,
-                        day_date=day_date,
-                        day_type=day_type,
-                        description=None,
-                        is_off_shift=False,
-                    )
-                )
+        assignments, agent_days, assigned_day_by_agent = extract_solution(
+            eval_solver=eval_solver,
+            y=y,
+            combo_by_id=combo_by_id,
+            dates=dates,
+            date_to_index=date_to_index,
+            ordered_agent_ids=ordered_agent_ids,
+            solver_input=solver_input,
+        )
 
         objective_value = int(best_solution["objective_value"])
         understaff_total = int(best_solution["understaff_total_unweighted"])
