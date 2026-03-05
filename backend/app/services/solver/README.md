@@ -27,5 +27,32 @@ Canonical sources :
 Verbosity/troncature :
 
 - priorité: `PLANNING_STATS_VERBOSITY`, sinon `PLANNING_STATS_DEFAULT_VERBOSITY`, sinon `debug`
-- en `compact`, les listes lourdes restent des listes mais sont tronquées avec métadonnées
-  `*_truncated` et `*_total` (modèle, couverture, historique LNS)
+- caps centralisés dans `backend/app/services/solver/constants.py::STATS_PAYLOAD_CAPS`
+- `StatsCollector` est l'unique endroit où les caps/troncatures sont appliqués (pas de trimming côté solver/phases/LNS)
+- en `debug`, les champs lourds sont conservés mais capés (hard-caps) pour éviter des payloads trop volumineux
+- en `compact`, les champs lourds sont plus agressivement capés
+- types stables: une liste reste une liste, un dict reste un dict
+- chaque champ lourd expose des métadonnées cohérentes:
+  - `<field>_total` = taille originale avant cap
+  - `<field>_truncated` = bool (`True` si cap appliqué)
+- `stats.coverage.understaff_by_day_weighted`:
+  - `debug`: garde la fenêtre complète (valeurs à 0 incluses), avec cap de sécurité
+  - `compact`: ne garde que les jours > 0 puis applique le cap
+- `stats.lns.iteration_history` est slimmé (champs canoniques uniquement) puis capé selon la verbosité.
+  Schéma slim: `t`, `poste_id`, `selected_postes`, `relaxed_days_count`, `fixed_y_count`,
+  `relaxed_y_count`, `neighborhood_mode_effective`, `solve_wall_time_seconds_iter`,
+  `accepted`, `status_raw`, `status_int`, `validate_message_present`,
+  `understaff_total_unweighted`, `objective_value`
+- `stats.cp_sat.best_objective_over_time_points` est capé selon la verbosité avec métadonnées associées
+
+## v3 invariants
+
+- `StatsCollector` est l'unique endroit où les caps/troncatures sont appliqués.
+- `stats.coverage.understaff_by_day_weighted` en `debug` contient tous les jours de la fenêtre (zéros inclus).
+- règle uniforme de métadonnées:
+  - `<field>_total` = nombre d'entrées avant cap
+  - `<field>_truncated` = cap appliqué (`True`) ou non (`False`)
+- `stats.lns.iteration_history` suit le schéma slim suivant uniquement:
+  `t`, `poste_id`, `selected_postes`, `relaxed_days_count`, `neighborhood_mode_effective`,
+  `solve_wall_time_seconds_iter`, `accepted`, `status_raw`, `status_int`, `objective_value`,
+  `understaff_total_unweighted`, `fixed_y_count`, `relaxed_y_count`, `validate_message_present`.

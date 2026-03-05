@@ -4,8 +4,27 @@ from __future__ import annotations
 RESULT_STATS_SCHEMA_VERSION = 3
 SOLVER_VERSION = "v3"
 
-# Compact stats verbosity caps.
-DEFAULT_COMPACT_MAX_ITEMS = 20
+# Stats payload caps by verbosity.
+STATS_PAYLOAD_CAPS = {
+    "debug": {
+        "combo_rejected_samples": 50,
+        "combo_allowed_samples": 50,
+        "missing_tranche_in_any_combo_sample": 50,
+        "top_understaff_days": 20,
+        "lns_iteration_history": 100,
+        "cp_sat_best_objective_points": 200,
+        "understaff_by_day_weighted": 366,
+    },
+    "compact": {
+        "combo_rejected_samples": 10,
+        "combo_allowed_samples": 10,
+        "missing_tranche_in_any_combo_sample": 10,
+        "top_understaff_days": 10,
+        "lns_iteration_history": 20,
+        "cp_sat_best_objective_points": 50,
+        "understaff_by_day_weighted": 31,
+    },
+}
 
 # CP-SAT deterministic defaults.
 CP_SAT_DEFAULT_NUM_SEARCH_WORKERS = 1

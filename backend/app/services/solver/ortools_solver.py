@@ -465,7 +465,8 @@ class OrtoolsSolver:
         stats["demanded_tranche_ids_count"] = len(demanded_tranche_ids)
         stats["covered_tranche_ids_by_any_combo_count"] = len(covered_tranche_ids_by_any_combo)
         stats["missing_tranche_in_any_combo_count"] = len(missing_tranche_ids)
-        stats["missing_tranche_in_any_combo_sample"] = sorted(missing_tranche_ids)[:10]
+        # No trimming here; payload caps are handled in StatsCollector.
+        stats["missing_tranche_in_any_combo_sample"] = sorted(missing_tranche_ids)
 
         # Rough upper bounds for objective dominance observability.
         cost_one_understaff_weekday_day = self.W_COVER * self.W_UNDERSTAFF_WEEKDAY_DAY
@@ -1548,7 +1549,7 @@ class OrtoolsSolver:
         stats["lns_accept_count_total"] = lns_accept_count
         stats["lns_neighborhoods_tried_by_poste"] = lns_neighborhoods_tried
         stats["time_to_first_feasible_seconds"] = time_to_first_feasible_seconds
-        stats["best_objective_over_time_points"] = [{"t": round(t, 3), "obj": obj, "understaff_unweighted": us} for (t, obj, us) in trace_points[:200]]
+        stats["best_objective_over_time_points"] = [{"t": round(t, 3), "obj": obj, "understaff_unweighted": us} for (t, obj, us) in trace_points]
         assignments, agent_days, assigned_day_by_agent = extract_solution(
             eval_solver=eval_solver,
             y=y,
@@ -1617,7 +1618,8 @@ class OrtoolsSolver:
             wt = int(rec["weight"]) * us
             understaff_day_unweighted[day_key] = understaff_day_unweighted.get(day_key, 0) + us
             understaff_day_weighted[day_key] = understaff_day_weighted.get(day_key, 0) + wt
-        for day_key in sorted(understaff_day_unweighted, key=lambda d: (-understaff_day_unweighted[d], -understaff_day_weighted.get(d, 0), d))[:10]:
+        # No trimming here; payload caps are handled in StatsCollector.
+        for day_key in sorted(understaff_day_unweighted, key=lambda d: (-understaff_day_unweighted[d], -understaff_day_weighted.get(d, 0), d)):
             top_understaff_days.append({"day_date": day_key, "understaff_unweighted": understaff_day_unweighted[day_key], "understaff_weighted": understaff_day_weighted.get(day_key, 0)})
         stats["understaff_by_day_weighted"] = understaff_day_weighted
         stats["smoothing_term_components_count"] = len(weighted_understaff_smooth_terms)
