@@ -1,0 +1,17 @@
+export const DEFAULT_GENERATE_PARAMS = {
+  seed: 42,
+  time_limit_seconds: 60,
+  quality_profile: "balanced",
+  v3_strategy: "two_phase_lns",
+  phase1_fraction: 0.1,
+  lns_neighborhood_mode: "top_days_global",
+  lns_iter_seconds: 1,
+  min_lns_seconds: 10,
+  lns_min_remaining_seconds: 0,
+  lns_strict_improve: false,
+  lns_max_days_to_relax: 14,
+  phase2_max_fraction_of_remaining: 1,
+  phase2_no_improve_seconds: 0,
+  enable_decision_strategy: true,
+  enable_symmetry_breaking: true,
+} as const;
