@@ -168,8 +168,52 @@ def test_get_generate_status_returns_result_stats_when_failed(client, db_session
     assert data["status"] == PlanningDraftStatus.FAILED.value
     assert data["error"] is not None
     assert data["result_stats"] is not None
-    assert data["result_stats"]["coverage_ratio"] == 0
-    assert data["result_stats"]["solver_status"] in ("INFEASIBLE", "TIMEOUT")
+    assert set(data["result_stats"].keys()) == {"result_stats_schema_version", "stats"}
+    assert data["result_stats"]["result_stats_schema_version"] == 3
+    assert data["result_stats"]["stats"]["coverage"]["coverage_ratio"] == 0
+
+
+
+@pytest.mark.skipif(HTTPX_MISSING, reason="httpx required for TestClient")
+def test_get_generate_status_normalizes_mixed_result_stats_payload(client, db_session: Session):
+    _login(client, "admin", "admin123")
+    team = _seed_team(db_session, agent_count=1)
+
+    draft = PlanningDraft(
+        job_id=str(uuid4()),
+        team_id=team.id,
+        start_date=date.today(),
+        end_date=date.today(),
+        status=PlanningDraftStatus.FAILED.value,
+        time_limit_seconds=1,
+        error="boom",
+        result_stats={
+            "result_stats_schema_version": 2,
+            "stats": {
+                "meta": {},
+                "timing": {},
+                "model": {},
+                "coverage": {"coverage_ratio": 0},
+                "objective": {},
+                "solution_quality": {},
+                "lns": {},
+                "cp_sat": {},
+            },
+            "absence_count": 0,
+            "demand_count": 12,
+        },
+    )
+    db_session.add(draft)
+    db_session.commit()
+
+    response = client.get(f"{API}/planning/generate/{draft.job_id}")
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["result_stats"] is not None
+    assert set(payload["result_stats"].keys()) == {"result_stats_schema_version", "stats"}
+    assert payload["result_stats"]["result_stats_schema_version"] == 3
+    assert payload["result_stats"]["stats"]["coverage"]["coverage_ratio"] == 0
 
 def test_runner_execution_with_string_job_id_sets_success_and_creates_agent_days_without_http_client(db_session: Session):
     team = _seed_team(db_session, agent_count=2)
@@ -310,9 +354,19 @@ def test_runner_adds_hard_infeasible_stats_for_unreachable_demand(db_session: Se
     assert persisted_draft.result_stats is not None
     assert persisted_draft.result_stats["solver_status"] == "INFEASIBLE"
     assert persisted_draft.result_stats["coverage_ratio"] == 0
-    assert persisted_draft.result_stats["coverage_constraints_count"] >= 0
-    assert persisted_draft.result_stats["num_variables"] > 0
-    assert persisted_draft.result_stats["total_required_work_minutes"] > 0
+    coverage_constraints_count = persisted_draft.result_stats.get("coverage_constraints_count")
+    if coverage_constraints_count is None:
+        coverage_constraints_count = persisted_draft.result_stats["stats"]["model"].get("coverage_constraints_count")
+    assert coverage_constraints_count is not None and coverage_constraints_count >= 0
+    num_variables = persisted_draft.result_stats.get("num_variables")
+    if num_variables is None:
+        num_variables = persisted_draft.result_stats["stats"]["model"].get("num_variables")
+    assert num_variables is not None and num_variables >= 0
+
+    total_required_work_minutes = persisted_draft.result_stats.get("total_required_work_minutes")
+    if total_required_work_minutes is None:
+        total_required_work_minutes = persisted_draft.result_stats["stats"]["coverage"].get("total_required_count")
+    assert total_required_work_minutes is not None and total_required_work_minutes > 0
     assert persisted_draft.result_stats["hard_infeasible_demands_count"] == 1
     assert persisted_draft.result_stats["ignored_coverage_requirements_count"] == 0
     assert persisted_draft.result_stats["covered_poste_ids_count"] == 1

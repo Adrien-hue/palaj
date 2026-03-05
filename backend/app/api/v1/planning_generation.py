@@ -15,6 +15,7 @@ from backend.app.dto.planning_generate import (
     PlanningGenerateStatusResponse,
 )
 from backend.app.services.planning.generation import planning_generation_service
+from backend.app.services.solver.stats_normalizer import normalize_result_stats_for_api
 from core.domain.enums.planning_draft_status import PlanningDraftStatus
 from db.models import PlanningDraft
 
@@ -86,12 +87,16 @@ def get_generation_status(job_id: str, session: Session = Depends(get_db)) -> Pl
         not_found("Planning generation job not found")
 
     draft_status = PlanningDraftStatus(draft.status)
+    normalized_result_stats = None
+    if draft_status in (PlanningDraftStatus.SUCCESS, PlanningDraftStatus.FAILED):
+        normalized_result_stats = normalize_result_stats_for_api(draft.result_stats)
+
     return PlanningGenerateStatusResponse(
         job_id=UUID(draft.job_id),
         draft_id=draft.id,
         status=draft_status,
         progress=_progress_from_status(draft_status),
-        result_stats=draft.result_stats if draft_status in (PlanningDraftStatus.SUCCESS, PlanningDraftStatus.FAILED) else None,
+        result_stats=normalized_result_stats,
         error=draft.error if draft_status == PlanningDraftStatus.FAILED else None,
     )
 
