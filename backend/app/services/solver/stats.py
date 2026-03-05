@@ -142,6 +142,10 @@ class StatsCollector:
             "combo_rejected_samples",
             "combo_allowed_samples",
             "missing_tranche_in_any_combo_sample",
+            "existing_assignments_conflicts_count",
+            "existing_assignments_conflicts_sample",
+            "existing_working_signature_unknown_count",
+            "existing_working_signature_unknown_sample",
         }
         coverage_keys = {
             "coverage_ratio",

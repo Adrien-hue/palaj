@@ -42,6 +42,7 @@ from backend.app.services.solver.constants import (
     MIN_LNS_REMAINING_SECONDS_TO_RUN_ITER,
 )
 from backend.app.services.solver.cp_sat import configure_solver, effective_cp_sat_params, normalize_status
+from backend.app.services.solver.existing_assignments import build_existing_context_maps, is_in_window_ctx_index
 from backend.app.services.solver.lns_runner import LnsRunner
 from backend.app.services.solver.model_builder import build_solve_context
 from backend.app.services.solver.models import InfeasibleError, SolverInput, SolverOutput, TimeoutError
@@ -367,6 +368,8 @@ class OrtoolsSolver:
             "max_existing_change_count": max_existing_change_count,
             "max_cost_existing_change_strong": max_cost_existing_change_strong,
             "max_cost_existing_change_medium": max_cost_existing_change_medium,
+            "ratio_existing_change_strong_vs_one_understaff_weekday_day": (max_cost_existing_change_strong / cost_one_understaff_weekday_day) if cost_one_understaff_weekday_day else 0.0,
+            "ratio_existing_change_medium_vs_one_understaff_weekday_day": (max_cost_existing_change_medium / cost_one_understaff_weekday_day) if cost_one_understaff_weekday_day else 0.0,
             "max_cost_all_tiebreakers": max_cost_all_tiebreakers,
             "ratio_all_tiebreakers_vs_one_understaff_weekday_day": (max_cost_all_tiebreakers / cost_one_understaff_weekday_day) if cost_one_understaff_weekday_day else 0.0,
             "ratio_all_tiebreakers_vs_one_understaff_weekend_day": (max_cost_all_tiebreakers / cost_one_understaff_weekend_day) if cost_one_understaff_weekend_day else 0.0,
@@ -411,8 +414,28 @@ class OrtoolsSolver:
         stats["num_combos_effective"] = stats["num_combos_in_model"]
 
         use_existing_assignments = bool(solver_input.use_existing_assignments)
-        existing_daytypes_ctx = solver_input.existing_daytype_by_agent_day_ctx if use_existing_assignments else {}
+        existing_daytypes_db_ctx = solver_input.existing_daytype_by_agent_day_ctx if use_existing_assignments else {}
+        if use_existing_assignments and not existing_daytypes_db_ctx:
+            existing_daytypes_db_ctx = solver_input.existing_day_type_by_agent_day_ctx
         existing_assignments_ctx = solver_input.existing_assignment_by_agent_day_ctx if use_existing_assignments else {}
+        resolved_existing_daytypes_ctx: dict[tuple[int, date], str] = {}
+        resolved_working_sig_ctx: dict[tuple[int, date], tuple[int, tuple[int, ...]]] = {}
+        if use_existing_assignments:
+            existing_context_resolution = build_existing_context_maps(
+                ordered_agent_ids=ordered_agent_ids,
+                context_days=context_days,
+                db_daytype_by_agent_day_ctx=existing_daytypes_db_ctx,
+                db_assignment_by_agent_day_ctx=existing_assignments_ctx,
+                absences=solver_input.absences,
+            )
+            resolved_existing_daytypes_ctx = existing_context_resolution["resolved_daytype_by_agent_day_ctx"]
+            resolved_working_sig_ctx = existing_context_resolution["resolved_working_sig_by_agent_day_ctx"]
+            stats["existing_assignments_conflicts_count"] = existing_context_resolution["existing_assignments_conflicts_count"]
+            stats["existing_assignments_conflicts_sample"] = existing_context_resolution["existing_assignments_conflicts_sample"]
+        else:
+            stats["existing_assignments_conflicts_count"] = 0
+            stats["existing_assignments_conflicts_sample"] = []
+
         hard_daytype_overrides: dict[tuple[int, date], str] = {}
         signature_to_combo_id: dict[tuple[int, tuple[int, ...]], int] = {}
         zcot_combo_id = next((combo.id for combo in combos if combo.day_kind == DayKind.ZCOT), None)
@@ -436,7 +459,7 @@ class OrtoolsSolver:
         if use_existing_assignments:
             for agent_id in ordered_agent_ids:
                 for di, day_date in enumerate(dates):
-                    existing_day_type = existing_daytypes_ctx.get((agent_id, day_date))
+                    existing_day_type = resolved_existing_daytypes_ctx.get((agent_id, day_date))
                     if existing_day_type not in {DayType.ABSENT.value, DayType.LEAVE.value}:
                         continue
                     rest_var = y.get((agent_id, di, 0))
@@ -539,14 +562,11 @@ class OrtoolsSolver:
             off_ctx: dict[tuple[int, int], cp_model.IntVar | int] = {}
             worked_ctx_window_fixed_days_count_by_agent: dict[int, int] = {agent_id: 0 for agent_id in ordered_agent_ids}
 
-            def is_in_window(idx: int) -> bool:
-                return idx in in_window_ctx_indices
-
             for agent_id in ordered_agent_ids:
                 for ci, day_date in enumerate(context_days):
                     key = (agent_id, day_date)
-                    day_type_ctx = solver_input.existing_day_type_by_agent_day_ctx.get(key, DayType.REST.value)
-                    if not is_in_window(ci):
+                    day_type_ctx = resolved_existing_daytypes_ctx.get(key, DayType.REST.value)
+                    if not is_in_window_ctx_index(ci, in_window_ctx_indices):
                         if day_type_ctx == DayType.REST.value:
                             worked_ctx[(agent_id, ci)] = 0
                             minutes_ctx[(agent_id, ci)] = 0
@@ -652,7 +672,7 @@ class OrtoolsSolver:
             for agent_id in ordered_agent_ids:
                 for ci, day_date in enumerate(context_days):
                     key = (agent_id, day_date)
-                    if ci in in_window_ctx_indices:
+                    if is_in_window_ctx_index(ci, in_window_ctx_indices):
                         di = date_to_period_index[day_date]
                         day_combo_ids = [c for (a, d, c) in y if a == agent_id and d == di]
                         can_work_ctx[(agent_id, ci)] = any(self._is_work_combo(combo_by_id[cid]) for cid in day_combo_ids)
@@ -661,7 +681,7 @@ class OrtoolsSolver:
                         else:
                             can_off_ctx[(agent_id, ci)] = any(combo_by_id[cid].day_kind == DayKind.REST for cid in day_combo_ids)
                     else:
-                        day_type_ctx = solver_input.existing_day_type_by_agent_day_ctx.get(key, DayType.REST.value)
+                        day_type_ctx = resolved_existing_daytypes_ctx.get(key, DayType.REST.value)
                         can_work_ctx[(agent_id, ci)] = day_type_ctx in self.GPT_DAY_TYPES
                         can_off_ctx[(agent_id, ci)] = day_type_ctx in self.RPDOUBLE_OFF_DAY_TYPES
 
@@ -1003,10 +1023,12 @@ class OrtoolsSolver:
 
         existing_change_strong_vars: list[cp_model.IntVar] = []
         existing_change_medium_vars: list[cp_model.IntVar] = []
+        unknown_working_signature_count = 0
+        unknown_working_signature_sample: list[dict[str, str | int]] = []
         if use_existing_assignments:
             for agent_id in ordered_agent_ids:
                 for di, day_date in enumerate(dates):
-                    existing_day_type = existing_daytypes_ctx.get((agent_id, day_date))
+                    existing_day_type = resolved_existing_daytypes_ctx.get((agent_id, day_date))
                     if existing_day_type is None:
                         continue
                     rest_selected = y.get((agent_id, di, 0))
@@ -1043,10 +1065,7 @@ class OrtoolsSolver:
                         continue
 
                     if existing_day_type == DayType.WORKING.value:
-                        assignment = existing_assignments_ctx.get((agent_id, day_date), {})
-                        poste_id = assignment.get("poste_id") if isinstance(assignment, dict) else None
-                        tranche_ids = assignment.get("tranche_ids") if isinstance(assignment, dict) else ()
-                        signature = (int(poste_id), tuple(sorted(int(t) for t in tranche_ids))) if poste_id is not None else None
+                        signature = resolved_working_sig_ctx.get((agent_id, day_date))
                         existing_combo_id = signature_to_combo_id.get(signature) if signature is not None else None
                         model.Add(strong == rest_selected)
                         num_constraints += 1
@@ -1055,6 +1074,17 @@ class OrtoolsSolver:
                             model.Add(medium + rest_selected + same_combo == 1)
                             num_constraints += 1
                         else:
+                            if signature is not None:
+                                unknown_working_signature_count += 1
+                                if len(unknown_working_signature_sample) < 10:
+                                    unknown_working_signature_sample.append(
+                                        {
+                                            "agent_id": agent_id,
+                                            "day_date": day_date.isoformat(),
+                                            "poste_id": signature[0],
+                                            "tranche_ids": list(signature[1]),
+                                        }
+                                    )
                             model.Add(medium + rest_selected == 1)
                             num_constraints += 1
                         continue
@@ -1075,6 +1105,8 @@ class OrtoolsSolver:
         else:
             model.Add(existing_change_medium_total == 0)
         num_constraints += 2
+        stats["existing_working_signature_unknown_count"] = unknown_working_signature_count
+        stats["existing_working_signature_unknown_sample"] = unknown_working_signature_sample
 
         understaff_total_unweighted = model.NewIntVar(0, total_required_count, "understaff_total_unweighted")
         num_variables += 1
