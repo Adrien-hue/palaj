@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
-import os
 import time
 from typing import Any, Callable
 
@@ -131,18 +130,12 @@ class LnsRunner:
         lns_required_budget_seconds_to_start_iter: float | None = None
         lns_intended_iter_time_limit_seconds_last: float | None = None
         lns_iter_time_limit_seconds_effective_last: float | None = None
-        lns_debug_full_history = os.getenv("PLANNING_DEBUG", "0") == "1"
         lns_history_max_items = self.max_lns_history_items
         lns_history_truncated = False
 
         def _append_lns_history(entry: dict[str, object]) -> None:
-            nonlocal lns_history_truncated
+            # No trimming here; payload caps are handled in StatsCollector.
             lns_iteration_history.append(entry)
-            if lns_debug_full_history:
-                return
-            while len(lns_iteration_history) > lns_history_max_items:
-                lns_iteration_history.pop(0)
-                lns_history_truncated = True
 
         lns_start_remaining = max(0.0, (time_limit_seconds - (time.monotonic() - started_at))) if lns_enabled and time_limit_seconds > 0 else 0.0
         if lns_enabled and best_solution is not None:

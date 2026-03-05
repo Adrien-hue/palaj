@@ -1,19 +1,35 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import date, timedelta
 import os
 from typing import Any
 
 from backend.app.services.solver.constants import (
-    DEFAULT_COMPACT_MAX_ITEMS as DEFAULT_COMPACT_MAX_ITEMS_CONST,
     RESULT_STATS_SCHEMA_VERSION,
     SOLVER_VERSION,
+    STATS_PAYLOAD_CAPS,
 )
 
 
 class StatsCollector:
     SCHEMA_VERSION = RESULT_STATS_SCHEMA_VERSION
-    DEFAULT_COMPACT_MAX_ITEMS = DEFAULT_COMPACT_MAX_ITEMS_CONST
+    LNS_HISTORY_ITEM_KEYS = {
+        "t",
+        "poste_id",
+        "selected_postes",
+        "relaxed_days_count",
+        "fixed_y_count",
+        "relaxed_y_count",
+        "neighborhood_mode_effective",
+        "solve_wall_time_seconds_iter",
+        "accepted",
+        "status_raw",
+        "status_int",
+        "validate_message_present",
+        "understaff_total_unweighted",
+        "objective_value",
+    }
 
     def __init__(self, verbosity: str = "debug"):
         self.verbosity = verbosity if verbosity in {"compact", "debug"} else "debug"
@@ -38,15 +54,6 @@ class StatsCollector:
         container[f"{field_name}_total"] = total
 
     @staticmethod
-    def _attach_list_meta(container: dict[str, Any], key: str, *, alias: str | None = None) -> None:
-        value = container.get(key)
-        if not isinstance(value, list):
-            return
-        field_name = alias or key
-        container[f"{field_name}_truncated"] = False
-        container[f"{field_name}_total"] = len(value)
-
-    @staticmethod
     def _filter_positive_understaff_days(coverage_stats: dict[str, Any], max_items: int) -> None:
         day_weights = coverage_stats.get("understaff_by_day_weighted")
         if not isinstance(day_weights, dict):
@@ -57,6 +64,52 @@ class StatsCollector:
         coverage_stats["understaff_by_day_weighted"] = {day: weight for day, weight in selected}
         coverage_stats["understaff_by_day_weighted_truncated"] = len(positive_days) > max_items
         coverage_stats["understaff_by_day_weighted_total"] = len(positive_days)
+
+    @staticmethod
+    def _cap_understaff_days_keep_window(coverage_stats: dict[str, Any], max_items: int) -> None:
+        day_weights = coverage_stats.get("understaff_by_day_weighted")
+        if not isinstance(day_weights, dict):
+            return
+
+        def _infer_window_days_or_none(day_keys: list[str]) -> list[str] | None:
+            parsed: list[date] = []
+            for key in day_keys:
+                try:
+                    parsed.append(date.fromisoformat(key))
+                except ValueError:
+                    return None
+            if not parsed:
+                return []
+            start = min(parsed)
+            end = max(parsed)
+            day_count = (end - start).days + 1
+            return [(start + timedelta(days=offset)).isoformat() for offset in range(day_count)]
+
+        normalized = {str(day): float(weight) for day, weight in day_weights.items()}
+        inferred_window_days = _infer_window_days_or_none(list(normalized.keys()))
+        if inferred_window_days is None:
+            window_filled = normalized
+        else:
+            window_filled = {day: float(normalized.get(day, 0.0)) for day in inferred_window_days}
+
+        items = list(window_filled.items())
+        items.sort(key=lambda item: item[0])
+        selected = items[:max_items]
+        coverage_stats["understaff_by_day_weighted"] = {day: weight for day, weight in selected}
+        coverage_stats["understaff_by_day_weighted_truncated"] = len(items) > max_items
+        coverage_stats["understaff_by_day_weighted_total"] = len(items)
+
+    def _slim_lns_iteration_history(self, lns_stats: dict[str, Any]) -> None:
+        history = lns_stats.get("iteration_history")
+        if not isinstance(history, list):
+            return
+        slimmed: list[dict[str, Any]] = []
+        for item in history:
+            if not isinstance(item, dict):
+                slimmed.append(item)
+                continue
+            slimmed.append({k: item.get(k) for k in self.LNS_HISTORY_ITEM_KEYS if k in item})
+        lns_stats["iteration_history"] = slimmed
 
     def build_grouped_stats(self, flat: dict[str, Any]) -> dict[str, Any]:
         model_keys = {
@@ -247,21 +300,23 @@ class StatsCollector:
         model = result.get("model", {})
         coverage = result.get("coverage", {})
 
-        if verbosity != "compact":
-            self._attach_list_meta(lns, "iteration_history")
-            self._attach_list_meta(model, "combo_rejected_samples")
-            self._attach_list_meta(model, "combo_allowed_samples")
-            self._attach_list_meta(model, "missing_tranche_in_any_combo_sample")
-            self._attach_list_meta(coverage, "top_understaff_days")
-            return result
+        caps = STATS_PAYLOAD_CAPS[verbosity] if verbosity in STATS_PAYLOAD_CAPS else STATS_PAYLOAD_CAPS["debug"]
 
-        max_items = self.DEFAULT_COMPACT_MAX_ITEMS
-        self._truncate_list_keep_type(lns, "iteration_history", max_items)
-        self._truncate_list_keep_type(model, "combo_rejected_samples", max_items)
-        self._truncate_list_keep_type(model, "combo_allowed_samples", max_items)
-        self._truncate_list_keep_type(model, "missing_tranche_in_any_combo_sample", max_items)
-        self._truncate_list_keep_type(coverage, "top_understaff_days", max_items)
-        self._filter_positive_understaff_days(coverage, max_items)
+        self._slim_lns_iteration_history(lns)
+        self._truncate_list_keep_type(lns, "iteration_history", int(caps["lns_iteration_history"]))
+
+        self._truncate_list_keep_type(model, "combo_rejected_samples", int(caps["combo_rejected_samples"]))
+        self._truncate_list_keep_type(model, "combo_allowed_samples", int(caps["combo_allowed_samples"]))
+        self._truncate_list_keep_type(model, "missing_tranche_in_any_combo_sample", int(caps["missing_tranche_in_any_combo_sample"]))
+
+        self._truncate_list_keep_type(coverage, "top_understaff_days", int(caps["top_understaff_days"]))
+        if verbosity == "compact":
+            self._filter_positive_understaff_days(coverage, int(caps["understaff_by_day_weighted"]))
+        else:
+            self._cap_understaff_days_keep_window(coverage, int(caps["understaff_by_day_weighted"]))
+
+        cp_sat = result.get("cp_sat", {})
+        self._truncate_list_keep_type(cp_sat, "best_objective_over_time_points", int(caps["cp_sat_best_objective_points"]))
         return result
 
     def finalize(self, flat: dict[str, Any]) -> dict[str, Any]:
