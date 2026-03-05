@@ -29,6 +29,7 @@ Dependency flow:
 from __future__ import annotations
 
 import time
+from datetime import date
 
 from ortools.sat.python import cp_model
 
@@ -78,6 +79,8 @@ class OrtoolsSolver:
     W_RPDOUBLE_BONUS = 5
     W_TRANCHE_DIVERSITY = 5
     W_UNDERSTAFF_SMOOTH = 1
+    W_EXISTING_CHANGE_STRONG = 100_000
+    W_EXISTING_CHANGE_MEDIUM = 20_000
 
     GPT_DAY_TYPES = {
         DayType.WORKING.value,
@@ -207,8 +210,19 @@ class OrtoolsSolver:
             involves_night=False,
             day_kind=DayKind.REST,
         )
-        combos: list[DayCombo] = [rest_combo]
-        next_combo_id = 1
+        zcot_combo = DayCombo(
+            id=1,
+            poste_id=None,
+            tranche_ids=(),
+            start_min=None,
+            end_min=None,
+            work_minutes=0,
+            amplitude_minutes=0,
+            involves_night=False,
+            day_kind=DayKind.ZCOT,
+        )
+        combos: list[DayCombo] = [rest_combo, zcot_combo]
+        next_combo_id = 2
         for poste_id in sorted(tranches_by_poste):
             poste_combos = build_day_combos_for_poste(tranches=tranches_by_poste[poste_id], rh_engine=rh_engine)
             for combo in poste_combos:
@@ -322,13 +336,18 @@ class OrtoolsSolver:
         max_cost_blocks = self.W_WORK_BLOCKS * work_block_starts_max
         max_cost_rpdouble = self.W_RPDOUBLE_BONUS * rpdouble_soft_max
         max_cost_diversity = self.W_TRANCHE_DIVERSITY * tranche_diversity_max
+        max_existing_change_count = agent_count * total_days
         max_cost_smoothing = self.W_UNDERSTAFF_SMOOTH * understaff_smooth_max
+        max_cost_existing_change_strong = self.W_EXISTING_CHANGE_STRONG * max_existing_change_count
+        max_cost_existing_change_medium = self.W_EXISTING_CHANGE_MEDIUM * max_existing_change_count
         max_cost_all_tiebreakers = (
             abs(max_cost_stability)
             + abs(max_cost_blocks)
             + abs(max_cost_rpdouble)
             + abs(max_cost_diversity)
             + abs(max_cost_smoothing)
+            + abs(max_cost_existing_change_strong)
+            + abs(max_cost_existing_change_medium)
         )
         stats["dominance_ratios"] = {
             "cost_one_understaff_weekday_day": cost_one_understaff_weekday_day,
@@ -345,6 +364,9 @@ class OrtoolsSolver:
             "max_cost_rpdouble": max_cost_rpdouble,
             "max_cost_diversity": max_cost_diversity,
             "max_cost_smoothing": max_cost_smoothing,
+            "max_existing_change_count": max_existing_change_count,
+            "max_cost_existing_change_strong": max_cost_existing_change_strong,
+            "max_cost_existing_change_medium": max_cost_existing_change_medium,
             "max_cost_all_tiebreakers": max_cost_all_tiebreakers,
             "ratio_all_tiebreakers_vs_one_understaff_weekday_day": (max_cost_all_tiebreakers / cost_one_understaff_weekday_day) if cost_one_understaff_weekday_day else 0.0,
             "ratio_all_tiebreakers_vs_one_understaff_weekend_day": (max_cost_all_tiebreakers / cost_one_understaff_weekend_day) if cost_one_understaff_weekend_day else 0.0,
@@ -388,6 +410,17 @@ class OrtoolsSolver:
         stats["num_combos_in_model"] = len(combo_ids_in_model)
         stats["num_combos_effective"] = stats["num_combos_in_model"]
 
+        use_existing_assignments = bool(solver_input.use_existing_assignments)
+        existing_daytypes_ctx = solver_input.existing_daytype_by_agent_day_ctx if use_existing_assignments else {}
+        existing_assignments_ctx = solver_input.existing_assignment_by_agent_day_ctx if use_existing_assignments else {}
+        hard_daytype_overrides: dict[tuple[int, date], str] = {}
+        signature_to_combo_id: dict[tuple[int, tuple[int, ...]], int] = {}
+        zcot_combo_id = next((combo.id for combo in combos if combo.day_kind == DayKind.ZCOT), None)
+        for combo in combos:
+            if combo.day_kind != DayKind.WORK or combo.poste_id is None or not combo.tranche_ids:
+                continue
+            signature_to_combo_id[(int(combo.poste_id), tuple(sorted(combo.tranche_ids)))] = combo.id
+
         num_constraints += add_daily_choice_constraints(
             model=model,
             ordered_agent_ids=ordered_agent_ids,
@@ -399,6 +432,18 @@ class OrtoolsSolver:
         rest_combo_ids = [combo.id for combo in combos if combo.day_kind == DayKind.REST]
         stats["daily_choice_mode"] = daily_choice_mode
         stats["rest_combo_count_in_model"] = len(rest_combo_ids)
+
+        if use_existing_assignments:
+            for agent_id in ordered_agent_ids:
+                for di, day_date in enumerate(dates):
+                    existing_day_type = existing_daytypes_ctx.get((agent_id, day_date))
+                    if existing_day_type not in {DayType.ABSENT.value, DayType.LEAVE.value}:
+                        continue
+                    rest_var = y.get((agent_id, di, 0))
+                    if rest_var is not None:
+                        model.Add(rest_var == 1)
+                        num_constraints += 1
+                        hard_daytype_overrides[(agent_id, day_date)] = existing_day_type
 
         has_rest_choice_each_day_in_window_by_agent: dict[int, bool] = {}
         has_work_choice_each_day_in_window_by_agent: dict[int, bool] = {}
@@ -956,6 +1001,81 @@ class OrtoolsSolver:
             model.Add(understaff_smooth_weighted_sum == 0)
         num_constraints += 5
 
+        existing_change_strong_vars: list[cp_model.IntVar] = []
+        existing_change_medium_vars: list[cp_model.IntVar] = []
+        if use_existing_assignments:
+            for agent_id in ordered_agent_ids:
+                for di, day_date in enumerate(dates):
+                    existing_day_type = existing_daytypes_ctx.get((agent_id, day_date))
+                    if existing_day_type is None:
+                        continue
+                    rest_selected = y.get((agent_id, di, 0))
+                    if rest_selected is None:
+                        continue
+                    strong = model.NewBoolVar(f"existing_change_strong_a{agent_id}_d{di}")
+                    medium = model.NewBoolVar(f"existing_change_medium_a{agent_id}_d{di}")
+                    num_variables += 2
+                    existing_change_strong_vars.append(strong)
+                    existing_change_medium_vars.append(medium)
+
+                    if existing_day_type == DayType.REST.value:
+                        model.Add(strong + rest_selected == 1)
+                        model.Add(medium == 0)
+                        num_constraints += 2
+                        continue
+
+                    if existing_day_type in {DayType.ABSENT.value, DayType.LEAVE.value}:
+                        model.Add(strong == 0)
+                        model.Add(medium == 0)
+                        num_constraints += 2
+                        continue
+
+                    if existing_day_type == DayType.ZCOT.value:
+                        zcot_selected = y.get((agent_id, di, zcot_combo_id)) if zcot_combo_id is not None else None
+                        if zcot_selected is not None:
+                            model.Add(strong == 0)
+                            model.Add(medium == rest_selected)
+                            num_constraints += 2
+                        else:
+                            model.Add(strong == 0)
+                            model.Add(medium == rest_selected)
+                            num_constraints += 2
+                        continue
+
+                    if existing_day_type == DayType.WORKING.value:
+                        assignment = existing_assignments_ctx.get((agent_id, day_date), {})
+                        poste_id = assignment.get("poste_id") if isinstance(assignment, dict) else None
+                        tranche_ids = assignment.get("tranche_ids") if isinstance(assignment, dict) else ()
+                        signature = (int(poste_id), tuple(sorted(int(t) for t in tranche_ids))) if poste_id is not None else None
+                        existing_combo_id = signature_to_combo_id.get(signature) if signature is not None else None
+                        model.Add(strong == rest_selected)
+                        num_constraints += 1
+                        if existing_combo_id is not None and (agent_id, di, existing_combo_id) in y:
+                            same_combo = y[(agent_id, di, existing_combo_id)]
+                            model.Add(medium + rest_selected + same_combo == 1)
+                            num_constraints += 1
+                        else:
+                            model.Add(medium + rest_selected == 1)
+                            num_constraints += 1
+                        continue
+
+                    model.Add(strong == 0)
+                    model.Add(medium == 0)
+                    num_constraints += 2
+
+        existing_change_strong_total = model.NewIntVar(0, len(existing_change_strong_vars), "existing_change_strong_total")
+        existing_change_medium_total = model.NewIntVar(0, len(existing_change_medium_vars), "existing_change_medium_total")
+        num_variables += 2
+        if existing_change_strong_vars:
+            model.Add(existing_change_strong_total == sum(existing_change_strong_vars))
+        else:
+            model.Add(existing_change_strong_total == 0)
+        if existing_change_medium_vars:
+            model.Add(existing_change_medium_total == sum(existing_change_medium_vars))
+        else:
+            model.Add(existing_change_medium_total == 0)
+        num_constraints += 2
+
         understaff_total_unweighted = model.NewIntVar(0, total_required_count, "understaff_total_unweighted")
         num_variables += 1
         if understaff_vars:
@@ -977,6 +1097,8 @@ class OrtoolsSolver:
             - self.W_RPDOUBLE_BONUS * rpdouble_soft_total
             - self.W_TRANCHE_DIVERSITY * tranche_diversity_total
             + self.W_UNDERSTAFF_SMOOTH * understaff_smooth_weighted_sum
+            + self.W_EXISTING_CHANGE_STRONG * existing_change_strong_total
+            + self.W_EXISTING_CHANGE_MEDIUM * existing_change_medium_total
         )
 
         def _normalize_status(raw_status: int, wall_time: float, budget_seconds: float) -> tuple[str, str, bool]:
@@ -1283,6 +1405,7 @@ class OrtoolsSolver:
             date_to_index=date_to_index,
             ordered_agent_ids=ordered_agent_ids,
             solver_input=solver_input,
+            hard_daytype_overrides=hard_daytype_overrides,
         )
 
         objective_value = int(best_solution["objective_value"])
@@ -1386,6 +1509,8 @@ class OrtoolsSolver:
                 "tranche_diversity_total": eval_solver.Value(tranche_diversity_total),
                 "tranche_diversity_by_agent": tranche_diversity_by_agent,
                 "understaff_smooth_weighted_sum": eval_solver.Value(understaff_smooth_weighted_sum),
+                "existing_change_strong_total": eval_solver.Value(existing_change_strong_total),
+                "existing_change_medium_total": eval_solver.Value(existing_change_medium_total),
                 "objective_terms": {
                     "understaff_weighted": understaff_total_weighted,
                     "understaff_smooth_weighted": eval_solver.Value(understaff_smooth_weighted_sum),
@@ -1399,6 +1524,8 @@ class OrtoolsSolver:
                     "work_blocks_starts": eval_solver.Value(work_blocks_starts_total),
                     "rpdouble_soft_bonus": eval_solver.Value(rpdouble_soft_total),
                     "tranche_diversity_bonus": eval_solver.Value(tranche_diversity_total),
+                    "existing_change_strong": eval_solver.Value(existing_change_strong_total),
+                    "existing_change_medium": eval_solver.Value(existing_change_medium_total),
                 },
                 "num_assignments": len(assignments),
             }

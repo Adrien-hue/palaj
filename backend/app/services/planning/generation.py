@@ -225,6 +225,14 @@ class PlanningGenerationService:
                     end_date=draft.end_date,
                 )
                 (
+                    existing_daytype_by_agent_day_ctx,
+                    existing_assignment_by_agent_day_ctx,
+                ) = mapper.list_existing_assignments_context(
+                    agent_ids=team_agent_ids,
+                    start_date=draft.start_date,
+                    end_date=draft.end_date,
+                )
+                (
                     existing_work_minutes_by_agent_day_ctx,
                     existing_shift_start_end_by_agent_day_ctx,
                 ) = mapper.list_existing_work_context(
@@ -268,6 +276,9 @@ class PlanningGenerationService:
                         existing_day_type_by_agent_day=existing_day_type_by_agent_day,
                         gpt_context_days=gpt_context_days,
                         existing_day_type_by_agent_day_ctx=existing_day_type_by_agent_day_ctx,
+                        existing_daytype_by_agent_day_ctx=existing_daytype_by_agent_day_ctx,
+                        existing_assignment_by_agent_day_ctx=existing_assignment_by_agent_day_ctx,
+                        use_existing_assignments=bool(solver_opts.get("use_existing_assignments", True)),
                         existing_work_minutes_by_agent_day_ctx=existing_work_minutes_by_agent_day_ctx,
                         existing_shift_start_end_by_agent_day_ctx=existing_shift_start_end_by_agent_day_ctx,
                         poste_ids=poste_ids,

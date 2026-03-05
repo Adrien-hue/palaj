@@ -23,6 +23,9 @@ class SolverInput:
     coverage_demands: list["CoverageDemand"]
     gpt_context_days: list[date] = field(default_factory=list)
     existing_day_type_by_agent_day_ctx: dict[tuple[int, date], str] = field(default_factory=dict)
+    existing_daytype_by_agent_day_ctx: dict[tuple[int, date], str] = field(default_factory=dict)
+    existing_assignment_by_agent_day_ctx: dict[tuple[int, date], dict[str, Any]] = field(default_factory=dict)
+    use_existing_assignments: bool = True
     existing_work_minutes_by_agent_day_ctx: dict[tuple[int, date], int] = field(default_factory=dict)
     existing_shift_start_end_by_agent_day_ctx: dict[tuple[int, date], tuple[int, int] | None] = field(default_factory=dict)
     quality_profile: str = "balanced"

@@ -430,3 +430,57 @@ def test_runner_adds_ignored_coverage_requirement_stats(db_session: Session):
     assert persisted_draft.result_stats["covered_poste_ids_count"] == 0
     assert persisted_draft.result_stats["ignored_coverage_requirements_count"] >= 1
     assert uncovered_poste.id in persisted_draft.result_stats["ignored_poste_ids_sample"]
+
+
+def test_run_job_populates_existing_assignments_context_in_solver_input(db_session: Session, monkeypatch):
+    team = _seed_team(db_session, agent_count=1)
+    start_date = date(2026, 1, 10)
+    end_date = date(2026, 1, 10)
+
+    agent_id = db_session.query(AgentTeam.agent_id).filter(AgentTeam.team_id == team.id).one()[0]
+    poste = Poste(nom=f"Poste existing {uuid4()}")
+    db_session.add(poste)
+    db_session.flush()
+    tranche = Tranche(nom=f"Tranche existing {uuid4()}", heure_debut=time(8, 0), heure_fin=time(12, 0), poste_id=poste.id, color=None)
+    db_session.add(tranche)
+    db_session.flush()
+    db_session.add(Qualification(agent_id=agent_id, poste_id=poste.id, date_qualification=None))
+    db_session.add(PosteCoverageRequirement(poste_id=poste.id, weekday=start_date.weekday(), tranche_id=tranche.id, required_count=0))
+    db_session.flush()
+
+    from db.models import AgentDay, AgentDayAssignment
+
+    existing_day = AgentDay(agent_id=agent_id, day_date=start_date, day_type="working", description=None, is_off_shift=False)
+    db_session.add(existing_day)
+    db_session.flush()
+    db_session.add(AgentDayAssignment(agent_day_id=existing_day.id, tranche_id=tranche.id))
+    db_session.commit()
+
+    captured = {}
+    original_generate = OrtoolsSolver.generate
+
+    def _capture_generate(self, solver_input):
+        captured["solver_input"] = solver_input
+        return original_generate(self, solver_input)
+
+    monkeypatch.setattr(OrtoolsSolver, "generate", _capture_generate)
+
+    generation_service = _build_generation_service(db_session)
+    draft = generation_service.create_draft(
+        session=db_session,
+        team_id=team.id,
+        start_date=start_date,
+        end_date=end_date,
+        seed=42,
+        time_limit_seconds=5,
+    )
+    db_session.commit()
+
+    generation_service.run_job(str(draft.job_id))
+
+    solver_input = captured["solver_input"]
+    assert solver_input.use_existing_assignments is True
+    assert solver_input.existing_daytype_by_agent_day_ctx[(agent_id, start_date)] == "working"
+    existing_assignment = solver_input.existing_assignment_by_agent_day_ctx[(agent_id, start_date)]
+    assert existing_assignment["poste_id"] == poste.id
+    assert existing_assignment["tranche_ids"] == (tranche.id,)

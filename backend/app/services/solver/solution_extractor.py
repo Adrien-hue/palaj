@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 from core.domain.enums.day_type import DayType
@@ -16,6 +17,7 @@ def extract_solution(
     date_to_index: dict[Any, int],
     ordered_agent_ids: list[int],
     solver_input: SolverInput,
+    hard_daytype_overrides: dict[tuple[int, date], str] | None = None,
 ) -> tuple[list[SolverAssignment], list[SolverAgentDay], set[tuple[int, int]]]:
     """Extract assignments and agent-day statuses from solved CP-SAT variables.
 
@@ -32,13 +34,22 @@ def extract_solution(
             for tranche_id in combo.tranche_ids:
                 assignments.append(SolverAssignment(agent_id=agent_id, day_date=dates[di], tranche_id=tranche_id))
 
+    overrides = hard_daytype_overrides or {}
+    assignments = [
+        assignment
+        for assignment in assignments
+        if overrides.get((assignment.agent_id, assignment.day_date)) not in {DayType.ABSENT.value, DayType.LEAVE.value}
+    ]
     assignments.sort(key=lambda item: (item.day_date, item.agent_id, item.tranche_id))
 
     agent_days: list[SolverAgentDay] = []
     for day_date in dates:
         di = date_to_index[day_date]
         for agent_id in ordered_agent_ids:
-            if (agent_id, di) in assigned_day_by_agent:
+            override_day_type = overrides.get((agent_id, day_date))
+            if override_day_type is not None:
+                day_type = override_day_type
+            elif (agent_id, di) in assigned_day_by_agent:
                 day_type = DayType.WORKING.value
             else:
                 day_type = solver_input.existing_day_type_by_agent_day.get((agent_id, day_date), DayType.REST.value)

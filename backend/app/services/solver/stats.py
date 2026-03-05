@@ -170,6 +170,8 @@ class StatsCollector:
             "tranche_diversity_total",
             "tranche_diversity_by_agent",
             "understaff_smooth_weighted_sum",
+            "existing_change_strong_total",
+            "existing_change_medium_total",
             "workload_min",
             "workload_max",
             "workload_avg",
