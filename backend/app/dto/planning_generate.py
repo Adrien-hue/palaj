@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from datetime import date
 from uuid import UUID
-from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from core.domain.enums.planning_draft_status import PlanningDraftStatus
 
@@ -63,6 +62,24 @@ class PlanningGenerateRequest(BaseModel):
         return value
 
 
+class GroupedStatsPayload(BaseModel):
+    meta: dict
+    timing: dict
+    model: dict
+    coverage: dict
+    objective: dict
+    solution_quality: dict
+    lns: dict
+    cp_sat: dict
+
+
+class ResultStatsPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    result_stats_schema_version: int
+    stats: GroupedStatsPayload
+
+
 class PlanningGenerateResponse(BaseModel):
     job_id: UUID
     draft_id: int
@@ -74,5 +91,19 @@ class PlanningGenerateStatusResponse(BaseModel):
     draft_id: int
     status: PlanningDraftStatus
     progress: float = Field(ge=0, le=1)
-    result_stats: dict[str, Any] | None = None
+    result_stats: ResultStatsPayload | None = None
     error: str | None = None
+
+
+class PlanningDraftAcceptResponse(BaseModel):
+    draft_id: int
+    status: PlanningDraftStatus
+    published: bool
+    team_id: int
+    start_date: date
+    end_date: date
+
+
+class PlanningDraftRejectResponse(BaseModel):
+    draft_id: int
+    status: PlanningDraftStatus

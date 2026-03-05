@@ -1,21 +1,62 @@
+"""OR-Tools solver orchestration layer for PALAJ planning.
+
+Pipeline (deterministic, non-breaking contract):
+  phase1 -> phase2 -> lns -> extraction -> stats finalization.
+
+Responsibilities by module:
+- model_builder: build immutable solve context and indices.
+- cp_sat: CP-SAT setup/status normalization/effective params snapshots.
+- phases: callback tracing and solve wrapper.
+- lns_runner: optional iterative LNS improvement on an incumbent.
+- solution_extractor: read assignments/metrics from a solved model.
+- stats: grouped result stats assembly and verbosity shaping.
+
+Important invariants:
+- deterministic CP-SAT defaults (single worker + fixed seed behavior),
+- LNS early-stop semantics and effective_last=None semantics are preserved,
+- result_stats flat keys stay backward-compatible; grouped stats are additive.
+
+Dependency flow:
+  ortools_solver
+     |--> model_builder
+     |--> cp_sat
+     |--> phases
+     |--> lns_runner
+     |--> solution_extractor
+     --> stats
+"""
+
 from __future__ import annotations
 
-from collections import deque
-from datetime import timedelta
-import os
 import time
+from datetime import date
 
 from ortools.sat.python import cp_model
 
 from core.domain.enums.day_type import DayType
 
-from .models import InfeasibleError, SolverAgentDay, SolverAssignment, SolverInput, SolverOutput, TimeoutError
-from .rh_combos import DayCombo, DayKind, DefaultRhComboRulesEngine, build_day_combos_for_poste, build_rest_compatibility
-
-
-MIN_LNS_REMAINING_SECONDS_TO_RUN_ITER = 0.2
-LNS_ITER_OVERHEAD_SECONDS = 0.05
-MIN_LNS_CP_SAT_TIME_LIMIT_SECONDS = 0.2
+from backend.app.services.solver.constants import (
+    LNS_ITER_OVERHEAD_SECONDS,
+    MAX_LNS_HISTORY_ITEMS as MAX_LNS_HISTORY_ITEMS_CONST,
+    MIN_LNS_CP_SAT_TIME_LIMIT_SECONDS,
+    MIN_LNS_REMAINING_SECONDS_TO_RUN_ITER,
+)
+from backend.app.services.solver.cp_sat import configure_solver, effective_cp_sat_params, normalize_status
+from backend.app.services.solver.existing_assignments import build_existing_context_maps, is_in_window_ctx_index
+from backend.app.services.solver.lns_runner import LnsRunner
+from backend.app.services.solver.model_builder import build_solve_context
+from backend.app.services.solver.models import InfeasibleError, SolverInput, SolverOutput, TimeoutError
+from backend.app.services.solver.ortools_solver_builders import (
+    add_daily_choice_constraints,
+    add_rest_compat_constraints,
+    build_choice_vars_and_samples,
+    build_prioritized_decision_vars,
+)
+from backend.app.services.solver.phases import TraceCallback, solve_with_trace
+from backend.app.services.solver.rh_combos import DayCombo, DayKind, DefaultRhComboRulesEngine, build_day_combos_for_poste, build_rest_compatibility
+from backend.app.services.solver.solution_extractor import extract_solution
+from backend.app.services.solver.stats_defaults import make_base_stats
+from backend.app.services.solver.stats import StatsCollector
 
 
 class OrtoolsSolver:
@@ -39,6 +80,8 @@ class OrtoolsSolver:
     W_RPDOUBLE_BONUS = 5
     W_TRANCHE_DIVERSITY = 5
     W_UNDERSTAFF_SMOOTH = 1
+    W_EXISTING_CHANGE_STRONG = 100_000
+    W_EXISTING_CHANGE_MEDIUM = 20_000
 
     GPT_DAY_TYPES = {
         DayType.WORKING.value,
@@ -52,7 +95,7 @@ class OrtoolsSolver:
     }
     RPDOUBLE_OFF_RULE = "rest_only"
     RPDOUBLE_OFF_DAY_TYPES = {DayType.REST.value}
-    MAX_LNS_HISTORY_ITEMS = 200
+    MAX_LNS_HISTORY_ITEMS = MAX_LNS_HISTORY_ITEMS_CONST
 
     @staticmethod
     def _time_to_minutes(value) -> int:
@@ -113,24 +156,27 @@ class OrtoolsSolver:
         )
 
     def generate(self, solver_input: SolverInput) -> SolverOutput:
+        """Run the full solving pipeline and return assignments + flat/grouped stats.
+
+        Orchestrates phase1/phase2 solves, optional LNS refinement, solution
+        extraction, and final stats aggregation while preserving legacy flat keys.
+        """
+        stats_collector = StatsCollector.from_env()
         solve_started_at = time.monotonic()
         model = cp_model.CpModel()
         num_constraints = 0
         num_variables = 0
 
-        ordered_agent_ids = sorted(solver_input.agent_ids)
-        dates: list = []
-        cursor = solver_input.start_date
-        while cursor <= solver_input.end_date:
-            dates.append(cursor)
-            cursor += timedelta(days=1)
-        date_to_index = {d: i for i, d in enumerate(dates)}
+        solve_context = build_solve_context(solver_input)
+        ordered_agent_ids = solve_context.ordered_agent_ids
+        dates = solve_context.dates
+        date_to_index = solve_context.date_to_index
         date_to_period_index = {d: i for i, d in enumerate(dates)}
 
-        apply_gpt_rules = bool(solver_input.gpt_context_days)
-        context_days = list(solver_input.gpt_context_days) if apply_gpt_rules else list(dates)
-        ctx_date_to_index = {d: i for i, d in enumerate(context_days)}
-        in_window_ctx_indices = {ctx_date_to_index[d] for d in dates if d in ctx_date_to_index}
+        apply_gpt_rules = solve_context.apply_gpt_rules
+        context_days = solve_context.context_days
+        ctx_date_to_index = solve_context.ctx_date_to_index
+        in_window_ctx_indices = solve_context.in_window_ctx_indices
 
         qual_posts = {agent_id: set(postes) for agent_id, postes in solver_input.qualified_postes_by_agent.items()}
         qual_date = solver_input.qualification_date_by_agent_poste
@@ -165,8 +211,19 @@ class OrtoolsSolver:
             involves_night=False,
             day_kind=DayKind.REST,
         )
-        combos: list[DayCombo] = [rest_combo]
-        next_combo_id = 1
+        zcot_combo = DayCombo(
+            id=1,
+            poste_id=None,
+            tranche_ids=(),
+            start_min=None,
+            end_min=None,
+            work_minutes=0,
+            amplitude_minutes=0,
+            involves_night=False,
+            day_kind=DayKind.ZCOT,
+        )
+        combos: list[DayCombo] = [rest_combo, zcot_combo]
+        next_combo_id = 2
         for poste_id in sorted(tranches_by_poste):
             poste_combos = build_day_combos_for_poste(tranches=tranches_by_poste[poste_id], rh_engine=rh_engine)
             for combo in poste_combos:
@@ -198,9 +255,8 @@ class OrtoolsSolver:
                 combo_ids_by_poste.setdefault(combo.poste_id, []).append(combo.id)
 
         compatible_pairs = build_rest_compatibility(combos=combos, rh_engine=rh_engine)
-        incompatible_pairs = {(c1, c2) for c1 in combo_by_id for c2 in combo_by_id if (c1, c2) not in compatible_pairs}
         num_combos_total = len(combos)
-        num_incompatible_pairs = len(incompatible_pairs)
+        num_incompatible_pairs = (num_combos_total * num_combos_total) - len(compatible_pairs)
         gpt_ctx_days_count = len(context_days) if apply_gpt_rules else 0
         rpdouble_off_rule = self.RPDOUBLE_OFF_RULE if apply_gpt_rules else None
         total_days = len(dates)
@@ -220,204 +276,26 @@ class OrtoolsSolver:
         time_limit_seconds = float(solver_input.time_limit_seconds or 0.0)
         profile = (solver_input.quality_profile or "balanced").lower()
 
-        stats = {
-            "solver_status": None,
-            "solver_status_raw": None,
-            "normalized_solver_status": None,
-            "is_timeout": False,
-            "time_limit_reached": False,
-            "timeout_detection_method": "status_feasible_or_walltime_95pct",
-            "time_limit_seconds": time_limit_seconds,
-            "solver_max_time_seconds_applied": 0.0,
-            "solve_wall_time_seconds": 0.0,
-            "solver_status_int": None,
-            "solve_time_seconds": 0.0,
-            "coverage_ratio": 0.0,
-            "total_required_count": total_required_count,
-            "total_required_weighted": total_required_weighted,
-            "understaff_total": 0,
-            "understaff_total_weighted": 0,
-            "coverage_ratio_weighted": 0.0,
-            "soft_violations": 0,
-            "agent_count": agent_count,
-            "poste_count": len(solver_input.poste_ids),
-            "tranche_count": len(solver_input.tranches),
-            "demand_count": len(solver_input.coverage_demands),
-            "demanded_pairs_count": demanded_pairs_count,
-            "coverage_constraints_count": 0,
-            "num_combos_total": num_combos_total,
-            "num_combos_in_model": 0,
-            "num_combos_used_in_solution": None,
-            "num_combos_effective": 0,
-            "y_variables_count": 0,
-            "combo_candidate_pairs_count": 0,
-            "combo_allowed_pairs_count": 0,
-            "combo_rejected_absence_count": 0,
-            "combo_rejected_not_qualified_count": 0,
-            "combo_rejected_qualification_date_count": 0,
-            "combo_rejected_unknown_daytype_forces_rest_count": 0,
-            "combo_rejected_other_count": 0,
-            "combo_rejected_samples": [],
-            "combo_allowed_samples": [],
-            "num_incompatible_pairs": num_incompatible_pairs,
-            "num_rest_constraints": 0,
-            "gpt_ctx_days_count": gpt_ctx_days_count,
-            "gpt_window_days_count": len(dates) if apply_gpt_rules else 0,
-            "worked_ctx_window_fixed_days_count_by_agent": {},
-            "runs_selected_total": 0,
-            "runs_selected_by_agent": {},
-            "runs_candidate_count_by_agent": {},
-            "max_possible_runs_by_agent": {},
-            "daily_choice_mode": "exactly_one",
-            "rest_combo_count_in_model": 0,
-            "rest_combo_allowed_count_sample": [],
-            "has_rest_choice_each_day_in_window_by_agent": {},
-            "has_work_choice_each_day_in_window_by_agent": {},
-            "worked_window_forced_zero_by_agent": {},
-            "run_feasible_candidate_count_by_agent": {},
-            "coverage_active": False,
-            "can_cover_any_demand_in_window": False,
-            "rpdouble_off_rule": rpdouble_off_rule,
-            "total_required_work_minutes": total_required_work_minutes,
-            "avg_required_minutes_per_day": avg_required_minutes_per_day,
-            "avg_required_minutes_per_agent_per_day": avg_required_minutes_per_agent_per_day,
-            "gpt_max_avg_minutes_per_day_if_6": 480,
-            "demanded_tranche_ids_count": 0,
-            "covered_tranche_ids_by_any_combo_count": 0,
-            "missing_tranche_in_any_combo_count": 0,
-            "missing_tranche_in_any_combo_sample": [],
-            # Heuristic estimation from demand volume; useful diagnostic signal, not a proof of feasibility.
-            "required_minutes_estimate_method": "sum(tranche_duration_minutes * required_count) over coverage_demands",
-            "total_required_work_minutes_estimate": total_required_work_minutes,
-            "avg_required_minutes_per_agent_per_day_estimate": avg_required_minutes_per_agent_per_day,
-            "variable_count_method": "internal_counter",
-            "constraint_count_method": "internal_counter",
-            "num_variables": 0,
-            "num_constraints": 0,
-            "demanded_days_count": len(demanded_day_idx_set),
-            "total_days_count": total_days,
-            "useless_work_total": 0,
-            "nights_total": 0,
-            "nights_min": 0,
-            "nights_max": 0,
-            "amplitude_cost_total": 0,
-            "stability_changes_total": 0,
-            "stability_changes_by_agent": {},
-            "work_blocks_starts_total": 0,
-            "work_blocks_starts_by_agent": {},
-            "rpdouble_soft_total": 0,
-            "rpdouble_soft_by_agent": {},
-            "tranche_diversity_total": 0,
-            "tranche_diversity_by_agent": {},
-            "understaff_smooth_weighted_sum": 0,
-            "dominance_ratios": {
-                "cost_one_understaff_weekday_day": 0,
-                "cost_one_understaff_weekend_day": 0,
-                "cost_one_understaff_weekday_night": 0,
-                "cost_one_understaff_weekend_night": 0,
-                "stability_changes_max": 0,
-                "work_block_starts_max": 0,
-                "rpdouble_soft_max": 0,
-                "tranche_diversity_max": 0,
-                "understaff_smooth_max": 0,
-                "max_cost_stability": 0,
-                "max_cost_blocks": 0,
-                "max_cost_rpdouble": 0,
-                "max_cost_diversity": 0,
-                "max_cost_smoothing": 0,
-                "max_cost_all_tiebreakers": 0,
-                "ratio_all_tiebreakers_vs_one_understaff_weekday_day": 0.0,
-                "ratio_all_tiebreakers_vs_one_understaff_weekend_day": 0.0,
-                "ratio_all_tiebreakers_vs_one_understaff_weekday_night": 0.0,
-                "ratio_all_tiebreakers_vs_one_understaff_weekend_night": 0.0,
-            },
-            "model_build_wall_time_seconds": 0.0,
-            "phase2_model_rebuild_wall_time_seconds": 0.0,
-            "phase2_reused_model": True,
-            "phase2_solve_wall_time_seconds": 0.0,
-            "lns_model_rebuild_wall_time_seconds_total": 0.0,
-            "lns_solve_wall_time_seconds_total": 0.0,
-            "lns_iteration_history": [],
-            "lns_last_selected_poste_id": None,
-            "lns_model_invalid": False,
-            "lns_model_invalid_message": None,
-            "lns_model_invalid_iteration_index": None,
-            "lns_strict_improve": True,
-            "lns_max_days_to_relax": 14,
-            "min_lns_seconds": 0.0,
-            "lns_iterations_time_budget_max": 0,
-            "lns_iterations_actual": 0,
-            "lns_avg_solve_wall_time_seconds_iter": 0.0,
-            "lns_min_solve_wall_time_seconds_iter": 0.0,
-            "lns_max_solve_wall_time_seconds_iter": 0.0,
-            "lns_solver_time_limit_seconds_applied": 0.0,
-            "lns_neighborhood_mode": "poste_only",
-            "lns_neighborhood_mode_requested": "poste_only",
-            "lns_neighborhood_mode_used_counts": {},
-            "lns_selected_postes_last": [],
-            "lns_relaxed_days_count_last": 0,
-            "lns_fixed_days_count_last": 0,
-            "lns_fixed_y_count_last": 0,
-            "lns_relaxed_y_count_last": 0,
-            "lns_fixed_vars_count_last": 0,
-            "lns_relaxed_vars_count_last": 0,
-            "lns_fixed_runs_count_last": 0,
-            "lns_relaxed_runs_count_last": 0,
-            "lns_iter_has_solution": False,
-            "lns_iter_status_raw": None,
-            "lns_iter_status_int": None,
-            "lns_iter_objective_value": None,
-            "lns_iter_understaff_total_unweighted": None,
-            "lns_iter_validate_message_present": False,
-            "lns_unknown_count_total": 0,
-            "lns_no_solution_count_total": 0,
-            "lns_fallback_triggered": False,
-            "lns_fallback_reason": None,
-            "lns_fallback_after_iterations": None,
-            "lns_fallback_iteration_index": None,
-            "lns_accept_count_at_fallback": 0,
-            "lns_last_accept_iteration_index": None,
-            "lns_last_accept_t": None,
-            "lns_early_stop_triggered": False,
-            "lns_early_stop_reason": None,
-            "lns_remaining_budget_seconds_at_stop": None,
-            "lns_min_remaining_seconds_to_run_iter": float(MIN_LNS_REMAINING_SECONDS_TO_RUN_ITER),
-            "lns_iter_overhead_seconds": float(LNS_ITER_OVERHEAD_SECONDS),
-            "lns_required_budget_seconds_to_start_iter": None,
-            "lns_intended_iter_time_limit_seconds_last": None,
-            "lns_iter_time_limit_seconds_effective_last": None,
-            "lns_iter_time_limit_seconds_min": float(MIN_LNS_CP_SAT_TIME_LIMIT_SECONDS),
-            "lns_neighborhood_mode_effective": None,
-            "lns_poste_plus_one_top_days_k": 0,
-            "lns_poste_plus_one_top_days_selected_sample": [],
-            "lns_poste_plus_one_top_days_days_sample": [],
-            "lns_history_truncated": False,
-            "lns_history_max_items": int(self.MAX_LNS_HISTORY_ITEMS),
-            "cp_sat_params_effective": {},
-            "decision_strategy_enabled": False,
-            "decision_strategy_prioritized_vars_count": 0,
-            "decision_strategy_day_scores_top": [],
-            "symmetry_breaking_enabled": False,
-            "symmetry_constraints_count": 0,
-            "objective_terms": {
-                "understaff_weighted": 0,
-                "understaff_smooth_weighted": 0,
-                "nights_total": 0,
-                "nights_spread": 0,
-                "fair_minutes_spread": 0,
-                "fair_days_spread": 0,
-                "amplitude_cost": 0,
-                "useless_work": 0,
-                "stability_changes": 0,
-                "work_blocks_starts": 0,
-                "rpdouble_soft_bonus": 0,
-                "tranche_diversity_bonus": 0,
-            },
-        }
-
-        y: dict[tuple[int, int, int], cp_model.IntVar] = {}
-        vars_by_agent_day: dict[tuple[int, int], list[cp_model.IntVar]] = {}
-        vars_by_demand: dict[tuple[int, int], list[cp_model.IntVar]] = {}
+        stats = make_base_stats(
+            time_limit_seconds=time_limit_seconds,
+            total_required_count=total_required_count,
+            total_required_weighted=total_required_weighted,
+            agent_count=agent_count,
+            solver_input=solver_input,
+            demanded_pairs_count=demanded_pairs_count,
+            num_combos_total=num_combos_total,
+            num_incompatible_pairs=num_incompatible_pairs,
+            gpt_ctx_days_count=gpt_ctx_days_count,
+            apply_gpt_rules=apply_gpt_rules,
+            dates=dates,
+            rpdouble_off_rule=rpdouble_off_rule,
+            total_required_work_minutes=total_required_work_minutes,
+            avg_required_minutes_per_day=avg_required_minutes_per_day,
+            avg_required_minutes_per_agent_per_day=avg_required_minutes_per_agent_per_day,
+            demanded_day_idx_set=demanded_day_idx_set,
+            total_days=total_days,
+            lns_history_max_items=int(self.MAX_LNS_HISTORY_ITEMS),
+        )
 
         covered_tranche_ids_by_any_combo = {
             tranche_id
@@ -430,7 +308,8 @@ class OrtoolsSolver:
         stats["demanded_tranche_ids_count"] = len(demanded_tranche_ids)
         stats["covered_tranche_ids_by_any_combo_count"] = len(covered_tranche_ids_by_any_combo)
         stats["missing_tranche_in_any_combo_count"] = len(missing_tranche_ids)
-        stats["missing_tranche_in_any_combo_sample"] = sorted(missing_tranche_ids)[:10]
+        # No trimming here; payload caps are handled in StatsCollector.
+        stats["missing_tranche_in_any_combo_sample"] = sorted(missing_tranche_ids)
 
         # Rough upper bounds for objective dominance observability.
         cost_one_understaff_weekday_day = self.W_COVER * self.W_UNDERSTAFF_WEEKDAY_DAY
@@ -458,13 +337,18 @@ class OrtoolsSolver:
         max_cost_blocks = self.W_WORK_BLOCKS * work_block_starts_max
         max_cost_rpdouble = self.W_RPDOUBLE_BONUS * rpdouble_soft_max
         max_cost_diversity = self.W_TRANCHE_DIVERSITY * tranche_diversity_max
+        max_existing_change_count = agent_count * total_days
         max_cost_smoothing = self.W_UNDERSTAFF_SMOOTH * understaff_smooth_max
+        max_cost_existing_change_strong = self.W_EXISTING_CHANGE_STRONG * max_existing_change_count
+        max_cost_existing_change_medium = self.W_EXISTING_CHANGE_MEDIUM * max_existing_change_count
         max_cost_all_tiebreakers = (
             abs(max_cost_stability)
             + abs(max_cost_blocks)
             + abs(max_cost_rpdouble)
             + abs(max_cost_diversity)
             + abs(max_cost_smoothing)
+            + abs(max_cost_existing_change_strong)
+            + abs(max_cost_existing_change_medium)
         )
         stats["dominance_ratios"] = {
             "cost_one_understaff_weekday_day": cost_one_understaff_weekday_day,
@@ -481,6 +365,11 @@ class OrtoolsSolver:
             "max_cost_rpdouble": max_cost_rpdouble,
             "max_cost_diversity": max_cost_diversity,
             "max_cost_smoothing": max_cost_smoothing,
+            "max_existing_change_count": max_existing_change_count,
+            "max_cost_existing_change_strong": max_cost_existing_change_strong,
+            "max_cost_existing_change_medium": max_cost_existing_change_medium,
+            "ratio_existing_change_strong_vs_one_understaff_weekday_day": (max_cost_existing_change_strong / cost_one_understaff_weekday_day) if cost_one_understaff_weekday_day else 0.0,
+            "ratio_existing_change_medium_vs_one_understaff_weekday_day": (max_cost_existing_change_medium / cost_one_understaff_weekday_day) if cost_one_understaff_weekday_day else 0.0,
             "max_cost_all_tiebreakers": max_cost_all_tiebreakers,
             "ratio_all_tiebreakers_vs_one_understaff_weekday_day": (max_cost_all_tiebreakers / cost_one_understaff_weekday_day) if cost_one_understaff_weekday_day else 0.0,
             "ratio_all_tiebreakers_vs_one_understaff_weekend_day": (max_cost_all_tiebreakers / cost_one_understaff_weekend_day) if cost_one_understaff_weekend_day else 0.0,
@@ -492,122 +381,92 @@ class OrtoolsSolver:
             stats["solver_status_raw"] = "PRECHECK_INFEASIBLE"
             stats["normalized_solver_status"] = "INFEASIBLE"
             stats["is_timeout"] = False
-            raise InfeasibleError("infeasible", stats=stats)
+            raise InfeasibleError("infeasible", stats=stats_collector.finalize(stats))
 
-        combo_candidate_pairs_count = 0
-        combo_allowed_pairs_count = 0
-        combo_rejected_absence_count = 0
-        combo_rejected_not_qualified_count = 0
-        combo_rejected_qualification_date_count = 0
-        combo_rejected_unknown_daytype_forces_rest_count = 0
-        combo_rejected_other_count = 0
-        combo_rejected_samples: list[dict] = []
-        combo_allowed_samples: list[dict] = []
-        y_variables_count = 0
-        combo_ids_in_model: set[int] = set()
+        choice_build = build_choice_vars_and_samples(
+            model=model,
+            ordered_agent_ids=ordered_agent_ids,
+            dates=dates,
+            solver_absences=solver_input.absences,
+            sorted_work_combos=sorted_work_combos,
+            qual_posts=qual_posts,
+            qual_date=qual_date,
+        )
+        y = choice_build.y
+        vars_by_agent_day = choice_build.vars_by_agent_day
+        vars_by_demand = choice_build.vars_by_demand
+        var_to_key = choice_build.var_to_key
+        combo_ids_in_model = choice_build.combo_ids_in_model
+        num_variables += choice_build.num_variables_delta
+        num_constraints += choice_build.num_constraints_delta
 
-        def _append_sample(samples: list[dict], *, agent_id: int, day_date, combo_id: int, poste_id: int | None, reason: str) -> None:
-            if len(samples) >= 10:
-                return
-            samples.append(
-                {
-                    "agent_id": agent_id,
-                    "day_date": day_date.isoformat(),
-                    "combo_id": combo_id,
-                    "poste_id": poste_id,
-                    "reason": reason,
-                }
-            )
-
-        for agent_id in ordered_agent_ids:
-            for di, day_date in enumerate(dates):
-                is_absent = (agent_id, day_date) in solver_input.absences
-                if is_absent:
-                    var = model.NewBoolVar(f"y_a{agent_id}_d{di}_c0")
-                    num_variables += 1
-                    y_variables_count += 1
-                    y[(agent_id, di, 0)] = var
-                    combo_ids_in_model.add(0)
-                    vars_by_agent_day.setdefault((agent_id, di), []).append(var)
-                    model.Add(var == 1)
-                    num_constraints += 1
-                else:
-                    var = model.NewBoolVar(f"y_a{agent_id}_d{di}_c0")
-                    num_variables += 1
-                    y_variables_count += 1
-                    y[(agent_id, di, 0)] = var
-                    combo_ids_in_model.add(0)
-                    vars_by_agent_day.setdefault((agent_id, di), []).append(var)
-
-                for combo in sorted_work_combos:
-                    combo_candidate_pairs_count += 1
-                    combo_id = combo.id
-                    reason = None
-                    if is_absent:
-                        combo_rejected_absence_count += 1
-                        reason = "absence"
-                    elif combo.poste_id not in qual_posts.get(agent_id, set()):
-                        combo_rejected_not_qualified_count += 1
-                        reason = "not_qualified"
-                    else:
-                        min_qual_date = qual_date.get((agent_id, combo.poste_id))
-                        if min_qual_date is not None and day_date < min_qual_date:
-                            combo_rejected_qualification_date_count += 1
-                            reason = "qualification_date"
-
-                    if reason is not None:
-                        _append_sample(
-                            combo_rejected_samples,
-                            agent_id=agent_id,
-                            day_date=day_date,
-                            combo_id=combo_id,
-                            poste_id=combo.poste_id,
-                            reason=reason,
-                        )
-                        continue
-
-                    combo_allowed_pairs_count += 1
-                    _append_sample(
-                        combo_allowed_samples,
-                        agent_id=agent_id,
-                        day_date=day_date,
-                        combo_id=combo_id,
-                        poste_id=combo.poste_id,
-                        reason="allowed",
-                    )
-                    var = model.NewBoolVar(f"y_a{agent_id}_d{di}_c{combo_id}")
-                    num_variables += 1
-                    y_variables_count += 1
-                    y[(agent_id, di, combo_id)] = var
-                    combo_ids_in_model.add(combo_id)
-                    vars_by_agent_day.setdefault((agent_id, di), []).append(var)
-                    for tranche_id in combo.tranche_ids:
-                        vars_by_demand.setdefault((di, tranche_id), []).append(var)
-
-        stats["combo_candidate_pairs_count"] = combo_candidate_pairs_count
-        stats["combo_allowed_pairs_count"] = combo_allowed_pairs_count
-        stats["combo_rejected_absence_count"] = combo_rejected_absence_count
-        stats["combo_rejected_not_qualified_count"] = combo_rejected_not_qualified_count
-        stats["combo_rejected_qualification_date_count"] = combo_rejected_qualification_date_count
-        stats["combo_rejected_unknown_daytype_forces_rest_count"] = combo_rejected_unknown_daytype_forces_rest_count
-        stats["combo_rejected_other_count"] = combo_rejected_other_count
-        stats["combo_rejected_samples"] = combo_rejected_samples
-        stats["combo_allowed_samples"] = combo_allowed_samples
-        stats["y_variables_count"] = y_variables_count
+        stats["combo_candidate_pairs_count"] = choice_build.combo_candidate_pairs_count
+        stats["combo_allowed_pairs_count"] = choice_build.combo_allowed_pairs_count
+        stats["combo_rejected_absence_count"] = choice_build.combo_rejected_absence_count
+        stats["combo_rejected_not_qualified_count"] = choice_build.combo_rejected_not_qualified_count
+        stats["combo_rejected_qualification_date_count"] = choice_build.combo_rejected_qualification_date_count
+        stats["combo_rejected_unknown_daytype_forces_rest_count"] = choice_build.combo_rejected_unknown_daytype_forces_rest_count
+        stats["combo_rejected_other_count"] = choice_build.combo_rejected_other_count
+        stats["combo_rejected_samples"] = choice_build.combo_rejected_samples
+        stats["combo_allowed_samples"] = choice_build.combo_allowed_samples
+        stats["y_variables_count"] = choice_build.y_variables_count
         stats["num_combos_in_model"] = len(combo_ids_in_model)
         stats["num_combos_effective"] = stats["num_combos_in_model"]
 
-        for agent_id in ordered_agent_ids:
-            for di in range(len(dates)):
-                day_vars = vars_by_agent_day.get((agent_id, di), [])
-                if day_vars:
-                    model.Add(sum(day_vars) == 1)
-                    num_constraints += 1
+        use_existing_assignments = bool(solver_input.use_existing_assignments)
+        existing_daytypes_db_ctx = solver_input.existing_daytype_by_agent_day_ctx if use_existing_assignments else {}
+        if use_existing_assignments and not existing_daytypes_db_ctx:
+            existing_daytypes_db_ctx = solver_input.existing_day_type_by_agent_day_ctx
+        existing_assignments_ctx = solver_input.existing_assignment_by_agent_day_ctx if use_existing_assignments else {}
+        resolved_existing_daytypes_ctx: dict[tuple[int, date], str] = {}
+        resolved_working_sig_ctx: dict[tuple[int, date], tuple[int, tuple[int, ...]]] = {}
+        if use_existing_assignments:
+            existing_context_resolution = build_existing_context_maps(
+                ordered_agent_ids=ordered_agent_ids,
+                context_days=context_days,
+                db_daytype_by_agent_day_ctx=existing_daytypes_db_ctx,
+                db_assignment_by_agent_day_ctx=existing_assignments_ctx,
+                absences=solver_input.absences,
+            )
+            resolved_existing_daytypes_ctx = existing_context_resolution["resolved_daytype_by_agent_day_ctx"]
+            resolved_working_sig_ctx = existing_context_resolution["resolved_working_sig_by_agent_day_ctx"]
+            stats["existing_assignments_conflicts_count"] = existing_context_resolution["existing_assignments_conflicts_count"]
+            stats["existing_assignments_conflicts_sample"] = existing_context_resolution["existing_assignments_conflicts_sample"]
+        else:
+            stats["existing_assignments_conflicts_count"] = 0
+            stats["existing_assignments_conflicts_sample"] = []
+
+        hard_daytype_overrides: dict[tuple[int, date], str] = {}
+        signature_to_combo_id: dict[tuple[int, tuple[int, ...]], int] = {}
+        zcot_combo_id = next((combo.id for combo in combos if combo.day_kind == DayKind.ZCOT), None)
+        for combo in combos:
+            if combo.day_kind != DayKind.WORK or combo.poste_id is None or not combo.tranche_ids:
+                continue
+            signature_to_combo_id[(int(combo.poste_id), tuple(sorted(combo.tranche_ids)))] = combo.id
+
+        num_constraints += add_daily_choice_constraints(
+            model=model,
+            ordered_agent_ids=ordered_agent_ids,
+            dates=dates,
+            vars_by_agent_day=vars_by_agent_day,
+        )
 
         daily_choice_mode = "exactly_one"
         rest_combo_ids = [combo.id for combo in combos if combo.day_kind == DayKind.REST]
         stats["daily_choice_mode"] = daily_choice_mode
         stats["rest_combo_count_in_model"] = len(rest_combo_ids)
+
+        if use_existing_assignments:
+            for agent_id in ordered_agent_ids:
+                for di, day_date in enumerate(dates):
+                    existing_day_type = resolved_existing_daytypes_ctx.get((agent_id, day_date))
+                    if existing_day_type not in {DayType.ABSENT.value, DayType.LEAVE.value}:
+                        continue
+                    rest_var = y.get((agent_id, di, 0))
+                    if rest_var is not None:
+                        model.Add(rest_var == 1)
+                        num_constraints += 1
+                        hard_daytype_overrides[(agent_id, day_date)] = existing_day_type
 
         has_rest_choice_each_day_in_window_by_agent: dict[int, bool] = {}
         has_work_choice_each_day_in_window_by_agent: dict[int, bool] = {}
@@ -685,17 +544,15 @@ class OrtoolsSolver:
             if demand.day_date in date_to_index
         )
 
-        rest_constraints_count = 0
-        for agent_id in ordered_agent_ids:
-            for di in range(1, len(dates)):
-                for c1, c2 in incompatible_pairs:
-                    prev_var = y.get((agent_id, di - 1, c1))
-                    curr_var = y.get((agent_id, di, c2))
-                    if prev_var is None or curr_var is None:
-                        continue
-                    model.Add(prev_var + curr_var <= 1)
-                    num_constraints += 1
-                    rest_constraints_count += 1
+        num_constraints_delta, rest_constraints_count = add_rest_compat_constraints(
+            model=model,
+            y=y,
+            ordered_agent_ids=ordered_agent_ids,
+            dates=dates,
+            combo_ids=list(combo_by_id.keys()),
+            compatible_pairs=compatible_pairs,
+        )
+        num_constraints += num_constraints_delta
 
         run_vars: dict[tuple[int, int, int], cp_model.IntVar] = {}
         runs_candidate_count_by_agent: dict[int, int] = {agent_id: 0 for agent_id in ordered_agent_ids}
@@ -705,14 +562,11 @@ class OrtoolsSolver:
             off_ctx: dict[tuple[int, int], cp_model.IntVar | int] = {}
             worked_ctx_window_fixed_days_count_by_agent: dict[int, int] = {agent_id: 0 for agent_id in ordered_agent_ids}
 
-            def is_in_window(idx: int) -> bool:
-                return idx in in_window_ctx_indices
-
             for agent_id in ordered_agent_ids:
                 for ci, day_date in enumerate(context_days):
                     key = (agent_id, day_date)
-                    day_type_ctx = solver_input.existing_day_type_by_agent_day_ctx.get(key, DayType.REST.value)
-                    if not is_in_window(ci):
+                    day_type_ctx = resolved_existing_daytypes_ctx.get(key, DayType.REST.value)
+                    if not is_in_window_ctx_index(ci, in_window_ctx_indices):
                         if day_type_ctx == DayType.REST.value:
                             worked_ctx[(agent_id, ci)] = 0
                             minutes_ctx[(agent_id, ci)] = 0
@@ -818,7 +672,7 @@ class OrtoolsSolver:
             for agent_id in ordered_agent_ids:
                 for ci, day_date in enumerate(context_days):
                     key = (agent_id, day_date)
-                    if ci in in_window_ctx_indices:
+                    if is_in_window_ctx_index(ci, in_window_ctx_indices):
                         di = date_to_period_index[day_date]
                         day_combo_ids = [c for (a, d, c) in y if a == agent_id and d == di]
                         can_work_ctx[(agent_id, ci)] = any(self._is_work_combo(combo_by_id[cid]) for cid in day_combo_ids)
@@ -827,7 +681,7 @@ class OrtoolsSolver:
                         else:
                             can_off_ctx[(agent_id, ci)] = any(combo_by_id[cid].day_kind == DayKind.REST for cid in day_combo_ids)
                     else:
-                        day_type_ctx = solver_input.existing_day_type_by_agent_day_ctx.get(key, DayType.REST.value)
+                        day_type_ctx = resolved_existing_daytypes_ctx.get(key, DayType.REST.value)
                         can_work_ctx[(agent_id, ci)] = day_type_ctx in self.GPT_DAY_TYPES
                         can_off_ctx[(agent_id, ci)] = day_type_ctx in self.RPDOUBLE_OFF_DAY_TYPES
 
@@ -1167,6 +1021,93 @@ class OrtoolsSolver:
             model.Add(understaff_smooth_weighted_sum == 0)
         num_constraints += 5
 
+        existing_change_strong_vars: list[cp_model.IntVar] = []
+        existing_change_medium_vars: list[cp_model.IntVar] = []
+        unknown_working_signature_count = 0
+        unknown_working_signature_sample: list[dict[str, str | int]] = []
+        if use_existing_assignments:
+            for agent_id in ordered_agent_ids:
+                for di, day_date in enumerate(dates):
+                    existing_day_type = resolved_existing_daytypes_ctx.get((agent_id, day_date))
+                    if existing_day_type is None:
+                        continue
+                    rest_selected = y.get((agent_id, di, 0))
+                    if rest_selected is None:
+                        continue
+                    strong = model.NewBoolVar(f"existing_change_strong_a{agent_id}_d{di}")
+                    medium = model.NewBoolVar(f"existing_change_medium_a{agent_id}_d{di}")
+                    num_variables += 2
+                    existing_change_strong_vars.append(strong)
+                    existing_change_medium_vars.append(medium)
+
+                    if existing_day_type == DayType.REST.value:
+                        model.Add(strong + rest_selected == 1)
+                        model.Add(medium == 0)
+                        num_constraints += 2
+                        continue
+
+                    if existing_day_type in {DayType.ABSENT.value, DayType.LEAVE.value}:
+                        model.Add(strong == 0)
+                        model.Add(medium == 0)
+                        num_constraints += 2
+                        continue
+
+                    if existing_day_type == DayType.ZCOT.value:
+                        zcot_selected = y.get((agent_id, di, zcot_combo_id)) if zcot_combo_id is not None else None
+                        if zcot_selected is not None:
+                            model.Add(strong == 0)
+                            model.Add(medium == rest_selected)
+                            num_constraints += 2
+                        else:
+                            model.Add(strong == 0)
+                            model.Add(medium == rest_selected)
+                            num_constraints += 2
+                        continue
+
+                    if existing_day_type == DayType.WORKING.value:
+                        signature = resolved_working_sig_ctx.get((agent_id, day_date))
+                        existing_combo_id = signature_to_combo_id.get(signature) if signature is not None else None
+                        model.Add(strong == rest_selected)
+                        num_constraints += 1
+                        if existing_combo_id is not None and (agent_id, di, existing_combo_id) in y:
+                            same_combo = y[(agent_id, di, existing_combo_id)]
+                            model.Add(medium + rest_selected + same_combo == 1)
+                            num_constraints += 1
+                        else:
+                            if signature is not None:
+                                unknown_working_signature_count += 1
+                                if len(unknown_working_signature_sample) < 10:
+                                    unknown_working_signature_sample.append(
+                                        {
+                                            "agent_id": agent_id,
+                                            "day_date": day_date.isoformat(),
+                                            "poste_id": signature[0],
+                                            "tranche_ids": list(signature[1]),
+                                        }
+                                    )
+                            model.Add(medium + rest_selected == 1)
+                            num_constraints += 1
+                        continue
+
+                    model.Add(strong == 0)
+                    model.Add(medium == 0)
+                    num_constraints += 2
+
+        existing_change_strong_total = model.NewIntVar(0, len(existing_change_strong_vars), "existing_change_strong_total")
+        existing_change_medium_total = model.NewIntVar(0, len(existing_change_medium_vars), "existing_change_medium_total")
+        num_variables += 2
+        if existing_change_strong_vars:
+            model.Add(existing_change_strong_total == sum(existing_change_strong_vars))
+        else:
+            model.Add(existing_change_strong_total == 0)
+        if existing_change_medium_vars:
+            model.Add(existing_change_medium_total == sum(existing_change_medium_vars))
+        else:
+            model.Add(existing_change_medium_total == 0)
+        num_constraints += 2
+        stats["existing_working_signature_unknown_count"] = unknown_working_signature_count
+        stats["existing_working_signature_unknown_sample"] = unknown_working_signature_sample
+
         understaff_total_unweighted = model.NewIntVar(0, total_required_count, "understaff_total_unweighted")
         num_variables += 1
         if understaff_vars:
@@ -1188,87 +1129,32 @@ class OrtoolsSolver:
             - self.W_RPDOUBLE_BONUS * rpdouble_soft_total
             - self.W_TRANCHE_DIVERSITY * tranche_diversity_total
             + self.W_UNDERSTAFF_SMOOTH * understaff_smooth_weighted_sum
+            + self.W_EXISTING_CHANGE_STRONG * existing_change_strong_total
+            + self.W_EXISTING_CHANGE_MEDIUM * existing_change_medium_total
         )
 
         def _normalize_status(raw_status: int, wall_time: float, budget_seconds: float) -> tuple[str, str, bool]:
-            if raw_status == cp_model.OPTIMAL:
-                raw = "OPTIMAL"
-            elif raw_status == cp_model.FEASIBLE:
-                raw = "FEASIBLE"
-            elif raw_status == cp_model.INFEASIBLE:
-                raw = "INFEASIBLE"
-            elif raw_status == cp_model.MODEL_INVALID:
-                raw = "MODEL_INVALID"
-            elif raw_status == cp_model.UNKNOWN:
-                raw = "UNKNOWN"
-            else:
-                raw = "INFEASIBLE"
-            time_limit_reached = False
-            if budget_seconds > 0:
-                if raw_status == cp_model.OPTIMAL:
-                    time_limit_reached = False
-                else:
-                    time_limit_reached = (raw_status == cp_model.FEASIBLE) or (wall_time >= budget_seconds * 0.95)
-            normalized = "TIMEOUT" if time_limit_reached else raw
-            return raw, normalized, bool(time_limit_reached)
+            return normalize_status(raw_status=raw_status, wall_time=wall_time, budget_seconds=budget_seconds)
 
         def _new_solver(budget_seconds: float) -> cp_model.CpSolver:
-            solver = cp_model.CpSolver()
+            solver = configure_solver(
+                budget_seconds=budget_seconds,
+                time_limit_seconds=time_limit_seconds,
+                seed=int(solver_input.seed or 0),
+            )
             if budget_seconds > 0:
-                solver.parameters.max_time_in_seconds = budget_seconds
                 applied = float(time_limit_seconds if time_limit_seconds > 0 else budget_seconds)
                 stats["solver_max_time_seconds_applied"] = max(float(stats.get("solver_max_time_seconds_applied", 0.0)), applied)
-            solver.parameters.num_search_workers = 1
-            solver.parameters.random_seed = int(solver_input.seed or 0)
             return solver
 
         def _effective_cp_sat_params(solver: cp_model.CpSolver, budget_seconds: float) -> dict[str, object]:
-            params: dict[str, object] = {
-                "max_time_in_seconds": float(getattr(solver.parameters, "max_time_in_seconds", 0.0) or 0.0),
-                "num_search_workers": int(getattr(solver.parameters, "num_search_workers", 0) or 0),
-                "random_seed": int(getattr(solver.parameters, "random_seed", 0) or 0),
-            }
-            optional_numeric = {
-                "max_number_of_conflicts": int(getattr(solver.parameters, "max_number_of_conflicts", 0) or 0),
-                "cp_model_probing_level": int(getattr(solver.parameters, "cp_model_probing_level", 0) or 0),
-                "symmetry_level": int(getattr(solver.parameters, "symmetry_level", 0) or 0),
-                "linearization_level": int(getattr(solver.parameters, "linearization_level", 0) or 0),
-            }
-            for key, value in optional_numeric.items():
-                if value != 0:
-                    params[key] = value
-            if bool(getattr(solver.parameters, "log_search_progress", False)):
-                params["log_search_progress"] = True
-            if bool(getattr(solver.parameters, "cp_model_presolve", True)) is False:
-                params["cp_model_presolve"] = False
-            params["budget_seconds_requested"] = float(budget_seconds)
-            return params
-
-        class _TraceCallback(cp_model.CpSolverSolutionCallback):
-            def __init__(self, understaff_var: cp_model.IntVar, stop_no_improve_after_seconds: float | None = None):
-                super().__init__()
-                self.understaff_var = understaff_var
-                self.first_feasible_time = None
-                self.points: list[tuple[float, float, int]] = []
-                self.stop_no_improve_after_seconds = stop_no_improve_after_seconds
-                self.last_improve_time = 0.0
-                self.best_obj = None
-
-            def on_solution_callback(self):
-                t = float(self.WallTime())
-                if self.first_feasible_time is None:
-                    self.first_feasible_time = t
-                    self.last_improve_time = t
-                obj = float(self.ObjectiveValue())
-                us = int(self.Value(self.understaff_var))
-                improved = self.best_obj is None or obj < self.best_obj
-                if improved:
-                    self.best_obj = obj
-                    self.last_improve_time = t
-                if len(self.points) < 200 and (not self.points or improved or us < self.points[-1][2]):
-                    self.points.append((t, obj, us))
-                if self.stop_no_improve_after_seconds is not None and (t - self.last_improve_time) >= self.stop_no_improve_after_seconds:
-                    self.StopSearch()
+            return effective_cp_sat_params(
+                solver=solver,
+                budget_seconds=budget_seconds,
+                profile=profile,
+                seed=int(solver_input.seed or 0),
+                time_limit_seconds=time_limit_seconds,
+            )
 
         y_keys = sorted(y.keys())
         y_proto_idx = {key: y[key].Index() for key in y_keys}
@@ -1277,43 +1163,15 @@ class OrtoolsSolver:
         enable_decision_strategy = default_enable_decision_strategy if solver_input.enable_decision_strategy is None else bool(solver_input.enable_decision_strategy)
         # Phase 1 is always guided by decision strategy in V3.2.
         enable_decision_strategy_phase1 = True
-        day_scores: list[tuple[int, object]] = []
-        required_by_day: dict[int, int] = {}
-        for demand in solver_input.coverage_demands:
-            di = date_to_index[demand.day_date]
-            required_by_day[di] = required_by_day.get(di, 0) + max(0, demand.required_count)
-        day_scores = sorted(required_by_day.items(), key=lambda item: (-item[1], dates[item[0]]))
-        prioritized_y: list[cp_model.IntVar] = []
-        seen_ids: set[int] = set()
-        for di, _score in day_scores:
-            demand_triplets = []
-            for demand in solver_input.coverage_demands:
-                ddi = date_to_index[demand.day_date]
-                if ddi != di:
-                    continue
-                demand_triplets.append((int(demand.poste_id or tranche_by_id[demand.tranche_id].poste_id), int(demand.tranche_id), vars_by_demand.get((ddi, demand.tranche_id), [])))
-            demand_triplets.sort(key=lambda x: (x[0], x[1]))
-            for poste_id, tranche_id, dvars in demand_triplets:
-                keys_for_vars = []
-                for v in dvars:
-                    key = next((k for k,val in y.items() if val is v), None)
-                    if key is None:
-                        continue
-                    aid, _di, cid = key
-                    keys_for_vars.append((aid, cid, v))
-                keys_for_vars.sort(key=lambda t: (t[0], t[1]))
-                for _aid,_cid,v in keys_for_vars:
-                    vid=id(v)
-                    if vid in seen_ids:
-                        continue
-                    seen_ids.add(vid)
-                    prioritized_y.append(v)
-                    if len(prioritized_y) >= 5000:
-                        break
-                if len(prioritized_y) >= 5000:
-                    break
-            if len(prioritized_y) >= 5000:
-                break
+        day_scores, prioritized_y = build_prioritized_decision_vars(
+            coverage_demands=solver_input.coverage_demands,
+            date_to_index=date_to_index,
+            dates=dates,
+            tranche_by_id=tranche_by_id,
+            vars_by_demand=vars_by_demand,
+            var_to_key=var_to_key,
+            max_vars=5000,
+        )
         if enable_decision_strategy_phase1 and prioritized_y:
             model.AddDecisionStrategy(prioritized_y, cp_model.CHOOSE_FIRST, cp_model.SELECT_MAX_VALUE)
             stats["decision_strategy_enabled"] = True
@@ -1324,14 +1182,6 @@ class OrtoolsSolver:
             {"day_date": dates[di].isoformat(), "score": int(score)}
             for di, score in day_scores[:5]
         ]
-
-        def _solve_with_trace(solver: cp_model.CpSolver, mdl: cp_model.CpModel, cb: _TraceCallback | None = None) -> int:
-            if cb is None:
-                return solver.Solve(mdl)
-            try:
-                return solver.Solve(mdl, cb)
-            except TypeError:
-                return solver.Solve(mdl)
 
         def _extract_solution(solver: cp_model.CpSolver):
             assign = {(aid, di, cid): int(solver.Value(y[(aid, di, cid)])) for (aid, di, cid) in y_keys}
@@ -1410,8 +1260,8 @@ class OrtoolsSolver:
             model.Minimize(understaff_total_unweighted)
             solver1 = _new_solver(phase1_seconds)
             stats.setdefault("cp_sat_params_effective", {})["phase1"] = _effective_cp_sat_params(solver1, phase1_seconds)
-            cb1 = _TraceCallback(understaff_total_unweighted)
-            status1 = _solve_with_trace(solver1, model, cb1)
+            cb1 = TraceCallback(understaff_total_unweighted)
+            status1 = solve_with_trace(solver1, model, cb1)
             wall1 = float(solver1.WallTime())
             raw1, normalized1, timeout1 = _normalize_status(status1, wall1, phase1_seconds)
             last_wall_time = wall1
@@ -1455,8 +1305,8 @@ class OrtoolsSolver:
                 stats["phase2_reused_model"] = True
                 solver2 = _new_solver(phase2_budget_cap)
                 stats.setdefault("cp_sat_params_effective", {})["phase2"] = _effective_cp_sat_params(solver2, phase2_budget_cap)
-                cb2 = _TraceCallback(understaff_total_unweighted, stop_no_improve_after_seconds=phase2_no_improve_seconds)
-                status2 = _solve_with_trace(solver2, model, cb2)
+                cb2 = TraceCallback(understaff_total_unweighted, stop_no_improve_after_seconds=phase2_no_improve_seconds)
+                status2 = solve_with_trace(solver2, model, cb2)
                 wall2 = float(solver2.WallTime())
                 stats["phase2_solve_wall_time_seconds"] = wall2
                 raw2, normalized2, timeout2 = _normalize_status(status2, wall2, phase2_budget_cap)
@@ -1465,7 +1315,8 @@ class OrtoolsSolver:
                 last_raw_status = raw2
                 last_normalized_status = normalized2
                 phase2_stats = {
-                    "phase2_time_limit_seconds": remaining_after_phase1,
+                    "phase2_time_limit_seconds": phase2_budget_cap,
+                    "phase2_remaining_after_phase1_seconds": remaining_after_phase1,
                     "phase2_wall_time_seconds": wall2,
                     "phase2_solve_wall_time_seconds": wall2,
                     "phase2_status_raw": raw2,
@@ -1487,429 +1338,40 @@ class OrtoolsSolver:
                     phase2_stats["phase2_understaff_total_unweighted"] = None
                     phase2_stats["phase2_coverage_ratio_unweighted"] = None
 
-        # Deterministic LNS neighborhood loop.
-        lns_iterations = 0
-        lns_accept_count = 0
-        lns_best_improvement_understaff = 0
-        lns_best_improvement_objective = 0
-        lns_neighborhoods_tried = {str(pid): 0 for pid in sorted(set(solver_input.poste_ids))}
-        lns_iteration_history: list[dict[str, object]] = []
         lns_started = time.monotonic()
-        lns_model_rebuild_total = 0.0
-        lns_solve_total = 0.0
-        lns_iter_solve_walls: list[float] = []
-        lns_mode_used_counts = {"poste_only": 0, "poste_plus_one": 0, "top_days_global": 0, "poste_plus_one_top_days": 0, "mixed": 0}
-        lns_selected_postes_last: list[int] = []
-        lns_relaxed_days_count_last = 0
-        lns_fixed_days_count_last = 0
-        lns_fixed_y_count_last = 0
-        lns_relaxed_y_count_last = 0
-        lns_fixed_runs_count_last = 0
-        lns_relaxed_runs_count_last = 0
-        lns_fixed_vars_count_last = 0
-        lns_relaxed_vars_count_last = 0
-        lns_solver_time_limit_seconds_applied = 0.0
-        lns_unknown_count_total = 0
-        lns_no_solution_count_total = 0
-        lns_fallback_triggered = False
-        lns_fallback_reason = None
-        lns_effective_mode_last = lns_neighborhood_mode
-        lns_poste_plus_one_top_days_selected_sample: list[str] = []
-        lns_poste_plus_one_top_days_k = 0
-        lns_recent_statuses: deque[bool] = deque(maxlen=10)
-        lns_recent_accepts: deque[bool] = deque(maxlen=10)
-        lns_fallback_after_iterations: int | None = None
-        lns_fallback_iteration_index: int | None = None
-        lns_accept_count_at_fallback = 0
-        lns_last_accept_iteration_index: int | None = None
-        lns_last_accept_t: float | None = None
-        lns_early_stop_triggered = False
-        lns_early_stop_reason = None
-        lns_remaining_budget_seconds_at_stop: float | None = None
-        lns_required_budget_seconds_to_start_iter: float | None = None
-        lns_intended_iter_time_limit_seconds_last: float | None = None
-        lns_iter_time_limit_seconds_effective_last: float | None = None
-        lns_debug_full_history = os.getenv("PLANNING_DEBUG", "0") == "1"
-        lns_history_max_items = self.MAX_LNS_HISTORY_ITEMS
-        lns_history_truncated = False
-
-        def _append_lns_history(entry: dict[str, object]) -> None:
-            nonlocal lns_history_truncated
-            lns_iteration_history.append(entry)
-            if lns_debug_full_history:
-                return
-            while len(lns_iteration_history) > lns_history_max_items:
-                lns_iteration_history.pop(0)
-                lns_history_truncated = True
-
-        lns_start_remaining = max(0.0, (time_limit_seconds - (time.monotonic() - started_at))) if lns_enabled and time_limit_seconds > 0 else 0.0
-        if lns_enabled and best_solution is not None:
-            poste_ids_sorted = sorted(set(solver_input.poste_ids))
-            demanded_poste_ids = sorted({int(rec["poste_id"]) for rec in demand_records})
-            mixed_cycle = ["poste_only", "poste_plus_one", "top_days_global"]
-
-            def _poste_priority_order() -> list[int]:
-                ordered = sorted(
-                    poste_ids_sorted,
-                    key=lambda pid: (
-                        -int(best_solution.get("understaff_by_poste_unweighted", {}).get(pid, 0)),
-                        -int(best_solution.get("understaff_by_poste_weighted", {}).get(pid, 0)),
-                        pid,
-                    ),
-                )
-                if all(int(best_solution.get("understaff_by_poste_unweighted", {}).get(pid, 0)) == 0 for pid in ordered):
-                    ordered = poste_ids_sorted
-                return [pid for pid in ordered if pid in demanded_poste_ids]
-
-            def _select_days_for_postes(selected_postes: list[int]) -> set[int]:
-                scored: list[tuple[int, int, int]] = []
-                for (pid, di), us in best_solution.get("understaff_by_poste_day", {}).items():
-                    if pid in selected_postes and us > 0:
-                        weighted = us * max(1, int(best_solution.get("understaff_by_poste_weighted", {}).get(pid, us)) // max(1, int(best_solution.get("understaff_by_poste_unweighted", {}).get(pid, us))))
-                        scored.append((int(us), int(weighted), int(di)))
-                scored.sort(key=lambda item: (-item[0], -item[1], item[2]))
-                base_days = [di for (_us, _w, di) in scored[:lns_max_days_to_relax]]
-                if not base_days:
-                    base_days = list(range(min(len(dates), lns_max_days_to_relax)))
-                selected_days: set[int] = set()
-                for di in base_days:
-                    for dd in range(max(0, di - 2), min(len(dates), di + 3)):
-                        selected_days.add(dd)
-                if len(selected_days) > lns_max_days_to_relax:
-                    selected_days = set(sorted(selected_days)[:lns_max_days_to_relax])
-                return selected_days
-
-            def _select_days_global() -> set[int]:
-                day_scored = [
-                    (int(best_solution.get("understaff_by_day_unweighted", {}).get(di, 0)), int(best_solution.get("understaff_by_day_weighted", {}).get(di, 0)), di)
-                    for di in range(len(dates))
-                ]
-                day_scored.sort(key=lambda item: (-item[0], -item[1], item[2]))
-                base_days = [di for (u, _w, di) in day_scored if u > 0][:lns_max_days_to_relax]
-                if not base_days:
-                    base_days = list(range(min(len(dates), lns_max_days_to_relax)))
-                return set(base_days)
-
-            def _select_top_days_weighted(k: int) -> set[int]:
-                k = max(1, min(len(dates), int(k)))
-                day_scored = [
-                    (int(best_solution.get("understaff_by_day_weighted", {}).get(di, 0)), dates[di], di)
-                    for di in range(len(dates))
-                ]
-                day_scored.sort(key=lambda item: (-item[0], item[1]))
-                selected = [di for (_w, _date, di) in day_scored[:k]]
-                if not selected:
-                    selected = list(range(k))
-                return set(selected)
-
-            while True:
-                elapsed = time.monotonic() - started_at
-                remaining = (time_limit_seconds - elapsed) if time_limit_seconds > 0 else 0.0
-                if remaining <= max(lns_min_remaining_seconds, 0.0):
-                    break
-
-                # Reset per-attempt effective budget; only set once an iteration solve is launched.
-                lns_iter_time_limit_seconds_effective_last = None
-
-                intended_iter_time_limit_seconds = min(lns_iter_seconds, remaining)
-                lns_intended_iter_time_limit_seconds_last = float(intended_iter_time_limit_seconds)
-                required_budget_to_start_iter = max(
-                    MIN_LNS_REMAINING_SECONDS_TO_RUN_ITER,
-                    intended_iter_time_limit_seconds + LNS_ITER_OVERHEAD_SECONDS,
-                )
-                lns_required_budget_seconds_to_start_iter = float(required_budget_to_start_iter)
-
-                if remaining < required_budget_to_start_iter:
-                    lns_early_stop_triggered = True
-                    lns_early_stop_reason = "remaining_budget_too_small_for_iter"
-                    lns_remaining_budget_seconds_at_stop = float(remaining)
-                    break
-
-                budget = min(
-                    intended_iter_time_limit_seconds,
-                    max(0.0, remaining - LNS_ITER_OVERHEAD_SECONDS),
-                )
-                if budget < MIN_LNS_CP_SAT_TIME_LIMIT_SECONDS:
-                    lns_early_stop_triggered = True
-                    lns_early_stop_reason = "remaining_budget_too_small_for_iter"
-                    lns_remaining_budget_seconds_at_stop = float(remaining)
-                    break
-                if budget <= 0:
-                    break
-
-                requested_mode = lns_neighborhood_mode
-                effective_mode = requested_mode
-                if requested_mode == "mixed":
-                    effective_mode = mixed_cycle[lns_iterations % len(mixed_cycle)]
-
-                if len(lns_recent_statuses) == lns_recent_statuses.maxlen:
-                    unknown_ratio = sum(1 for has_solution in lns_recent_statuses if not has_solution) / len(lns_recent_statuses)
-                    if unknown_ratio > 0.8 and requested_mode != "poste_plus_one":
-                        effective_mode = "poste_plus_one"
-                        lns_fallback_triggered = True
-                        lns_fallback_reason = "too_many_unknown"
-                        if lns_fallback_after_iterations is None:
-                            lns_fallback_after_iterations = int(lns_iterations)
-                        if lns_fallback_iteration_index is None:
-                            lns_fallback_iteration_index = int(lns_iterations)
-                            lns_accept_count_at_fallback = int(lns_accept_count)
-                    elif sum(1 for accepted in lns_recent_accepts if accepted) == 0 and requested_mode in {"top_days_global", "poste_plus_one_top_days"}:
-                        effective_mode = "poste_plus_one"
-                        lns_fallback_triggered = True
-                        lns_fallback_reason = "no_acceptance_in_requested_mode"
-                        if lns_fallback_after_iterations is None:
-                            lns_fallback_after_iterations = int(lns_iterations)
-                        if lns_fallback_iteration_index is None:
-                            lns_fallback_iteration_index = int(lns_iterations)
-                            lns_accept_count_at_fallback = int(lns_accept_count)
-
-                lns_effective_mode_last = effective_mode
-                lns_mode_used_counts[effective_mode] = lns_mode_used_counts.get(effective_mode, 0) + 1
-
-                poste_priority = _poste_priority_order()
-                if not poste_priority:
-                    break
-
-                selected_postes: list[int]
-                if effective_mode in {"poste_plus_one", "poste_plus_one_top_days"}:
-                    selected_postes = poste_priority[:2]
-                elif effective_mode == "top_days_global":
-                    selected_postes = poste_ids_sorted
-                else:
-                    selected_postes = poste_priority[:1]
-
-                poste_id = selected_postes[0]
-                stats["lns_last_selected_poste_id"] = poste_id
-                lns_selected_postes_last = [int(pid) for pid in selected_postes]
-                for pid in selected_postes:
-                    lns_neighborhoods_tried[str(pid)] = lns_neighborhoods_tried.get(str(pid), 0) + 1
-
-                if effective_mode == "top_days_global":
-                    selected_days = _select_days_global()
-                elif effective_mode == "poste_plus_one_top_days":
-                    selected_days = _select_top_days_weighted(lns_max_days_to_relax)
-                    lns_poste_plus_one_top_days_k = len(selected_days)
-                    lns_poste_plus_one_top_days_selected_sample = [dates[di].isoformat() for di in sorted(selected_days)[:10]]
-                else:
-                    selected_days = _select_days_for_postes(selected_postes)
-                lns_relaxed_days_count_last = len(selected_days)
-                lns_fixed_days_count_last = max(0, len(dates) - lns_relaxed_days_count_last)
-
-                relaxed = set()
-                for (aid, di, cid) in y_keys:
-                    combo = combo_by_id[cid]
-                    if di not in selected_days:
-                        continue
-                    if effective_mode == "top_days_global" or combo.poste_id in selected_postes:
-                        relaxed.add((aid, di, cid))
-                lns_relaxed_y_count_last = len(relaxed)
-                lns_fixed_y_count_last = len(y_keys) - lns_relaxed_y_count_last
-
-                relaxed_runs = set()
-                if run_vars:
-                    for (aid, si, ei) in run_vars.keys():
-                        if any(di in selected_days for di in range(si, ei + 1)):
-                            relaxed_runs.add((aid, si, ei))
-                lns_relaxed_runs_count_last = len(relaxed_runs)
-                lns_fixed_runs_count_last = len(run_vars) - lns_relaxed_runs_count_last
-                lns_relaxed_vars_count_last = int(lns_relaxed_y_count_last + lns_relaxed_runs_count_last)
-                lns_fixed_vars_count_last = int(lns_fixed_y_count_last + lns_fixed_runs_count_last)
-
-                rebuild_started = time.monotonic()
-                lns_model = model.Clone()
-                lns_y = {key: lns_model.GetBoolVarFromProtoIndex(y_proto_idx[key]) for key in y_keys}
-                for key in y_keys:
-                    if key in relaxed:
-                        continue
-                    lns_model.Add(lns_y[key] == int(best_solution["assignment_map"][key]))
-                if run_vars:
-                    lns_run = {(aid, si, ei): lns_model.GetBoolVarFromProtoIndex(run_vars[(aid, si, ei)].Index()) for (aid, si, ei) in run_vars}
-                    for key in sorted(run_vars.keys()):
-                        if key in relaxed_runs:
-                            continue
-                        lns_model.Add(lns_run[key] == int(best_solution.get("run_assignment_map", {}).get(key, 0)))
-                lns_model.ClearHints()
-                for key in y_keys:
-                    lns_model.AddHint(lns_y[key], int(best_solution["assignment_map"][key]))
-                if run_vars:
-                    for key in sorted(run_vars.keys()):
-                        lns_model.AddHint(lns_run[key], int(best_solution.get("run_assignment_map", {}).get(key, 0)))
-                lns_model_rebuild_total += (time.monotonic() - rebuild_started)
-
-                validate_message = lns_model.Validate()
-                validate_message_present = bool(validate_message)
-                if validate_message_present:
-                    msg = str(validate_message)
-                    stats["lns_model_invalid"] = True
-                    lns_no_solution_count_total += 1
-                    stats["lns_iter_has_solution"] = False
-                    stats["lns_iter_status_raw"] = "MODEL_INVALID"
-                    stats["lns_iter_status_int"] = int(cp_model.MODEL_INVALID)
-                    stats["lns_iter_objective_value"] = None
-                    stats["lns_iter_understaff_total_unweighted"] = None
-                    stats["lns_iter_validate_message_present"] = True
-                    stats["lns_model_invalid_message"] = msg[:1000]
-                    stats["lns_model_invalid_iteration_index"] = lns_iterations
-                    _append_lns_history(
-                            {
-                                "t": round(float(time.monotonic() - started_at), 3),
-                                "poste_id": poste_id,
-                                "selected_postes": [int(pid) for pid in selected_postes],
-                                "relaxed_days_count": len(selected_days),
-                                "status_raw": "MODEL_INVALID",
-                                "status_int": int(cp_model.MODEL_INVALID),
-                                "has_solution": False,
-                                "lns_iter_has_solution": False,
-                                "neighborhood_mode_effective": effective_mode,
-                                "lns_iter_status_raw": "MODEL_INVALID",
-                                "lns_iter_status_int": int(cp_model.MODEL_INVALID),
-                                "validate_message_present": True,
-                                "lns_iter_validate_message_present": True,
-                                "solve_wall_time_seconds_iter": 0.0,
-                                "accepted": False,
-                                "fixed_y_count": int(lns_fixed_y_count_last),
-                                "relaxed_y_count": int(lns_relaxed_y_count_last),
-                                "fixed_runs_count": int(lns_fixed_runs_count_last),
-                                "relaxed_runs_count": int(lns_relaxed_runs_count_last),
-                                "understaff_total_unweighted": None,
-                                "objective_value": None,
-                                "lns_iter_understaff_total_unweighted": None,
-                                "lns_iter_objective_value": None,
-                            }
-                        )
-                    break
-
-                lns_iter_time_limit_seconds_effective_last = float(budget)
-                lns_solver = _new_solver(budget)
-                lns_solver_time_limit_seconds_applied = budget
-                stats.setdefault("cp_sat_params_effective", {})["lns"] = _effective_cp_sat_params(lns_solver, budget)
-                lns_solve_started = time.monotonic()
-                status_lns = lns_solver.Solve(lns_model)
-                iter_solve_wall = float(time.monotonic() - lns_solve_started)
-                lns_solve_total += iter_solve_wall
-                lns_iter_solve_walls.append(iter_solve_wall)
-                lns_iterations += 1
-                raw_lns, _normalized_lns, _timeout_lns = _normalize_status(status_lns, iter_solve_wall, budget)
-                has_solution = status_lns in (cp_model.OPTIMAL, cp_model.FEASIBLE)
-                if raw_lns == "UNKNOWN":
-                    lns_unknown_count_total += 1
-                stats["lns_iter_has_solution"] = bool(has_solution)
-                stats["lns_iter_status_raw"] = raw_lns
-                stats["lns_iter_status_int"] = int(status_lns)
-                stats["lns_iter_validate_message_present"] = bool(validate_message_present)
-                if raw_lns in {"UNKNOWN", "INFEASIBLE"}:
-                    lns_no_solution_count_total += 1
-
-                accepted = False
-                cand_understaff = None
-                cand_obj = None
-                if has_solution:
-                    cand = _extract_solution(lns_solver)
-                    cand_understaff = cand["understaff_total_unweighted"]
-                    cand_obj = cand["objective_value"]
-                    cur_pair = (best_solution["understaff_total_unweighted"], best_solution["objective_value"])
-                    cand_pair = (cand["understaff_total_unweighted"], cand["objective_value"])
-                    improved = (cand_pair < cur_pair) if lns_strict_improve else (cand_pair <= cur_pair)
-                    if improved:
-                        prev_u = best_solution["understaff_total_unweighted"]
-                        prev_o = best_solution["objective_value"]
-                        best_solution = cand
-                        accepted = True
-                        lns_accept_count += 1
-                        lns_last_accept_iteration_index = int(lns_iterations - 1)
-                        lns_last_accept_t = float(time.monotonic() - started_at)
-                        lns_best_improvement_understaff = max(lns_best_improvement_understaff, prev_u - cand["understaff_total_unweighted"])
-                        lns_best_improvement_objective = max(lns_best_improvement_objective, prev_o - cand["objective_value"])
-
-                stats["lns_iter_objective_value"] = int(cand_obj) if cand_obj is not None else None
-                stats["lns_iter_understaff_total_unweighted"] = int(cand_understaff) if cand_understaff is not None else None
-                lns_recent_statuses.append(has_solution)
-                lns_recent_accepts.append(accepted)
-
-                _append_lns_history(
-                        {
-                            "t": round(float(time.monotonic() - started_at), 3),
-                            "poste_id": poste_id,
-                            "selected_postes": [int(pid) for pid in selected_postes],
-                            "relaxed_days_count": len(selected_days),
-                            "status_raw": raw_lns,
-                            "status_int": int(status_lns),
-                            "lns_iter_status_raw": raw_lns,
-                            "lns_iter_status_int": int(status_lns),
-                            "has_solution": bool(has_solution),
-                            "lns_iter_has_solution": bool(has_solution),
-                            "neighborhood_mode_effective": effective_mode,
-                            "validate_message_present": validate_message_present,
-                            "lns_iter_validate_message_present": bool(validate_message_present),
-                            "solve_wall_time_seconds_iter": round(iter_solve_wall, 6),
-                            "accepted": accepted,
-                            "fixed_y_count": int(lns_fixed_y_count_last),
-                            "relaxed_y_count": int(lns_relaxed_y_count_last),
-                            "fixed_runs_count": int(lns_fixed_runs_count_last),
-                            "relaxed_runs_count": int(lns_relaxed_runs_count_last),
-                            "understaff_total_unweighted": cand_understaff,
-                            "objective_value": cand_obj,
-                            "lns_iter_understaff_total_unweighted": cand_understaff,
-                            "lns_iter_objective_value": cand_obj,
-                        }
-                    )
-
-        stats["lns_iteration_history"] = lns_iteration_history
-        stats["lns_model_rebuild_wall_time_seconds_total"] = float(lns_model_rebuild_total)
-        stats["lns_solve_wall_time_seconds_total"] = float(lns_solve_total)
-        stats["lns_iterations_time_budget_max"] = int(lns_start_remaining // lns_iter_seconds) if lns_enabled and lns_iter_seconds > 0 else 0
-        stats["lns_iterations_actual"] = int(lns_iterations)
-        stats["lns_avg_solve_wall_time_seconds_iter"] = float((sum(lns_iter_solve_walls) / len(lns_iter_solve_walls)) if lns_iter_solve_walls else 0.0)
-        stats["lns_min_solve_wall_time_seconds_iter"] = float(min(lns_iter_solve_walls)) if lns_iter_solve_walls else 0.0
-        stats["lns_max_solve_wall_time_seconds_iter"] = float(max(lns_iter_solve_walls)) if lns_iter_solve_walls else 0.0
-        stats["lns_solver_time_limit_seconds_applied"] = float(lns_solver_time_limit_seconds_applied)
-        stats["lns_neighborhood_mode_used_counts"] = {k: int(v) for k, v in lns_mode_used_counts.items() if v > 0}
-        stats["lns_selected_postes_last"] = lns_selected_postes_last
-        stats["lns_relaxed_days_count_last"] = int(lns_relaxed_days_count_last)
-        stats["lns_fixed_days_count_last"] = int(lns_fixed_days_count_last)
-        stats["lns_fixed_y_count_last"] = int(lns_fixed_y_count_last)
-        stats["lns_relaxed_y_count_last"] = int(lns_relaxed_y_count_last)
-        stats["lns_fixed_vars_count_last"] = int(lns_fixed_vars_count_last)
-        stats["lns_relaxed_vars_count_last"] = int(lns_relaxed_vars_count_last)
-        stats["lns_fixed_runs_count_last"] = int(lns_fixed_runs_count_last)
-        stats["lns_relaxed_runs_count_last"] = int(lns_relaxed_runs_count_last)
-        stats["lns_unknown_count_total"] = int(lns_unknown_count_total)
-        stats["lns_no_solution_count_total"] = int(lns_no_solution_count_total)
-        stats["lns_fallback_triggered"] = bool(lns_fallback_triggered)
-        stats["lns_fallback_reason"] = lns_fallback_reason
-        stats["lns_fallback_after_iterations"] = lns_fallback_after_iterations
-        stats["lns_fallback_iteration_index"] = lns_fallback_iteration_index
-        stats["lns_accept_count_at_fallback"] = int(lns_accept_count_at_fallback if lns_fallback_iteration_index is not None else lns_accept_count)
-        stats["lns_last_accept_iteration_index"] = int(lns_last_accept_iteration_index) if lns_last_accept_iteration_index is not None else None
-        stats["lns_last_accept_t"] = float(lns_last_accept_t) if lns_last_accept_t is not None else None
-        stats["lns_early_stop_triggered"] = bool(lns_early_stop_triggered)
-        stats["lns_early_stop_reason"] = lns_early_stop_reason
-        stats["lns_remaining_budget_seconds_at_stop"] = float(lns_remaining_budget_seconds_at_stop) if lns_remaining_budget_seconds_at_stop is not None else None
-        stats["lns_min_remaining_seconds_to_run_iter"] = float(MIN_LNS_REMAINING_SECONDS_TO_RUN_ITER)
-        stats["lns_iter_overhead_seconds"] = float(LNS_ITER_OVERHEAD_SECONDS)
-        stats["lns_required_budget_seconds_to_start_iter"] = (
-            float(lns_required_budget_seconds_to_start_iter)
-            if lns_required_budget_seconds_to_start_iter is not None
-            else None
+        lns_result = LnsRunner(max_lns_history_items=self.MAX_LNS_HISTORY_ITEMS).run(
+            best_solution=best_solution,
+            stats=stats,
+            solver_input=solver_input,
+            demand_records=demand_records,
+            dates=dates,
+            started_at=started_at,
+            time_limit_seconds=time_limit_seconds,
+            lns_enabled=lns_enabled,
+            lns_min_remaining_seconds=lns_min_remaining_seconds,
+            lns_iter_seconds=lns_iter_seconds,
+            lns_strict_improve=lns_strict_improve,
+            lns_max_days_to_relax=lns_max_days_to_relax,
+            lns_neighborhood_mode=lns_neighborhood_mode,
+            min_remaining_seconds_to_run_iter=MIN_LNS_REMAINING_SECONDS_TO_RUN_ITER,
+            lns_iter_overhead_seconds=LNS_ITER_OVERHEAD_SECONDS,
+            min_lns_cp_sat_time_limit_seconds=MIN_LNS_CP_SAT_TIME_LIMIT_SECONDS,
+            model=model,
+            y_keys=y_keys,
+            combo_by_id=combo_by_id,
+            y_proto_idx=y_proto_idx,
+            run_vars=run_vars,
+            _new_solver=_new_solver,
+            _effective_cp_sat_params=_effective_cp_sat_params,
+            _normalize_status=_normalize_status,
+            _extract_solution=_extract_solution,
         )
-        stats["lns_intended_iter_time_limit_seconds_last"] = (
-            float(lns_intended_iter_time_limit_seconds_last)
-            if lns_intended_iter_time_limit_seconds_last is not None
-            else None
-        )
-        stats["lns_iter_time_limit_seconds_effective_last"] = (
-            float(lns_iter_time_limit_seconds_effective_last)
-            if lns_iter_time_limit_seconds_effective_last is not None
-            else None
-        )
-        stats["lns_iter_time_limit_seconds_min"] = float(MIN_LNS_CP_SAT_TIME_LIMIT_SECONDS)
-        stats["lns_neighborhood_mode_effective"] = lns_effective_mode_last
-        stats["lns_neighborhood_mode_requested"] = lns_neighborhood_mode
-        stats["lns_poste_plus_one_top_days_k"] = int(lns_poste_plus_one_top_days_k)
-        stats["lns_poste_plus_one_top_days_selected_sample"] = lns_poste_plus_one_top_days_selected_sample
-        stats["lns_poste_plus_one_top_days_days_sample"] = lns_poste_plus_one_top_days_selected_sample
-        stats["lns_history_truncated"] = bool(lns_history_truncated)
-        stats["lns_history_max_items"] = int(lns_history_max_items)
+        best_solution = lns_result.best_solution
+        lns_iterations = lns_result.lns_iterations
+        lns_accept_count = lns_result.lns_accept_count
+        lns_best_improvement_understaff = lns_result.lns_best_improvement_understaff
+        lns_best_improvement_objective = lns_result.lns_best_improvement_objective
+        lns_neighborhoods_tried = lns_result.lns_neighborhoods_tried
 
         if best_solution is None:
             stats["solve_wall_time_seconds"] = float(last_wall_time)
@@ -1921,9 +1383,9 @@ class OrtoolsSolver:
             stats["is_timeout"] = (last_normalized_status == "TIMEOUT")
             stats["time_limit_reached"] = stats["is_timeout"]
             if last_normalized_status == "TIMEOUT":
-                raise TimeoutError("timeout", stats=stats)
+                raise TimeoutError("timeout", stats=stats_collector.finalize(stats))
             stats["timeout_confidence"] = "low"
-            raise InfeasibleError("infeasible", stats=stats)
+            raise InfeasibleError("infeasible", stats=stats_collector.finalize(stats))
 
         # Evaluate final incumbent for reporting and extraction.
         eval_model = model.Clone()
@@ -1932,7 +1394,7 @@ class OrtoolsSolver:
         eval_solver = _new_solver(1.0)
         eval_status = eval_solver.Solve(eval_model)
         if eval_status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-            raise InfeasibleError("infeasible", stats=stats)
+            raise InfeasibleError("infeasible", stats=stats_collector.finalize(stats))
 
         status = eval_status
         wall_time = float(time.monotonic() - started_at)
@@ -1952,7 +1414,6 @@ class OrtoolsSolver:
         stats["normalized_solver_status"] = normalized_solver_status
         stats["is_timeout"] = bool(time_limit_reached)
         stats["time_limit_reached"] = bool(time_limit_reached)
-        stats["solver_max_time_seconds_applied"] = time_limit_seconds
         stats.update(phase1_stats)
         stats.update(phase2_stats)
         stats["lns_enabled"] = bool(lns_enabled)
@@ -1967,37 +1428,17 @@ class OrtoolsSolver:
         stats["lns_accept_count_total"] = lns_accept_count
         stats["lns_neighborhoods_tried_by_poste"] = lns_neighborhoods_tried
         stats["time_to_first_feasible_seconds"] = time_to_first_feasible_seconds
-        stats["best_objective_over_time_points"] = [{"t": round(t, 3), "obj": obj, "understaff_unweighted": us} for (t, obj, us) in trace_points[:200]]
-        assignments: list[SolverAssignment] = []
-        assigned_day_by_agent: set[tuple[int, int]] = set()
-        for (agent_id, di, combo_id), var in y.items():
-            if eval_solver.Value(var) != 1:
-                continue
-            combo = combo_by_id[combo_id]
-            if combo.tranche_ids:
-                assigned_day_by_agent.add((agent_id, di))
-                for tranche_id in combo.tranche_ids:
-                    assignments.append(SolverAssignment(agent_id=agent_id, day_date=dates[di], tranche_id=tranche_id))
-
-        assignments.sort(key=lambda item: (item.day_date, item.agent_id, item.tranche_id))
-
-        agent_days: list[SolverAgentDay] = []
-        for day_date in dates:
-            di = date_to_index[day_date]
-            for agent_id in ordered_agent_ids:
-                if (agent_id, di) in assigned_day_by_agent:
-                    day_type = DayType.WORKING.value
-                else:
-                    day_type = solver_input.existing_day_type_by_agent_day.get((agent_id, day_date), DayType.REST.value)
-                agent_days.append(
-                    SolverAgentDay(
-                        agent_id=agent_id,
-                        day_date=day_date,
-                        day_type=day_type,
-                        description=None,
-                        is_off_shift=False,
-                    )
-                )
+        stats["best_objective_over_time_points"] = [{"t": round(t, 3), "obj": obj, "understaff_unweighted": us} for (t, obj, us) in trace_points]
+        assignments, agent_days, assigned_day_by_agent = extract_solution(
+            eval_solver=eval_solver,
+            y=y,
+            combo_by_id=combo_by_id,
+            dates=dates,
+            date_to_index=date_to_index,
+            ordered_agent_ids=ordered_agent_ids,
+            solver_input=solver_input,
+            hard_daytype_overrides=hard_daytype_overrides,
+        )
 
         objective_value = int(best_solution["objective_value"])
         understaff_total = int(best_solution["understaff_total_unweighted"])
@@ -2057,7 +1498,8 @@ class OrtoolsSolver:
             wt = int(rec["weight"]) * us
             understaff_day_unweighted[day_key] = understaff_day_unweighted.get(day_key, 0) + us
             understaff_day_weighted[day_key] = understaff_day_weighted.get(day_key, 0) + wt
-        for day_key in sorted(understaff_day_unweighted, key=lambda d: (-understaff_day_unweighted[d], -understaff_day_weighted.get(d, 0), d))[:10]:
+        # No trimming here; payload caps are handled in StatsCollector.
+        for day_key in sorted(understaff_day_unweighted, key=lambda d: (-understaff_day_unweighted[d], -understaff_day_weighted.get(d, 0), d)):
             top_understaff_days.append({"day_date": day_key, "understaff_unweighted": understaff_day_unweighted[day_key], "understaff_weighted": understaff_day_weighted.get(day_key, 0)})
         stats["understaff_by_day_weighted"] = understaff_day_weighted
         stats["smoothing_term_components_count"] = len(weighted_understaff_smooth_terms)
@@ -2099,6 +1541,8 @@ class OrtoolsSolver:
                 "tranche_diversity_total": eval_solver.Value(tranche_diversity_total),
                 "tranche_diversity_by_agent": tranche_diversity_by_agent,
                 "understaff_smooth_weighted_sum": eval_solver.Value(understaff_smooth_weighted_sum),
+                "existing_change_strong_total": eval_solver.Value(existing_change_strong_total),
+                "existing_change_medium_total": eval_solver.Value(existing_change_medium_total),
                 "objective_terms": {
                     "understaff_weighted": understaff_total_weighted,
                     "understaff_smooth_weighted": eval_solver.Value(understaff_smooth_weighted_sum),
@@ -2112,10 +1556,14 @@ class OrtoolsSolver:
                     "work_blocks_starts": eval_solver.Value(work_blocks_starts_total),
                     "rpdouble_soft_bonus": eval_solver.Value(rpdouble_soft_total),
                     "tranche_diversity_bonus": eval_solver.Value(tranche_diversity_total),
+                    "existing_change_strong": eval_solver.Value(existing_change_strong_total),
+                    "existing_change_medium": eval_solver.Value(existing_change_medium_total),
                 },
                 "num_assignments": len(assignments),
             }
         )
+
+        stats = stats_collector.finalize(stats)
 
         return SolverOutput(
             agent_days=agent_days,

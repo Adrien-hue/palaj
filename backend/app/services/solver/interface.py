@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from .models import SolverInput, SolverOutput
+from backend.app.services.solver.models import SolverInput, SolverOutput
 
 
 class SolverService(Protocol):
