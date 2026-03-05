@@ -4,6 +4,8 @@ from typing import Any
 
 from ortools.sat.python import cp_model
 
+from backend.app.services.solver.constants import CP_SAT_DEFAULT_NUM_SEARCH_WORKERS, CP_SAT_DEFAULT_RANDOM_SEED
+
 
 def normalize_status(raw_status: int, wall_time: float, budget_seconds: float) -> tuple[str, str, bool]:
     """Map raw CP-SAT status to the solver timeout convention.
@@ -40,8 +42,8 @@ def configure_solver(*, budget_seconds: float, time_limit_seconds: float, seed: 
     solver = cp_model.CpSolver()
     if budget_seconds > 0:
         solver.parameters.max_time_in_seconds = budget_seconds
-    solver.parameters.num_search_workers = 1
-    solver.parameters.random_seed = int(seed or 0)
+    solver.parameters.num_search_workers = CP_SAT_DEFAULT_NUM_SEARCH_WORKERS
+    solver.parameters.random_seed = int(seed or CP_SAT_DEFAULT_RANDOM_SEED)
     return solver
 
 

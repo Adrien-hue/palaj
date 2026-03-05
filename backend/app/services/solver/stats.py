@@ -4,16 +4,23 @@ from copy import deepcopy
 import os
 from typing import Any
 
+from backend.app.services.solver.constants import (
+    DEFAULT_COMPACT_MAX_ITEMS as DEFAULT_COMPACT_MAX_ITEMS_CONST,
+    RESULT_STATS_SCHEMA_VERSION,
+    SOLVER_VERSION,
+)
+
 
 class StatsCollector:
-    SCHEMA_VERSION = 2
-    DEFAULT_COMPACT_MAX_ITEMS = 20
+    SCHEMA_VERSION = RESULT_STATS_SCHEMA_VERSION
+    DEFAULT_COMPACT_MAX_ITEMS = DEFAULT_COMPACT_MAX_ITEMS_CONST
 
     def __init__(self, verbosity: str = "debug"):
         self.verbosity = verbosity if verbosity in {"compact", "debug"} else "debug"
 
     @classmethod
     def from_env(cls) -> "StatsCollector":
+        """Create a collector using environment-driven verbosity defaults."""
         raw = (os.getenv("PLANNING_STATS_VERBOSITY") or "").strip().lower()
         if raw:
             return cls(verbosity=raw)
@@ -49,6 +56,7 @@ class StatsCollector:
         coverage_stats["understaff_by_day_weighted_total"] = len(positive_days)
 
     def build_grouped_stats(self, flat: dict[str, Any]) -> dict[str, Any]:
+        """Build grouped stats families from flat legacy result stats."""
         model_keys = {
             "num_variables",
             "num_constraints",
@@ -122,6 +130,7 @@ class StatsCollector:
             "meta": {
                 "schema_version": self.SCHEMA_VERSION,
                 "verbosity": self.verbosity,
+                "solver_version": SOLVER_VERSION,
             },
             "timing": {
                 "global": {
@@ -190,6 +199,7 @@ class StatsCollector:
         return result
 
     def finalize(self, flat: dict[str, Any]) -> dict[str, Any]:
+        """Attach grouped stats payload while preserving all legacy flat keys."""
         result = dict(flat)
         grouped = self.build_grouped_stats(result)
         result["stats"] = self.apply_verbosity(grouped, self.verbosity)

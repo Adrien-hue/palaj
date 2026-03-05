@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from db.models import AgentDay, AgentDayAssignment, AgentTeam, PosteCoverageRequirement, Qualification, Tranche
 
-from .models import CoverageDemand, TrancheInfo
+from backend.app.services.solver.models import CoverageDemand, TrancheInfo
 
 logger = logging.getLogger(__name__)
 

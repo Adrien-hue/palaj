@@ -1,3 +1,31 @@
+"""OR-Tools solver orchestration layer for PALAJ planning.
+
+Pipeline (deterministic, non-breaking contract):
+  phase1 -> phase2 -> lns -> extraction -> stats finalization.
+
+Responsibilities by module:
+- model_builder: build immutable solve context and indices.
+- cp_sat: CP-SAT setup/status normalization/effective params snapshots.
+- phases: callback tracing and solve wrapper.
+- lns_runner: optional iterative LNS improvement on an incumbent.
+- solution_extractor: read assignments/metrics from a solved model.
+- stats: grouped result stats assembly and verbosity shaping.
+
+Important invariants:
+- deterministic CP-SAT defaults (single worker + fixed seed behavior),
+- LNS early-stop semantics and effective_last=None semantics are preserved,
+- result_stats flat keys stay backward-compatible; grouped stats are additive.
+
+Dependency flow:
+  ortools_solver
+     |--> model_builder
+     |--> cp_sat
+     |--> phases
+     |--> lns_runner
+     |--> solution_extractor
+     --> stats
+"""
+
 from __future__ import annotations
 
 import time
@@ -6,6 +34,12 @@ from ortools.sat.python import cp_model
 
 from core.domain.enums.day_type import DayType
 
+from backend.app.services.solver.constants import (
+    LNS_ITER_OVERHEAD_SECONDS,
+    MAX_LNS_HISTORY_ITEMS as MAX_LNS_HISTORY_ITEMS_CONST,
+    MIN_LNS_CP_SAT_TIME_LIMIT_SECONDS,
+    MIN_LNS_REMAINING_SECONDS_TO_RUN_ITER,
+)
 from backend.app.services.solver.cp_sat import configure_solver, effective_cp_sat_params, normalize_status
 from backend.app.services.solver.lns_runner import LnsRunner
 from backend.app.services.solver.model_builder import build_solve_context
@@ -14,11 +48,6 @@ from backend.app.services.solver.phases import TraceCallback, solve_with_trace
 from backend.app.services.solver.rh_combos import DayCombo, DayKind, DefaultRhComboRulesEngine, build_day_combos_for_poste, build_rest_compatibility
 from backend.app.services.solver.solution_extractor import extract_solution
 from backend.app.services.solver.stats import StatsCollector
-
-
-MIN_LNS_REMAINING_SECONDS_TO_RUN_ITER = 0.2
-LNS_ITER_OVERHEAD_SECONDS = 0.05
-MIN_LNS_CP_SAT_TIME_LIMIT_SECONDS = 0.2
 
 
 class OrtoolsSolver:
@@ -55,7 +84,7 @@ class OrtoolsSolver:
     }
     RPDOUBLE_OFF_RULE = "rest_only"
     RPDOUBLE_OFF_DAY_TYPES = {DayType.REST.value}
-    MAX_LNS_HISTORY_ITEMS = 200
+    MAX_LNS_HISTORY_ITEMS = MAX_LNS_HISTORY_ITEMS_CONST
 
     @staticmethod
     def _time_to_minutes(value) -> int:
@@ -116,6 +145,11 @@ class OrtoolsSolver:
         )
 
     def generate(self, solver_input: SolverInput) -> SolverOutput:
+        """Run the full solving pipeline and return assignments + flat/grouped stats.
+
+        Orchestrates phase1/phase2 solves, optional LNS refinement, solution
+        extraction, and final stats aggregation while preserving legacy flat keys.
+        """
         stats_collector = StatsCollector.from_env()
         solve_started_at = time.monotonic()
         model = cp_model.CpModel()
