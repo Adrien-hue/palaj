@@ -599,3 +599,92 @@ def test_existing_working_combo_change_and_zcot_transitions_penalties():
         )
     )
     assert zcot_rest["solution_quality"]["existing_change_medium_total"] >= 1
+
+
+def test_existing_assignments_conflict_resolution_and_audit():
+    day = date(2026, 1, 1)
+    grouped = _grouped(
+        OrtoolsSolver().generate(
+            _build_input(
+                agent_ids=[1],
+                start_date=day,
+                end_date=day,
+                seed=42,
+                absences={(1, day)},
+                existing_daytype_by_agent_day_ctx={(1, day): "working"},
+                existing_assignment_by_agent_day_ctx={(1, day): {"poste_id": 1, "tranche_ids": (10,)}},
+                qualified_postes_by_agent={1: (1,)},
+                qualification_date_by_agent_poste={(1, 1): None},
+                coverage_demands=[CoverageDemand(day_date=day, tranche_id=10, required_count=1, poste_id=1)],
+            )
+        )
+    )
+    assert grouped["model"]["existing_assignments_conflicts_count"] == 1
+    sample = grouped["model"]["existing_assignments_conflicts_sample"]
+    assert sample
+    assert sample[0]["agent_id"] == 1
+    assert sample[0]["day_date"] == day.isoformat()
+    assert sample[0]["conflict_reason"] == "solver_absence_conflicts_with_db_daytype"
+
+
+def test_existing_change_penalty_is_in_window_only_with_context_days():
+    grouped = _grouped(
+        OrtoolsSolver().generate(
+            _build_input(
+                agent_ids=[1],
+                start_date=date(2026, 1, 2),
+                end_date=date(2026, 1, 2),
+                seed=42,
+                existing_daytype_by_agent_day_ctx={
+                    (1, date(2026, 1, 1)): "working",
+                    (1, date(2026, 1, 3)): "working",
+                },
+                existing_assignment_by_agent_day_ctx={
+                    (1, date(2026, 1, 1)): {"poste_id": 1, "tranche_ids": (10,)},
+                    (1, date(2026, 1, 3)): {"poste_id": 1, "tranche_ids": (10,)},
+                },
+                qualified_postes_by_agent={1: (1,)},
+                qualification_date_by_agent_poste={(1, 1): None},
+                coverage_demands=[],
+            )
+        )
+    )
+    assert grouped["solution_quality"]["existing_change_strong_total"] == 0
+    assert grouped["solution_quality"]["existing_change_medium_total"] == 0
+
+
+def test_existing_unknown_working_signature_audited_and_non_crashing():
+    day = date(2026, 1, 1)
+    grouped = _grouped(
+        OrtoolsSolver().generate(
+            _build_input(
+                agent_ids=[1],
+                start_date=day,
+                end_date=day,
+                seed=42,
+                qualified_postes_by_agent={1: (1,)},
+                qualification_date_by_agent_poste={(1, 1): None},
+                existing_daytype_by_agent_day_ctx={(1, day): "working"},
+                existing_assignment_by_agent_day_ctx={(1, day): {"poste_id": 999, "tranche_ids": (999,)}},
+                coverage_demands=[CoverageDemand(day_date=day, tranche_id=10, required_count=1, poste_id=1)],
+            )
+        )
+    )
+    assert grouped["model"]["existing_working_signature_unknown_count"] >= 1
+    assert grouped["model"]["existing_working_signature_unknown_sample"]
+
+
+def test_existing_penalty_dominance_observability_ratios_present_and_sane():
+    grouped = _grouped(OrtoolsSolver().generate(_build_input(seed=42)))
+    ratios = grouped["objective"]["dominance_ratios"]
+    for key in [
+        "max_cost_existing_change_strong",
+        "max_cost_existing_change_medium",
+        "ratio_existing_change_strong_vs_one_understaff_weekday_day",
+        "ratio_existing_change_medium_vs_one_understaff_weekday_day",
+    ]:
+        assert key in ratios
+    assert ratios["ratio_existing_change_strong_vs_one_understaff_weekday_day"] > 0
+    assert ratios["ratio_existing_change_medium_vs_one_understaff_weekday_day"] > 0
+    assert ratios["ratio_existing_change_strong_vs_one_understaff_weekday_day"] < 1
+    assert ratios["ratio_existing_change_medium_vs_one_understaff_weekday_day"] < 1

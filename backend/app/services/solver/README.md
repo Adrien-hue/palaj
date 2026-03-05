@@ -56,3 +56,10 @@ Verbosity/troncature :
   `t`, `poste_id`, `selected_postes`, `relaxed_days_count`, `neighborhood_mode_effective`,
   `solve_wall_time_seconds_iter`, `accepted`, `status_raw`, `status_int`, `objective_value`,
   `understaff_total_unweighted`, `fixed_y_count`, `relaxed_y_count`, `validate_message_present`.
+
+## Existing assignments invariants
+
+- La source de vérité prioritaire est `existing_daytype_by_agent_day_ctx` (DB). En cas de conflit avec `absences` solver, la résolution reste déterministe et auditée (`existing_assignments_conflicts_count`, `existing_assignments_conflicts_sample`).
+- Les pénalités de changement d'existant (`existing_change_strong_total`, `existing_change_medium_total`) ne s'appliquent **que** aux jours dans la fenêtre de planification (in-window), jamais aux jours de contexte hors fenêtre.
+- Pour `WORKING`, la signature connue est `(poste_id, tranche_ids triés)`. Si la signature DB ne matche aucun combo, le solveur ne crash pas: il applique les règles de pénalité WORKING, et alimente `existing_working_signature_unknown_count` + `existing_working_signature_unknown_sample`.
+- Pas de trimming côté solver pour ces audits; les caps payload restent centralisés dans `StatsCollector`.
