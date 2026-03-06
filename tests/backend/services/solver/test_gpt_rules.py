@@ -4,7 +4,7 @@ from datetime import date, time, timedelta
 
 import pytest
 
-from backend.app.services.solver.models import CoverageDemand, InfeasibleError, SolverInput, TrancheInfo
+from backend.app.services.solver.models import CoverageDemand, InfeasibleError, SolverAgentDay, SolverInput, TrancheInfo
 from backend.app.services.solver.ortools_solver import OrtoolsSolver
 
 
@@ -259,7 +259,8 @@ def test_gpt_min_length_1_day_forbidden():
     start = date(2026, 1, 1)
     demands = [CoverageDemand(day_date=start, tranche_id=10, required_count=1)]
     grouped = _grouped(solver.generate(_input(days=4, demands=demands)))
-    assert grouped["solution_quality"]["gpt_length_violation_count_total"] == 0
+    assert grouped["solution_quality"]["gpt_len_1_count_total"] >= 1
+    assert grouped["solution_quality"]["gpt_length_violation_count_total"] >= 1
 
 
 def test_gpt_min_length_2_days_forbidden():
@@ -267,7 +268,8 @@ def test_gpt_min_length_2_days_forbidden():
     start = date(2026, 1, 1)
     demands = [CoverageDemand(day_date=start + timedelta(days=i), tranche_id=10, required_count=1) for i in range(2)]
     grouped = _grouped(solver.generate(_input(days=5, demands=demands)))
-    assert grouped["solution_quality"]["gpt_length_violation_count_total"] == 0
+    assert grouped["solution_quality"]["gpt_len_2_count_total"] >= 1
+    assert grouped["solution_quality"]["gpt_length_violation_count_total"] >= 1
 
 
 def test_gpt_max_length_7_days_forbidden():
@@ -338,7 +340,7 @@ def test_gpt_stats_present():
         assert key in grouped["solution_quality"]
 
 
-def test_gpt_len1_len2_stats_and_penalties_present_and_positive_when_forced_by_context():
+def test_gpt_len1_len2_stats_are_based_on_final_window_not_context_only():
     solver = OrtoolsSolver()
     start = date(2026, 1, 1)
 
@@ -357,7 +359,7 @@ def test_gpt_len1_len2_stats_and_penalties_present_and_positive_when_forced_by_c
             )
         )
     )
-    assert grouped_len1["solution_quality"]["gpt_len_1_count_total"] >= 1
+    assert grouped_len1["solution_quality"]["gpt_len_1_count_total"] == 0
     assert grouped_len1["solution_quality"]["gpt_len_1_penalized_total"] >= 1
 
     existing_len2 = {
@@ -376,7 +378,7 @@ def test_gpt_len1_len2_stats_and_penalties_present_and_positive_when_forced_by_c
             )
         )
     )
-    assert grouped_len2["solution_quality"]["gpt_len_2_count_total"] >= 1
+    assert grouped_len2["solution_quality"]["gpt_len_2_count_total"] == 0
     assert grouped_len2["solution_quality"]["gpt_len_2_penalized_total"] >= 1
 
 
@@ -466,3 +468,62 @@ def test_zcot_counts_for_gpt_without_breaking_feasibility():
     out = solver.generate(_input(days=4, existing_ctx=existing, existing_day_types=existing))
     grouped = _grouped(out)
     assert grouped["solution_quality"]["gpt_length_violation_count_total"] == 0
+
+
+def test_gpt_postsolve_counters_use_final_schedule_day_types():
+    solver = OrtoolsSolver()
+    start = date(2026, 3, 1)
+    dates = [start + timedelta(days=i) for i in range(9)]
+    # Runs in final schedule: WWR WR WWWR -> lengths 2,1,3.
+    final_day_types = [
+        "working",
+        "working",
+        "rest",
+        "working",
+        "rest",
+        "working",
+        "working",
+        "working",
+        "rest",
+    ]
+    agent_days = [
+        SolverAgentDay(agent_id=1, day_date=day_date, day_type=day_type)
+        for day_date, day_type in zip(dates, final_day_types, strict=True)
+    ]
+
+    gpt_len_counts, gpt_total, gpt_violation_count, _ = solver._compute_gpt_stats_from_final_schedule(
+        ordered_agent_ids=[1],
+        dates=dates,
+        agent_days=agent_days,
+        assigned_day_by_agent={(1, i) for i, day_type in enumerate(final_day_types) if day_type == "working"},
+    )
+
+    assert gpt_total == 3
+    assert gpt_len_counts[1] > 0
+    assert gpt_len_counts[2] > 0
+    assert gpt_len_counts[3] > 0
+    assert gpt_violation_count > 0
+
+
+def test_gpt_postsolve_counters_treat_zcot_as_worked_in_final_schedule():
+    solver = OrtoolsSolver()
+    start = date(2026, 3, 1)
+    dates = [start + timedelta(days=i) for i in range(4)]
+    # ZCOT + WORKING + WORKING must be one GPT run of length 3.
+    agent_days = [
+        SolverAgentDay(agent_id=1, day_date=dates[0], day_type="zcot"),
+        SolverAgentDay(agent_id=1, day_date=dates[1], day_type="working"),
+        SolverAgentDay(agent_id=1, day_date=dates[2], day_type="working"),
+        SolverAgentDay(agent_id=1, day_date=dates[3], day_type="rest"),
+    ]
+
+    gpt_len_counts, gpt_total, gpt_violation_count, _ = solver._compute_gpt_stats_from_final_schedule(
+        ordered_agent_ids=[1],
+        dates=dates,
+        agent_days=agent_days,
+        assigned_day_by_agent={(1, 1), (1, 2)},
+    )
+
+    assert gpt_total == 1
+    assert gpt_len_counts[3] == 1
+    assert gpt_violation_count == 0

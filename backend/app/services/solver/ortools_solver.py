@@ -167,6 +167,81 @@ class OrtoolsSolver:
             key=lambda tranche_id: (-tranche_duration_by_id.get(tranche_id, 0), tranche_id),
         )
 
+    @staticmethod
+    def _normalize_final_day_type(day_value: object) -> str:
+        """Normalize final day payloads to a lowercased day_type string."""
+        if isinstance(day_value, str):
+            return day_value.strip().lower()
+        if isinstance(day_value, dict):
+            value = day_value.get("day_type")
+            if isinstance(value, str):
+                return value.strip().lower()
+            return ""
+        value = getattr(day_value, "day_type", None)
+        if isinstance(value, str):
+            return value.strip().lower()
+        return ""
+
+    @classmethod
+    def _compute_gpt_stats_from_final_schedule(
+        cls,
+        *,
+        ordered_agent_ids: list[int],
+        dates: list[date],
+        agent_days: list[object],
+        assigned_day_by_agent: set[tuple[int, int]],
+    ) -> tuple[dict[int, int], int, int, list[dict[str, object]]]:
+        worked_types = {DayType.WORKING.value, DayType.ZCOT.value}
+        gpt_len_counts = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0}
+        gpt_total = 0
+        gpt_violation_count = 0
+        gpt_violation_sample: list[dict[str, object]] = []
+
+        final_day_type_by_agent_day: dict[tuple[int, date], str] = {}
+        for day in agent_days:
+            if isinstance(day, dict):
+                agent_id = day.get("agent_id")
+                day_date = day.get("day_date")
+            else:
+                agent_id = getattr(day, "agent_id", None)
+                day_date = getattr(day, "day_date", None)
+            if not isinstance(agent_id, int) or not isinstance(day_date, date):
+                continue
+            final_day_type_by_agent_day[(agent_id, day_date)] = cls._normalize_final_day_type(day)
+
+        for agent_id in ordered_agent_ids:
+            run_start = None
+            for i, day_date in enumerate(dates + [None]):
+                worked = False
+                if day_date is not None:
+                    day_type = final_day_type_by_agent_day.get((agent_id, day_date), "")
+                    if not day_type and (agent_id, i) in assigned_day_by_agent:
+                        day_type = DayType.WORKING.value
+                    worked = day_type in worked_types
+                if worked and run_start is None:
+                    run_start = i
+                if (not worked) and run_start is not None:
+                    run_len = i - run_start
+                    gpt_total += 1
+                    if run_len in gpt_len_counts:
+                        gpt_len_counts[run_len] += 1
+                    if run_len < 3 or run_len > 6:
+                        gpt_violation_count += 1
+                        if len(gpt_violation_sample) < 10:
+                            start_day = dates[run_start]
+                            end_day = dates[i - 1]
+                            gpt_violation_sample.append(
+                                {
+                                    "agent_id": agent_id,
+                                    "start_day": start_day.isoformat(),
+                                    "end_day": end_day.isoformat(),
+                                    "length": run_len,
+                                }
+                            )
+                    run_start = None
+
+        return gpt_len_counts, gpt_total, gpt_violation_count, gpt_violation_sample
+
     def generate(self, solver_input: SolverInput) -> SolverOutput:
         """Run the full solving pipeline and return assignments + flat/grouped stats.
 
@@ -1848,54 +1923,12 @@ class OrtoolsSolver:
             stats["rpdouble_gap_violation_count_total"] = violation_count
             stats["rpdouble_gap_violation_sample"] = violation_sample
 
-            gpt_len_counts = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0}
-            gpt_total = 0
-            gpt_violation_count = 0
-            gpt_violation_sample = []
-            for agent_id in ordered_agent_ids:
-                timeline = []
-                for ci, day_date in enumerate(context_days):
-                    worked = False
-                    if is_in_window_ctx_index(ci, in_window_ctx_indices):
-                        di = date_to_period_index[day_date]
-                        for combo_id in combo_by_id:
-                            if not self._is_gpt_work_combo(combo_by_id[combo_id]):
-                                continue
-                            var = y.get((agent_id, di, combo_id))
-                            if var is not None and eval_solver.Value(var) == 1:
-                                worked = True
-                                break
-                    else:
-                        key = (agent_id, day_date)
-                        day_type_ctx = resolved_existing_daytypes_ctx.get(key, DayType.REST.value)
-                        if day_type_ctx == DayType.ZCOT.value:
-                            worked = True
-                        elif day_type_ctx == DayType.WORKING.value:
-                            if resolved_working_sig_ctx.get(key) is not None and solver_input.existing_shift_start_end_by_agent_day_ctx.get(key) is not None:
-                                worked = True
-                    timeline.append({"day": day_date, "worked": worked})
-
-                run_start = None
-                for i, slot in enumerate(timeline + [{"day": None, "worked": False}]):
-                    if slot["worked"] and run_start is None:
-                        run_start = i
-                    if (not slot["worked"]) and run_start is not None:
-                        run_len = i - run_start
-                        gpt_total += 1
-                        if run_len in gpt_len_counts:
-                            gpt_len_counts[run_len] += 1
-                        if run_len < 3 or run_len > 6:
-                            gpt_violation_count += 1
-                            if len(gpt_violation_sample) < 10:
-                                gpt_violation_sample.append(
-                                    {
-                                        "agent_id": agent_id,
-                                        "start_day": timeline[run_start]["day"].isoformat(),
-                                        "end_day": timeline[i - 1]["day"].isoformat(),
-                                        "length": run_len,
-                                    }
-                                )
-                        run_start = None
+            gpt_len_counts, gpt_total, gpt_violation_count, gpt_violation_sample = self._compute_gpt_stats_from_final_schedule(
+                ordered_agent_ids=ordered_agent_ids,
+                dates=dates,
+                agent_days=agent_days,
+                assigned_day_by_agent=assigned_day_by_agent,
+            )
 
             stats["gpt_count_total"] = gpt_total
             stats["gpt_len_1_count_total"] = gpt_len_counts[1]
