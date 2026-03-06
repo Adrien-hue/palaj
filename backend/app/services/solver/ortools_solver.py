@@ -706,6 +706,7 @@ class OrtoolsSolver:
             run_feasible_candidate_count_by_agent: dict[int, int] = {agent_id: 0 for agent_id in ordered_agent_ids}
 
             can_work_ctx: dict[tuple[int, int], bool] = {}
+            gpt_worked_ctx_fixed_value: dict[tuple[int, int], int | None] = {}
             for agent_id in ordered_agent_ids:
                 for ci, day_date in enumerate(context_days):
                     key = (agent_id, day_date)
@@ -713,12 +714,93 @@ class OrtoolsSolver:
                         di = date_to_period_index[day_date]
                         day_combo_ids = [c for (a, d, c) in y if a == agent_id and d == di]
                         can_work_ctx[(agent_id, ci)] = any(bool(combo_by_id[cid].tranche_ids) for cid in day_combo_ids)
+                        gpt_worked_ctx_fixed_value[(agent_id, ci)] = None
                     else:
                         day_type_ctx = resolved_existing_daytypes_ctx.get(key, DayType.REST.value)
                         can_work_ctx[(agent_id, ci)] = (
                             day_type_ctx == DayType.WORKING.value
                             and resolved_working_sig_ctx.get(key) is not None
                             and solver_input.existing_shift_start_end_by_agent_day_ctx.get(key) is not None
+                        )
+                        gpt_worked_ctx_fixed_value[(agent_id, ci)] = int(gpt_worked_ctx[(agent_id, ci)])
+
+            in_window_ctx_index_set = set(in_window_ctx_indices)
+
+            gpt_ctx_worked_fixed_days_by_agent = {
+                agent_id: sum(
+                    1
+                    for ci in range(N_ctx)
+                    if ci not in in_window_ctx_index_set and gpt_worked_ctx_fixed_value[(agent_id, ci)] == 1
+                )
+                for agent_id in ordered_agent_ids
+            }
+            gpt_ctx_worked_fixed_days_count_total = sum(gpt_ctx_worked_fixed_days_by_agent.values())
+
+            gpt_start_candidates_count_total = 0
+            gpt_min3_forced_extensions_count_total = 0
+            gpt_min3_forced_extensions_impossible_count_total = 0
+            gpt_max6_risk_windows_count_total = 0
+            gpt_hard_conflict_count_total = 0
+            gpt_hard_conflict_sample: list[dict[str, object]] = []
+
+            def _record_gpt_hard_conflict(entry: dict[str, object]) -> None:
+                nonlocal gpt_hard_conflict_count_total
+                gpt_hard_conflict_count_total += 1
+                if len(gpt_hard_conflict_sample) < 10:
+                    gpt_hard_conflict_sample.append(entry)
+
+            for agent_id in ordered_agent_ids:
+                for s in range(N_ctx):
+                    min3_scope = (
+                        s in in_window_ctx_index_set
+                        and s + 2 < N_ctx
+                        and (s + 1) in in_window_ctx_index_set
+                        and (s + 2) in in_window_ctx_index_set
+                    )
+                    if not min3_scope:
+                        continue
+                    gpt_start_candidates_count_total += 1
+                    gpt_min3_forced_extensions_count_total += 2
+                    blocked_days = [
+                        context_days[s + offset].isoformat()
+                        for offset in (1, 2)
+                        if not can_work_ctx[(agent_id, s + offset)]
+                    ]
+                    if blocked_days:
+                        gpt_min3_forced_extensions_impossible_count_total += 1
+                        _record_gpt_hard_conflict(
+                            {
+                                "agent": int(agent_id),
+                                "index": int(s),
+                                "date": context_days[s].isoformat(),
+                                "type": "min3_extension_impossible",
+                                "days": blocked_days,
+                            }
+                        )
+
+                for s in range(0, max(0, N_ctx - 6)):
+                    window_indices = [s + k for k in range(7)]
+                    if not any(ci in in_window_ctx_index_set for ci in window_indices):
+                        continue
+                    fixed_ones = sum(
+                        1 for ci in window_indices if gpt_worked_ctx_fixed_value[(agent_id, ci)] == 1
+                    )
+                    if fixed_ones >= 6:
+                        gpt_max6_risk_windows_count_total += 1
+                    fixed_known = [
+                        gpt_worked_ctx_fixed_value[(agent_id, ci)]
+                        for ci in window_indices
+                        if gpt_worked_ctx_fixed_value[(agent_id, ci)] is not None
+                    ]
+                    if len(fixed_known) == 7 and fixed_ones > 6:
+                        _record_gpt_hard_conflict(
+                            {
+                                "agent": int(agent_id),
+                                "index": int(s),
+                                "date": context_days[s].isoformat(),
+                                "type": "max6_window_forced",
+                                "days": [context_days[ci].isoformat() for ci in window_indices],
+                            }
                         )
 
             for agent_id in ordered_agent_ids:
@@ -773,7 +855,13 @@ class OrtoolsSolver:
                     )
                     gpt_start_vars_by_agent[agent_id].append(start_var)
 
-                    if s + 2 < N_ctx:
+                    min3_scope = (
+                        s in in_window_ctx_index_set
+                        and s + 2 < N_ctx
+                        and (s + 1) in in_window_ctx_index_set
+                        and (s + 2) in in_window_ctx_index_set
+                    )
+                    if min3_scope:
                         model.Add(gpt_worked_ctx[(agent_id, s + 1)] == 1).OnlyEnforceIf(start_var)
                         model.Add(gpt_worked_ctx[(agent_id, s + 2)] == 1).OnlyEnforceIf(start_var)
                         num_constraints += 2
@@ -798,6 +886,8 @@ class OrtoolsSolver:
                         gpt_len_6_vars.append(len6_var)
 
                 for s in range(0, max(0, N_ctx - 6)):
+                    if not any((s + k) in in_window_ctx_index_set for k in range(7)):
+                        continue
                     model.Add(sum(gpt_worked_ctx[(agent_id, s + k)] for k in range(7)) <= 6)
                     num_constraints += 1
 
@@ -816,6 +906,15 @@ class OrtoolsSolver:
             num_constraints += 1
 
             stats["run_feasible_candidate_count_by_agent"] = run_feasible_candidate_count_by_agent
+            stats["gpt_ctx_worked_fixed_days_count_total"] = gpt_ctx_worked_fixed_days_count_total
+            stats["gpt_ctx_worked_fixed_days_by_agent"] = gpt_ctx_worked_fixed_days_by_agent
+            stats["gpt_db_worked_days_count_total"] = gpt_ctx_worked_fixed_days_count_total
+            stats["gpt_start_candidates_count_total"] = gpt_start_candidates_count_total
+            stats["gpt_min3_forced_extensions_count_total"] = gpt_min3_forced_extensions_count_total
+            stats["gpt_min3_forced_extensions_impossible_count_total"] = gpt_min3_forced_extensions_impossible_count_total
+            stats["gpt_max6_risk_windows_count_total"] = gpt_max6_risk_windows_count_total
+            stats["gpt_hard_conflict_count_total"] = gpt_hard_conflict_count_total
+            stats["gpt_hard_conflict_sample"] = gpt_hard_conflict_sample
         else:
             gpt_len_3_total = model.NewIntVar(0, 0, "gpt_len_3_total")
             gpt_len_6_total = model.NewIntVar(0, 0, "gpt_len_6_total")
@@ -827,6 +926,15 @@ class OrtoolsSolver:
             model.Add(gpt_length_penalty_total == 0)
             model.Add(gpt_starts_total == 0)
             num_constraints += 4
+            stats["gpt_ctx_worked_fixed_days_count_total"] = 0
+            stats["gpt_ctx_worked_fixed_days_by_agent"] = {}
+            stats["gpt_db_worked_days_count_total"] = 0
+            stats["gpt_start_candidates_count_total"] = 0
+            stats["gpt_min3_forced_extensions_count_total"] = 0
+            stats["gpt_min3_forced_extensions_impossible_count_total"] = 0
+            stats["gpt_max6_risk_windows_count_total"] = 0
+            stats["gpt_hard_conflict_count_total"] = 0
+            stats["gpt_hard_conflict_sample"] = []
         stats["worked_ctx_window_fixed_days_count_by_agent"] = worked_ctx_window_fixed_days_count_by_agent
         is_work_by_agent_day: dict[tuple[int, int], cp_model.IntVar] = {}
         stability_change_vars_by_agent: dict[int, list[cp_model.IntVar]] = {agent_id: [] for agent_id in ordered_agent_ids}

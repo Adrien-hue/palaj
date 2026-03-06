@@ -136,6 +136,16 @@ Contraintes hard GPT :
 - longueur min = 3 jours consécutifs
 - longueur max = 6 jours consécutifs
 
+Conventions de frontière (DB ↔ fenêtre optimisée) :
+
+- Le contexte DB est **observé** pour reconstruire les runs GPT (`WORKING` avec shift exploitable, `ZCOT`),
+  mais la contrainte `min=3` n'est imposée que pour les starts **pilotables** dans la fenêtre et seulement
+  si `J+1` et `J+2` sont aussi pilotables dans la fenêtre.
+- La contrainte `max=6` s'applique sur les fenêtres glissantes de 7 jours qui touchent au moins un jour pilotable
+  (fenêtre d'optimisation), pour éviter de sur-contraindre des segments purement historiques DB.
+- En conséquence, les jours DB restent pris en compte comme contexte métier sans créer artificiellement des
+  contradictions hard hors zone de décision.
+
 Préférence soft GPT (à couverture égale) :
 
 - `4` et `5` jours sont favorisés
@@ -160,3 +170,15 @@ Stats associées (payload additif) :
 - `solution_quality.gpt_len_6_penalized_total`
 - `solution_quality.gpt_length_penalty_total`
 - `objective.objective_terms.gpt_length_penalty`
+
+Diagnostics pré-solve GPT (model) :
+
+- `model.gpt_ctx_worked_fixed_days_count_total`
+- `model.gpt_ctx_worked_fixed_days_by_agent`
+- `model.gpt_db_worked_days_count_total`
+- `model.gpt_start_candidates_count_total`
+- `model.gpt_min3_forced_extensions_count_total`
+- `model.gpt_min3_forced_extensions_impossible_count_total`
+- `model.gpt_max6_risk_windows_count_total`
+- `model.gpt_hard_conflict_count_total`
+- `model.gpt_hard_conflict_sample`
