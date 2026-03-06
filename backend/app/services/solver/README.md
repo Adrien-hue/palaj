@@ -119,3 +119,44 @@ Instrumentation debug additive (post-solve):
   `worked_ctx == 1 => start_abs_ctx/end_abs_ctx valides`.
 - `add_rest_compat_constraints` est conservée comme filtre de paires de combos in-window (réduction d'espace de recherche),
   tandis que la garantie métier finale du repos quotidien est portée par la contrainte absolue ci-dessus.
+
+## GPT length rules
+
+Définition GPT (pour cette règle) : séquence contiguë de jours `worked_day=True`, avec
+`worked_day=True` **uniquement** pour `WORKING` ou `ZCOT`.
+
+- `REST`, `LEAVE`, `ABSENT` cassent la séquence.
+- Pour le contexte DB hors fenêtre :
+  - `WORKING` n'est compté travaillé que si une signature exploitable + horaires de shift existent.
+  - `ZCOT` est compté comme jour travaillé GPT.
+  - un `WORKING` incohérent (sans assignment exploitable) n'ouvre pas artificiellement une GPT.
+
+Contraintes hard GPT :
+
+- longueur min = 3 jours consécutifs
+- longueur max = 6 jours consécutifs
+
+Préférence soft GPT (à couverture égale) :
+
+- `4` et `5` jours sont favorisés
+- `3` et `6` jours sont moins désirables via `objective_terms.gpt_length_penalty`
+
+Intégration hiérarchie objectif :
+
+- les bornes `3..6` sont hard (non softenées)
+- la pénalité GPT est un tie-breaker qualité, strictement sous la couverture
+- la règle cohabite avec repos quotidien hard, RPDOUBLE et stabilité des affectations existantes
+
+Stats associées (payload additif) :
+
+- `solution_quality.gpt_count_total`
+- `solution_quality.gpt_len_3_count_total`
+- `solution_quality.gpt_len_4_count_total`
+- `solution_quality.gpt_len_5_count_total`
+- `solution_quality.gpt_len_6_count_total`
+- `solution_quality.gpt_length_violation_count_total`
+- `solution_quality.gpt_length_violation_sample`
+- `solution_quality.gpt_len_3_penalized_total`
+- `solution_quality.gpt_len_6_penalized_total`
+- `solution_quality.gpt_length_penalty_total`
+- `objective.objective_terms.gpt_length_penalty`

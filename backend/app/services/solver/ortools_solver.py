@@ -77,6 +77,7 @@ class OrtoolsSolver:
     # Tie-breakers: intentionally far below coverage term to preserve strict coverage dominance.
     W_STABILITY_CHANGE = 20
     W_WORK_BLOCKS = 15
+    W_GPT_LENGTH_PENALTY = 12
     W_RPDOUBLE_BONUS = 5
     W_TRANCHE_DIVERSITY = 5
     W_UNDERSTAFF_SMOOTH = 1
@@ -144,6 +145,10 @@ class OrtoolsSolver:
     @staticmethod
     def _is_work_combo(combo: DayCombo) -> bool:
         return combo.day_kind in {DayKind.WORK, DayKind.ZCOT, DayKind.LEAVE, DayKind.ABSENT}
+
+    @staticmethod
+    def _is_gpt_work_combo(combo: DayCombo) -> bool:
+        return combo.day_kind in {DayKind.WORK, DayKind.ZCOT}
 
     @staticmethod
     def _is_off_for_rpdouble_combo(combo: DayCombo) -> bool:
@@ -342,6 +347,7 @@ class OrtoolsSolver:
         )
         max_cost_stability = self.W_STABILITY_CHANGE * stability_changes_max
         max_cost_blocks = self.W_WORK_BLOCKS * work_block_starts_max
+        max_cost_gpt_length_penalty = self.W_GPT_LENGTH_PENALTY * work_block_starts_max
         max_cost_rpdouble = self.W_RPDOUBLE_BONUS * rpdouble_soft_max
         max_cost_diversity = self.W_TRANCHE_DIVERSITY * tranche_diversity_max
         max_existing_change_count = agent_count * total_days
@@ -351,6 +357,7 @@ class OrtoolsSolver:
         max_cost_all_tiebreakers = (
             abs(max_cost_stability)
             + abs(max_cost_blocks)
+            + abs(max_cost_gpt_length_penalty)
             + abs(max_cost_rpdouble)
             + abs(max_cost_diversity)
             + abs(max_cost_smoothing)
@@ -369,6 +376,7 @@ class OrtoolsSolver:
             "understaff_smooth_max": understaff_smooth_max,
             "max_cost_stability": max_cost_stability,
             "max_cost_blocks": max_cost_blocks,
+            "max_cost_gpt_length_penalty": max_cost_gpt_length_penalty,
             "max_cost_rpdouble": max_cost_rpdouble,
             "max_cost_diversity": max_cost_diversity,
             "max_cost_smoothing": max_cost_smoothing,
@@ -571,6 +579,7 @@ class OrtoolsSolver:
         runs_candidate_count_by_agent: dict[int, int] = {agent_id: 0 for agent_id in ordered_agent_ids}
         RPDOUBLE_MIN_GAP_MINUTES = 3620
         worked_ctx: dict[tuple[int, int], cp_model.IntVar | int] = {}
+        gpt_worked_ctx: dict[tuple[int, int], cp_model.IntVar | int] = {}
         start_abs_ctx: dict[tuple[int, int], cp_model.IntVar | int] = {}
         end_abs_ctx: dict[tuple[int, int], cp_model.IntVar | int] = {}
         night_ctx: dict[tuple[int, int], cp_model.IntVar | int] = {}
@@ -591,6 +600,14 @@ class OrtoolsSolver:
                 if not is_in_window_ctx_index(ci, in_window_ctx_indices):
                     shift_ctx = solver_input.existing_shift_start_end_by_agent_day_ctx.get(key)
                     signature_ctx = resolved_working_sig_ctx.get(key)
+                    gpt_worked_ctx[(agent_id, ci)] = 1 if (
+                        day_type_ctx == DayType.ZCOT.value
+                        or (
+                            day_type_ctx == DayType.WORKING.value
+                            and signature_ctx is not None
+                            and shift_ctx is not None
+                        )
+                    ) else 0
                     if day_type_ctx == DayType.WORKING.value and signature_ctx is not None and shift_ctx is not None:
                         start_ctx, end_ctx = shift_ctx
                         worked_ctx[(agent_id, ci)] = 1
@@ -618,6 +635,20 @@ class OrtoolsSolver:
                     model.Add(worked_day == 0)
                 num_constraints += 1
                 worked_ctx[(agent_id, ci)] = worked_day
+
+                gpt_work_combo_ids = [
+                    combo_id
+                    for combo_id in combo_by_id
+                    if (agent_id, di, combo_id) in y and self._is_gpt_work_combo(combo_by_id[combo_id])
+                ]
+                gpt_worked_day = model.NewBoolVar(f"gpt_worked_ctx_a{agent_id}_c{ci}")
+                num_variables += 1
+                if gpt_work_combo_ids:
+                    model.Add(gpt_worked_day == sum(y[(agent_id, di, combo_id)] for combo_id in gpt_work_combo_ids))
+                else:
+                    model.Add(gpt_worked_day == 0)
+                num_constraints += 1
+                gpt_worked_ctx[(agent_id, ci)] = gpt_worked_day
 
                 start_abs = model.NewIntVar(0, abs_max, f"start_abs_ctx_a{agent_id}_c{ci}")
                 end_abs = model.NewIntVar(0, abs_max + 1440, f"end_abs_ctx_a{agent_id}_c{ci}")
@@ -709,7 +740,93 @@ class OrtoolsSolver:
                         model.Add(start_abs_ctx[(agent_id, u)] >= end_abs_ctx[(agent_id, s + 5)] + RPDOUBLE_MIN_GAP_MINUTES).OnlyEnforceIf([window6, worked_ctx[(agent_id, u)]])
                         num_constraints += 1
 
+            gpt_start_vars_by_agent: dict[int, list[cp_model.IntVar]] = {agent_id: [] for agent_id in ordered_agent_ids}
+            gpt_len_3_vars: list[cp_model.IntVar] = []
+            gpt_len_6_vars: list[cp_model.IntVar] = []
+
+            def _constrain_and_var(
+                *,
+                var: cp_model.IntVar,
+                positive_terms: list[cp_model.IntVar | int],
+                negative_terms: list[cp_model.IntVar | int],
+            ) -> None:
+                nonlocal num_constraints
+                for term in positive_terms:
+                    model.Add(var <= term)
+                    num_constraints += 1
+                for term in negative_terms:
+                    model.Add(var <= 1 - term)
+                    num_constraints += 1
+                all_terms = list(positive_terms) + [(1 - term) for term in negative_terms]
+                model.Add(var >= sum(all_terms) - (len(all_terms) - 1))
+                num_constraints += 1
+
+            for agent_id in ordered_agent_ids:
+                for s in range(N_ctx):
+                    start_var = model.NewBoolVar(f"gpt_start_a{agent_id}_c{s}")
+                    num_variables += 1
+                    prev_worked = gpt_worked_ctx[(agent_id, s - 1)] if s > 0 else 0
+                    _constrain_and_var(
+                        var=start_var,
+                        positive_terms=[gpt_worked_ctx[(agent_id, s)]],
+                        negative_terms=[prev_worked],
+                    )
+                    gpt_start_vars_by_agent[agent_id].append(start_var)
+
+                    if s + 2 < N_ctx:
+                        model.Add(gpt_worked_ctx[(agent_id, s + 1)] == 1).OnlyEnforceIf(start_var)
+                        model.Add(gpt_worked_ctx[(agent_id, s + 2)] == 1).OnlyEnforceIf(start_var)
+                        num_constraints += 2
+
+                    if s + 3 <= N_ctx:
+                        len3_var = model.NewBoolVar(f"gpt_len3_start_a{agent_id}_c{s}")
+                        num_variables += 1
+                        next_worked = gpt_worked_ctx[(agent_id, s + 3)] if s + 3 < N_ctx else 0
+                        _constrain_and_var(
+                            var=len3_var,
+                            positive_terms=[start_var, gpt_worked_ctx[(agent_id, s + 1)], gpt_worked_ctx[(agent_id, s + 2)]],
+                            negative_terms=[next_worked],
+                        )
+                        gpt_len_3_vars.append(len3_var)
+
+                    if s + 6 <= N_ctx:
+                        len6_var = model.NewBoolVar(f"gpt_len6_start_a{agent_id}_c{s}")
+                        num_variables += 1
+                        positives = [start_var] + [gpt_worked_ctx[(agent_id, s + offset)] for offset in range(1, 6)]
+                        next_worked = gpt_worked_ctx[(agent_id, s + 6)] if s + 6 < N_ctx else 0
+                        _constrain_and_var(var=len6_var, positive_terms=positives, negative_terms=[next_worked])
+                        gpt_len_6_vars.append(len6_var)
+
+                for s in range(0, max(0, N_ctx - 6)):
+                    model.Add(sum(gpt_worked_ctx[(agent_id, s + k)] for k in range(7)) <= 6)
+                    num_constraints += 1
+
+            gpt_len_3_total = model.NewIntVar(0, len(gpt_len_3_vars), "gpt_len_3_total")
+            gpt_len_6_total = model.NewIntVar(0, len(gpt_len_6_vars), "gpt_len_6_total")
+            gpt_length_penalty_total = model.NewIntVar(0, len(gpt_len_3_vars) + len(gpt_len_6_vars), "gpt_length_penalty_total")
+            num_variables += 3
+            model.Add(gpt_len_3_total == (sum(gpt_len_3_vars) if gpt_len_3_vars else 0))
+            model.Add(gpt_len_6_total == (sum(gpt_len_6_vars) if gpt_len_6_vars else 0))
+            model.Add(gpt_length_penalty_total == gpt_len_3_total + gpt_len_6_total)
+            num_constraints += 3
+
+            gpt_starts_total = model.NewIntVar(0, len(ordered_agent_ids) * N_ctx, "gpt_starts_total")
+            num_variables += 1
+            model.Add(gpt_starts_total == sum(var for vars_list in gpt_start_vars_by_agent.values() for var in vars_list))
+            num_constraints += 1
+
             stats["run_feasible_candidate_count_by_agent"] = run_feasible_candidate_count_by_agent
+        else:
+            gpt_len_3_total = model.NewIntVar(0, 0, "gpt_len_3_total")
+            gpt_len_6_total = model.NewIntVar(0, 0, "gpt_len_6_total")
+            gpt_length_penalty_total = model.NewIntVar(0, 0, "gpt_length_penalty_total")
+            gpt_starts_total = model.NewIntVar(0, 0, "gpt_starts_total")
+            num_variables += 4
+            model.Add(gpt_len_3_total == 0)
+            model.Add(gpt_len_6_total == 0)
+            model.Add(gpt_length_penalty_total == 0)
+            model.Add(gpt_starts_total == 0)
+            num_constraints += 4
         stats["worked_ctx_window_fixed_days_count_by_agent"] = worked_ctx_window_fixed_days_count_by_agent
         is_work_by_agent_day: dict[tuple[int, int], cp_model.IntVar] = {}
         stability_change_vars_by_agent: dict[int, list[cp_model.IntVar]] = {agent_id: [] for agent_id in ordered_agent_ids}
@@ -1131,6 +1248,7 @@ class OrtoolsSolver:
             + self.W_USELESS_WORK * useless_work_total
             + self.W_STABILITY_CHANGE * stability_changes_total
             + self.W_WORK_BLOCKS * work_blocks_starts_total
+            + self.W_GPT_LENGTH_PENALTY * gpt_length_penalty_total
             - self.W_RPDOUBLE_BONUS * rpdouble_soft_total
             - self.W_TRANCHE_DIVERSITY * tranche_diversity_total
             + self.W_UNDERSTAFF_SMOOTH * understaff_smooth_weighted_sum
@@ -1592,6 +1710,63 @@ class OrtoolsSolver:
             stats["rpdouble_gap_violation_count_total"] = violation_count
             stats["rpdouble_gap_violation_sample"] = violation_sample
 
+            gpt_len_counts = {3: 0, 4: 0, 5: 0, 6: 0}
+            gpt_total = 0
+            gpt_violation_count = 0
+            gpt_violation_sample = []
+            for agent_id in ordered_agent_ids:
+                timeline = []
+                for ci, day_date in enumerate(context_days):
+                    worked = False
+                    if is_in_window_ctx_index(ci, in_window_ctx_indices):
+                        di = date_to_period_index[day_date]
+                        for combo_id in combo_by_id:
+                            if not self._is_gpt_work_combo(combo_by_id[combo_id]):
+                                continue
+                            var = y.get((agent_id, di, combo_id))
+                            if var is not None and eval_solver.Value(var) == 1:
+                                worked = True
+                                break
+                    else:
+                        key = (agent_id, day_date)
+                        day_type_ctx = resolved_existing_daytypes_ctx.get(key, DayType.REST.value)
+                        if day_type_ctx == DayType.ZCOT.value:
+                            worked = True
+                        elif day_type_ctx == DayType.WORKING.value:
+                            if resolved_working_sig_ctx.get(key) is not None and solver_input.existing_shift_start_end_by_agent_day_ctx.get(key) is not None:
+                                worked = True
+                    timeline.append({"day": day_date, "worked": worked})
+
+                run_start = None
+                for i, slot in enumerate(timeline + [{"day": None, "worked": False}]):
+                    if slot["worked"] and run_start is None:
+                        run_start = i
+                    if (not slot["worked"]) and run_start is not None:
+                        run_len = i - run_start
+                        gpt_total += 1
+                        if run_len in gpt_len_counts:
+                            gpt_len_counts[run_len] += 1
+                        if run_len < 3 or run_len > 6:
+                            gpt_violation_count += 1
+                            if len(gpt_violation_sample) < 10:
+                                gpt_violation_sample.append(
+                                    {
+                                        "agent_id": agent_id,
+                                        "start_day": timeline[run_start]["day"].isoformat(),
+                                        "end_day": timeline[i - 1]["day"].isoformat(),
+                                        "length": run_len,
+                                    }
+                                )
+                        run_start = None
+
+            stats["gpt_count_total"] = gpt_total
+            stats["gpt_len_3_count_total"] = gpt_len_counts[3]
+            stats["gpt_len_4_count_total"] = gpt_len_counts[4]
+            stats["gpt_len_5_count_total"] = gpt_len_counts[5]
+            stats["gpt_len_6_count_total"] = gpt_len_counts[6]
+            stats["gpt_length_violation_count_total"] = gpt_violation_count
+            stats["gpt_length_violation_sample"] = gpt_violation_sample
+
         objective_value = int(best_solution["objective_value"])
         understaff_total = int(best_solution["understaff_total_unweighted"])
         understaff_total_weighted = int(best_solution["understaff_total_weighted"])
@@ -1684,6 +1859,10 @@ class OrtoolsSolver:
                 "stability_changes_by_agent": stability_changes_by_agent,
                 "work_blocks_starts_total": eval_solver.Value(work_blocks_starts_total),
                 "work_blocks_starts_by_agent": work_blocks_starts_by_agent,
+                "gpt_starts_total": eval_solver.Value(gpt_starts_total),
+                "gpt_len_3_penalized_total": eval_solver.Value(gpt_len_3_total),
+                "gpt_len_6_penalized_total": eval_solver.Value(gpt_len_6_total),
+                "gpt_length_penalty_total": eval_solver.Value(gpt_length_penalty_total),
                 "rpdouble_soft_total": eval_solver.Value(rpdouble_soft_total),
                 "rpdouble_soft_by_agent": rpdouble_soft_by_agent,
                 "runs_selected_total": sum(runs_selected_by_agent.values()) if apply_gpt_rules else 0,
@@ -1706,6 +1885,7 @@ class OrtoolsSolver:
                     "useless_work": eval_solver.Value(useless_work_total),
                     "stability_changes": eval_solver.Value(stability_changes_total),
                     "work_blocks_starts": eval_solver.Value(work_blocks_starts_total),
+                    "gpt_length_penalty": eval_solver.Value(gpt_length_penalty_total),
                     "rpdouble_soft_bonus": eval_solver.Value(rpdouble_soft_total),
                     "tranche_diversity_bonus": eval_solver.Value(tranche_diversity_total),
                     "existing_change_strong": eval_solver.Value(existing_change_strong_total),
