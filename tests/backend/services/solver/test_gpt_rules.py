@@ -232,3 +232,112 @@ def test_history_working_without_shift_is_not_counted_as_worked_for_rpdouble():
 
     assert grouped_missing["model"]["existing_working_missing_assignments_count_total"] >= 1
     assert grouped_with_shift["model"]["existing_working_missing_assignments_count_total"] == 0
+
+
+def _worked_run_lengths_in_window(out, start: date, days: int, *, worked_types: tuple[str, ...] = ("working", "zcot")) -> list[int]:
+    by_day = {
+        d.day_date: d.day_type
+        for d in out.agent_days
+        if d.agent_id == 1 and start <= d.day_date <= (start + timedelta(days=days - 1))
+    }
+    lengths: list[int] = []
+    run = 0
+    for i in range(days):
+        day = start + timedelta(days=i)
+        if by_day.get(day) in worked_types:
+            run += 1
+        elif run:
+            lengths.append(run)
+            run = 0
+    if run:
+        lengths.append(run)
+    return lengths
+
+
+def test_gpt_min_length_1_day_forbidden():
+    solver = OrtoolsSolver()
+    start = date(2026, 1, 1)
+    demands = [CoverageDemand(day_date=start, tranche_id=10, required_count=1)]
+    grouped = _grouped(solver.generate(_input(days=4, demands=demands)))
+    assert grouped["solution_quality"]["gpt_length_violation_count_total"] == 0
+
+
+def test_gpt_min_length_2_days_forbidden():
+    solver = OrtoolsSolver()
+    start = date(2026, 1, 1)
+    demands = [CoverageDemand(day_date=start + timedelta(days=i), tranche_id=10, required_count=1) for i in range(2)]
+    grouped = _grouped(solver.generate(_input(days=5, demands=demands)))
+    assert grouped["solution_quality"]["gpt_length_violation_count_total"] == 0
+
+
+def test_gpt_max_length_7_days_forbidden():
+    solver = OrtoolsSolver()
+    start = date(2026, 1, 1)
+    demands = [CoverageDemand(day_date=start + timedelta(days=i), tranche_id=10, required_count=1) for i in range(7)]
+    grouped = _grouped(solver.generate(_input(days=7, demands=demands)))
+    assert grouped["solution_quality"]["gpt_length_violation_count_total"] == 0
+
+
+def test_gpt_lengths_3_to_6_allowed():
+    solver = OrtoolsSolver()
+    start = date(2026, 1, 1)
+    for length in (3, 4, 5, 6):
+        demands = [CoverageDemand(day_date=start + timedelta(days=i), tranche_id=10, required_count=1) for i in range(length)]
+        grouped = _grouped(solver.generate(_input(days=length, demands=demands)))
+        assert grouped["solution_quality"][f"gpt_len_{length}_count_total"] >= 1
+
+
+def test_gpt_prefers_4_or_5_over_3_or_6_when_coverage_equal():
+    solver = OrtoolsSolver()
+    solver.W_USELESS_WORK = 0
+    solver.W_WORK_BLOCKS = 0
+    solver.W_STABILITY_CHANGE = 0
+    solver.W_FAIR_DAYS_SPREAD = 0
+    solver.W_FAIR_MINUTES_SPREAD = 0
+    solver.W_NIGHTS_TOTAL = 0
+    solver.W_NIGHTS_SPREAD = 0
+    solver.W_AMPLITUDE = 0
+    solver.W_RPDOUBLE_BONUS = 0
+    solver.W_TRANCHE_DIVERSITY = 0
+    solver.W_UNDERSTAFF_SMOOTH = 0
+
+    start = date(2026, 1, 1)
+    demands_4 = [CoverageDemand(day_date=start + timedelta(days=i), tranche_id=10, required_count=1) for i in range(4)]
+    demands_6 = [CoverageDemand(day_date=start + timedelta(days=i), tranche_id=10, required_count=1) for i in range(6)]
+
+    out_4 = solver.generate(_input(days=4, demands=demands_4))
+    out_6 = solver.generate(_input(days=6, demands=demands_6))
+    grouped_4 = _grouped(out_4)
+    grouped_6 = _grouped(out_6)
+
+    assert grouped_4["coverage"]["understaff_total"] == 0
+    assert grouped_6["coverage"]["understaff_total"] == 0
+    assert grouped_4["solution_quality"]["gpt_length_penalty_total"] == 0
+    assert grouped_6["solution_quality"]["gpt_length_penalty_total"] > 0
+
+
+def test_gpt_stats_present():
+    solver = OrtoolsSolver()
+    grouped = _grouped(solver.generate(_input(days=7)))
+    for key in [
+        "gpt_count_total",
+        "gpt_len_3_count_total",
+        "gpt_len_4_count_total",
+        "gpt_len_5_count_total",
+        "gpt_len_6_count_total",
+        "gpt_length_violation_count_total",
+        "gpt_length_violation_sample",
+        "gpt_len_3_penalized_total",
+        "gpt_len_6_penalized_total",
+        "gpt_length_penalty_total",
+    ]:
+        assert key in grouped["solution_quality"]
+
+
+def test_gpt_zcot_counts_as_worked_day_for_length_rules():
+    solver = OrtoolsSolver()
+    start = date(2026, 1, 1)
+    existing = {(1, start + timedelta(days=i)): "zcot" for i in range(4)}
+    out = solver.generate(_input(days=4, existing_ctx=existing, existing_day_types=existing))
+    runs = _worked_run_lengths_in_window(out, start, 4)
+    assert runs == [4]
