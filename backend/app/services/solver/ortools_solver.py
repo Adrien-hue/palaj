@@ -1852,27 +1852,28 @@ class OrtoolsSolver:
             gpt_total = 0
             gpt_violation_count = 0
             gpt_violation_sample = []
+
+            gpt_combo_ids = {combo_id for combo_id, combo in combo_by_id.items() if self._is_gpt_work_combo(combo)}
+            selected_combo_by_agent_day: dict[tuple[int, date], int | None] = {}
+            for (agent_id, di, combo_id), var in y.items():
+                if eval_solver.Value(var) == 1:
+                    selected_combo_by_agent_day[(agent_id, dates[di])] = combo_id
+
+            day_type_by_agent_day = {(agent_day.agent_id, agent_day.day_date): agent_day.day_type for agent_day in agent_days}
             for agent_id in ordered_agent_ids:
                 timeline = []
                 for ci, day_date in enumerate(context_days):
-                    worked = False
+                    key = (agent_id, day_date)
+                    day_type = day_type_by_agent_day.get(key)
                     if is_in_window_ctx_index(ci, in_window_ctx_indices):
-                        di = date_to_period_index[day_date]
-                        for combo_id in combo_by_id:
-                            if not self._is_gpt_work_combo(combo_by_id[combo_id]):
-                                continue
-                            var = y.get((agent_id, di, combo_id))
-                            if var is not None and eval_solver.Value(var) == 1:
-                                worked = True
-                                break
+                        selected_combo_id = selected_combo_by_agent_day.get(key)
+                        worked_by_combo = selected_combo_id in gpt_combo_ids if selected_combo_id is not None else False
+                        worked_by_day_type = day_type in {DayType.WORKING.value, DayType.ZCOT.value}
+                        worked = worked_by_combo or worked_by_day_type
                     else:
-                        key = (agent_id, day_date)
-                        day_type_ctx = resolved_existing_daytypes_ctx.get(key, DayType.REST.value)
-                        if day_type_ctx == DayType.ZCOT.value:
-                            worked = True
-                        elif day_type_ctx == DayType.WORKING.value:
-                            if resolved_working_sig_ctx.get(key) is not None and solver_input.existing_shift_start_end_by_agent_day_ctx.get(key) is not None:
-                                worked = True
+                        if day_type is None:
+                            day_type = resolved_existing_daytypes_ctx.get(key, DayType.REST.value)
+                        worked = day_type in {DayType.WORKING.value, DayType.ZCOT.value}
                     timeline.append({"day": day_date, "worked": worked})
 
                 run_start = None
@@ -1904,6 +1905,11 @@ class OrtoolsSolver:
             stats["gpt_len_4_count_total"] = gpt_len_counts[4]
             stats["gpt_len_5_count_total"] = gpt_len_counts[5]
             stats["gpt_len_6_count_total"] = gpt_len_counts[6]
+            stats["gpt_len_1_penalized_total"] = gpt_len_counts[1]
+            stats["gpt_len_2_penalized_total"] = gpt_len_counts[2]
+            stats["gpt_len_3_penalized_total"] = gpt_len_counts[3]
+            stats["gpt_len_6_penalized_total"] = gpt_len_counts[6]
+            stats["gpt_length_penalty_total"] = 3 * gpt_len_counts[1] + 2 * gpt_len_counts[2] + gpt_len_counts[3] + gpt_len_counts[6]
             stats["gpt_length_violation_count_total"] = gpt_violation_count
             stats["gpt_length_violation_sample"] = gpt_violation_sample
 
@@ -2000,11 +2006,11 @@ class OrtoolsSolver:
                 "work_blocks_starts_total": eval_solver.Value(work_blocks_starts_total),
                 "work_blocks_starts_by_agent": work_blocks_starts_by_agent,
                 "gpt_starts_total": eval_solver.Value(gpt_starts_total),
-                "gpt_len_1_penalized_total": eval_solver.Value(gpt_len_1_total),
-                "gpt_len_2_penalized_total": eval_solver.Value(gpt_len_2_total),
-                "gpt_len_3_penalized_total": eval_solver.Value(gpt_len_3_total),
-                "gpt_len_6_penalized_total": eval_solver.Value(gpt_len_6_total),
-                "gpt_length_penalty_total": eval_solver.Value(gpt_length_penalty_total),
+                "gpt_len_1_penalized_total": stats.get("gpt_len_1_penalized_total", eval_solver.Value(gpt_len_1_total)),
+                "gpt_len_2_penalized_total": stats.get("gpt_len_2_penalized_total", eval_solver.Value(gpt_len_2_total)),
+                "gpt_len_3_penalized_total": stats.get("gpt_len_3_penalized_total", eval_solver.Value(gpt_len_3_total)),
+                "gpt_len_6_penalized_total": stats.get("gpt_len_6_penalized_total", eval_solver.Value(gpt_len_6_total)),
+                "gpt_length_penalty_total": stats.get("gpt_length_penalty_total", eval_solver.Value(gpt_length_penalty_total)),
                 "rpdouble_soft_total": eval_solver.Value(rpdouble_soft_total),
                 "rpdouble_soft_by_agent": rpdouble_soft_by_agent,
                 "runs_selected_total": sum(runs_selected_by_agent.values()) if apply_gpt_rules else 0,

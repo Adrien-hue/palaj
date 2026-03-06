@@ -380,6 +380,34 @@ def test_gpt_len1_len2_stats_and_penalties_present_and_positive_when_forced_by_c
     assert grouped_len2["solution_quality"]["gpt_len_2_penalized_total"] >= 1
 
 
+
+
+def test_gpt_len1_count_uses_final_day_types_for_isolated_working_days():
+    solver = OrtoolsSolver()
+    start = date(2026, 1, 1)
+    existing_day_types = {
+        (1, start): "working",
+        (1, start + timedelta(days=1)): "rest",
+        (1, start + timedelta(days=2)): "working",
+        (1, start + timedelta(days=3)): "rest",
+        (1, start + timedelta(days=4)): "working",
+    }
+
+    grouped = _grouped(
+        solver.generate(
+            _input(
+                days=5,
+                demands=[],
+                existing_ctx=existing_day_types,
+                existing_day_types=existing_day_types,
+            )
+        )
+    )
+
+    assert grouped["solution_quality"]["gpt_len_1_count_total"] > 0
+    assert grouped["solution_quality"]["gpt_len_1_penalized_total"] > 0
+
+
 def test_gpt_zcot_counts_as_worked_day_for_length_rules():
     solver = OrtoolsSolver()
     start = date(2026, 1, 1)
