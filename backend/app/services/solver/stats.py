@@ -193,6 +193,10 @@ class StatsCollector:
             "rpdouble_gap_minutes_required",
             "rpdouble_gap_violation_count_total",
             "rpdouble_gap_violation_sample",
+            "daily_rest_normal_minutes_required",
+            "daily_rest_night_minutes_required",
+            "daily_rest_violation_count_total",
+            "daily_rest_violation_sample",
             "tranche_diversity_total",
             "tranche_diversity_by_agent",
             "understaff_smooth_weighted_sum",
@@ -344,7 +348,10 @@ class StatsCollector:
             self._cap_understaff_days_keep_window(coverage, int(caps["understaff_by_day_weighted"]))
 
         cp_sat = result.get("cp_sat", {})
+        solution_quality = result.get("solution_quality", {})
         self._truncate_list_keep_type(cp_sat, "best_objective_over_time_points", int(caps["cp_sat_best_objective_points"]))
+        self._truncate_list_keep_type(solution_quality, "daily_rest_violation_sample", 10)
+        self._truncate_list_keep_type(solution_quality, "rpdouble_gap_violation_sample", 10)
         return result
 
     def finalize(self, flat: dict[str, Any]) -> dict[str, Any]:
