@@ -341,3 +341,66 @@ def test_gpt_zcot_counts_as_worked_day_for_length_rules():
     out = solver.generate(_input(days=4, existing_ctx=existing, existing_day_types=existing))
     runs = _worked_run_lengths_in_window(out, start, 4)
     assert runs == [4]
+
+
+def test_gpt_rules_do_not_make_base_instance_infeasible():
+    solver = OrtoolsSolver()
+    start = date(2026, 1, 1)
+    demands = [CoverageDemand(day_date=start + timedelta(days=i), tranche_id=10, required_count=1) for i in range(4)]
+    out = solver.generate(_input(days=4, demands=demands))
+    grouped = _grouped(out)
+    assert grouped["coverage"]["understaff_total"] == 0
+    assert grouped["solution_quality"]["gpt_length_violation_count_total"] == 0
+
+
+def test_gpt_min3_with_db_boundary_does_not_force_impossible_extension():
+    solver = OrtoolsSolver()
+    start = date(2026, 1, 1)
+    existing_ctx = {(1, start - timedelta(days=1)): "zcot"}
+    out = solver.generate(
+        _input(
+            days=1,
+            demands=[CoverageDemand(day_date=start, tranche_id=10, required_count=1)],
+            existing_ctx=existing_ctx,
+            existing_day_types=existing_ctx,
+        )
+    )
+    grouped = _grouped(out)
+    assert grouped["coverage"]["understaff_total"] == 0
+    assert grouped["model"]["gpt_min3_forced_extensions_impossible_count_total"] >= 0
+
+
+def test_gpt_max6_with_existing_ctx_does_not_overconstrain_window():
+    solver = OrtoolsSolver()
+    start = date(2026, 1, 1)
+    existing_ctx = {(1, start - timedelta(days=offset + 1)): "zcot" for offset in range(6)}
+    out = solver.generate(
+        _input(
+            days=1,
+            demands=[],
+            existing_ctx=existing_ctx,
+            existing_day_types=existing_ctx,
+        )
+    )
+    grouped = _grouped(out)
+    assert grouped["model"]["gpt_max6_risk_windows_count_total"] >= 1
+
+
+def test_gpt_hard_conflict_stats_present_when_infeasible():
+    solver = OrtoolsSolver()
+    with pytest.raises(InfeasibleError) as exc:
+        solver.generate(_input(days=1, demands=[CoverageDemand(day_date=date(2026, 1, 1), tranche_id=999, required_count=1)]))
+
+    grouped = exc.value.stats["stats"]
+    model = grouped["model"]
+    assert "gpt_hard_conflict_count_total" in model
+    assert "gpt_hard_conflict_sample" in model
+
+
+def test_zcot_counts_for_gpt_without_breaking_feasibility():
+    solver = OrtoolsSolver()
+    start = date(2026, 1, 1)
+    existing = {(1, start + timedelta(days=i)): "zcot" for i in range(3)}
+    out = solver.generate(_input(days=4, existing_ctx=existing, existing_day_types=existing))
+    grouped = _grouped(out)
+    assert grouped["solution_quality"]["gpt_length_violation_count_total"] == 0

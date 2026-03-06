@@ -149,6 +149,15 @@ class StatsCollector:
             "max_possible_runs_by_agent",
             "rpdouble_off_rule",
             "worked_ctx_window_fixed_days_count_by_agent",
+            "gpt_ctx_worked_fixed_days_count_total",
+            "gpt_ctx_worked_fixed_days_by_agent",
+            "gpt_db_worked_days_count_total",
+            "gpt_start_candidates_count_total",
+            "gpt_min3_forced_extensions_count_total",
+            "gpt_min3_forced_extensions_impossible_count_total",
+            "gpt_max6_risk_windows_count_total",
+            "gpt_hard_conflict_count_total",
+            "gpt_hard_conflict_sample",
             "demanded_tranche_ids_count",
             "covered_tranche_ids_by_any_combo_count",
             "missing_tranche_in_any_combo_count",
@@ -351,6 +360,7 @@ class StatsCollector:
         self._truncate_list_keep_type(model, "combo_rejected_samples", int(caps["combo_rejected_samples"]))
         self._truncate_list_keep_type(model, "combo_allowed_samples", int(caps["combo_allowed_samples"]))
         self._truncate_list_keep_type(model, "missing_tranche_in_any_combo_sample", int(caps["missing_tranche_in_any_combo_sample"]))
+        self._truncate_list_keep_type(model, "gpt_hard_conflict_sample", 10)
 
         self._truncate_list_keep_type(coverage, "top_understaff_days", int(caps["top_understaff_days"]))
         if verbosity == "compact":
