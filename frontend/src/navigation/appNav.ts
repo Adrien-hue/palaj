@@ -17,6 +17,11 @@ export const APP_TOP_NAV: AppNavItem[] = [
     href: "/app/planning/generation",
     isActive: (pathname) => pathname.startsWith("/app/planning/generation"),
   },
+  {
+    label: "Debug Solver",
+    href: "/app/planning/debug",
+    isActive: (pathname) => pathname.startsWith("/app/planning/debug"),
+  },
   // { label: "Référentiels", href: "/admin" },
   // { label: "Paramètres", href: "/app/settings" },
 ];
