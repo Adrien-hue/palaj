@@ -86,3 +86,36 @@ Instrumentation de debug additive:
 - `rpdouble_gap_minutes_required`
 - `rpdouble_gap_violation_count_total`
 - `rpdouble_gap_violation_sample` (max 10 entrées)
+
+## Repos quotidien (HARD) — 12h20 / 14h si nuit impliquée
+
+La contrainte de repos quotidien est **hard** et s'applique sur la temporalité réelle des services.
+
+- Pour deux jours travaillés consécutifs `J -> J+1` d'un même agent:
+  `start_abs(J+1) - end_abs(J) >= required_rest_minutes`.
+- `required_rest_minutes = 840` si le combo de `J` ou de `J+1` implique de la nuit (`involves_night=True`), sinon `740`.
+- Un "jour travaillé" pour cette règle = un jour avec une vraie affectation de service (combo avec `tranche_ids` non vide + `start/end` connus).
+- `REST`, `LEAVE`, `ABSENT`, `ZCOT` sans tranche ne déclenchent pas la contrainte.
+- La règle s'applique sur `context_days` complet, donc couvre:
+  - in-window -> in-window,
+  - contexte DB hors fenêtre -> in-window,
+  - in-window -> contexte DB hors fenêtre.
+
+Instrumentation debug additive (post-solve):
+
+- `daily_rest_normal_minutes_required` (= 740)
+- `daily_rest_night_minutes_required` (= 840)
+- `daily_rest_violation_count_total`
+- `daily_rest_violation_sample` (max 10 entrées)
+
+## Daily Rest – Implementation Details
+
+- Contrainte hard modélisée sur la timeline absolue du contexte (`context_days`):
+  `start_abs_ctx[i+1] - end_abs_ctx[i] >= required_rest(i, i+1)` sous garde `OnlyEnforceIf([worked_ctx[i], worked_ctx[i+1]])`.
+- Seuils:
+  - `740` min (12h20) en standard,
+  - `840` min (14h00) si nuit impliquée sur `i` ou `i+1`.
+- Invariant structurel requis par le modèle:
+  `worked_ctx == 1 => start_abs_ctx/end_abs_ctx valides`.
+- `add_rest_compat_constraints` est conservée comme filtre de paires de combos in-window (réduction d'espace de recherche),
+  tandis que la garantie métier finale du repos quotidien est portée par la contrainte absolue ci-dessus.

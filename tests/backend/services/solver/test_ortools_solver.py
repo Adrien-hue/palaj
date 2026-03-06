@@ -728,6 +728,64 @@ def assert_min_rest_after_six_workdays(agent_days, assignments, combos_by_day, c
             )
 
 
+def assert_daily_rest_minimum(
+    *,
+    agent_days,
+    assignments,
+    combos_by_day,
+    context_dates,
+    existing_shift_start_end_by_agent_day_ctx=None,
+    normal_min=740,
+    night_min=840,
+):
+    existing_shift_start_end_by_agent_day_ctx = existing_shift_start_end_by_agent_day_ctx or {}
+    assignment_set = {(a.agent_id, a.day_date, a.tranche_id) for a in assignments}
+    day_type_map = {(d.agent_id, d.day_date): d.day_type for d in agent_days}
+    agent_ids = sorted({d.agent_id for d in agent_days})
+
+    for agent_id in agent_ids:
+        timeline = []
+        for i, day in enumerate(context_dates):
+            combo = combos_by_day.get(day)
+            worked = False
+            start_abs = None
+            end_abs = None
+            combo_id = None
+            night = False
+
+            if combo is not None and day_type_map.get((agent_id, day)) == "working":
+                if any((agent_id, day, tranche_id) in assignment_set for tranche_id in combo["tranche_ids"]):
+                    worked = True
+                    start_abs = i * 1440 + int(combo["start_min"])
+                    end_abs = i * 1440 + int(combo["end_min"])
+                    combo_id = combo.get("id")
+                    night = bool(combo.get("involves_night", False))
+            else:
+                shift_ctx = existing_shift_start_end_by_agent_day_ctx.get((agent_id, day))
+                if shift_ctx is not None:
+                    worked = True
+                    start_abs = i * 1440 + int(shift_ctx[0])
+                    end_abs = i * 1440 + int(shift_ctx[1])
+                    combo_id = None
+                    start_day = int(shift_ctx[0]) % 1440
+                    end_day = int(shift_ctx[1])
+                    night = start_day >= 17 * 60 or end_day > 24 * 60
+
+            timeline.append({"worked": worked, "start_abs": start_abs, "end_abs": end_abs, "combo_id": combo_id, "night": night, "day": day})
+
+        for ci in range(1, len(timeline)):
+            prev_day = timeline[ci - 1]
+            next_day = timeline[ci]
+            if not prev_day["worked"] or not next_day["worked"]:
+                continue
+            gap = int(next_day["start_abs"] - prev_day["end_abs"])
+            required = night_min if (prev_day["night"] or next_day["night"]) else normal_min
+            assert gap >= required, (
+                f"agent={agent_id} prev_day={prev_day['day']} next_day={next_day['day']} gap={gap} "
+                f"required={required} prev_combo_id={prev_day['combo_id']} next_combo_id={next_day['combo_id']}"
+            )
+
+
 def test_rpdouble_requires_3620_min_gap_after_6_worked_days_day_shift():
     solver = OrtoolsSolver()
     start = date(2026, 1, 1)
@@ -806,3 +864,280 @@ def test_existing_working_missing_assignments_is_audited_and_not_counted_as_rpdo
     assert grouped["model"]["existing_working_missing_assignments_sample"]
     assert grouped["model"]["existing_working_missing_assignments_sample"][0]["day_date"] == "2026-01-01"
     assert grouped["solution_quality"]["rpdouble_gap_violation_count_total"] == 0
+
+
+def test_daily_rest_hard_constraint_normal_to_normal_min_740():
+    solver = OrtoolsSolver()
+    start = date(2026, 1, 1)
+    end = date(2026, 1, 2)
+    days = [start, end]
+    demands = [CoverageDemand(day_date=d, tranche_id=10, required_count=1, poste_id=1) for d in days]
+
+    out = solver.generate(
+        _build_input(
+            agent_ids=[1],
+            start_date=start,
+            end_date=end,
+            seed=123,
+            qualified_postes_by_agent={1: (1,)},
+            qualification_date_by_agent_poste={(1, 1): None},
+            tranches=[TrancheInfo(id=10, poste_id=1, heure_debut=time(8, 0), heure_fin=time(14, 0))],
+            coverage_demands=demands,
+            gpt_context_days=days,
+        )
+    )
+
+    combos_by_day = {d: {"id": 10, "tranche_ids": (10,), "start_min": 8 * 60, "end_min": 14 * 60, "involves_night": False} for d in days}
+    assert_daily_rest_minimum(agent_days=out.agent_days, assignments=out.assignments, combos_by_day=combos_by_day, context_dates=days)
+    grouped = _grouped(out)
+    assert grouped["solution_quality"]["daily_rest_normal_minutes_required"] == 740
+    assert grouped["solution_quality"]["daily_rest_violation_count_total"] == 0
+
+
+def test_daily_rest_hard_constraint_night_involved_min_840():
+    solver = OrtoolsSolver()
+    start = date(2026, 1, 1)
+    end = date(2026, 1, 2)
+    days = [start, end]
+    demands = [CoverageDemand(day_date=d, tranche_id=20, required_count=1, poste_id=1) for d in days]
+
+    out = solver.generate(
+        _build_input(
+            agent_ids=[1],
+            start_date=start,
+            end_date=end,
+            seed=123,
+            qualified_postes_by_agent={1: (1,)},
+            qualification_date_by_agent_poste={(1, 1): None},
+            tranches=[TrancheInfo(id=20, poste_id=1, heure_debut=time(20, 0), heure_fin=time(2, 0))],
+            coverage_demands=demands,
+            gpt_context_days=days,
+        )
+    )
+
+    combos_by_day = {d: {"id": 20, "tranche_ids": (20,), "start_min": 20 * 60, "end_min": 26 * 60, "involves_night": True} for d in days}
+    assert_daily_rest_minimum(agent_days=out.agent_days, assignments=out.assignments, combos_by_day=combos_by_day, context_dates=days)
+    grouped = _grouped(out)
+    assert grouped["solution_quality"]["daily_rest_night_minutes_required"] == 840
+    assert grouped["solution_quality"]["daily_rest_violation_count_total"] == 0
+
+
+def test_daily_rest_applies_from_db_context_to_window_day():
+    solver = OrtoolsSolver()
+    ctx_prev = date(2026, 1, 1)
+    in_window_day = date(2026, 1, 2)
+    context_days = [ctx_prev, in_window_day]
+
+    out = solver.generate(
+        _build_input(
+            agent_ids=[1],
+            start_date=in_window_day,
+            end_date=in_window_day,
+            seed=123,
+            qualified_postes_by_agent={1: (1,)},
+            qualification_date_by_agent_poste={(1, 1): None},
+            tranches=[TrancheInfo(id=10, poste_id=1, heure_debut=time(8, 0), heure_fin=time(14, 0))],
+            coverage_demands=[CoverageDemand(day_date=in_window_day, tranche_id=10, required_count=1, poste_id=1)],
+            gpt_context_days=context_days,
+            existing_daytype_by_agent_day_ctx={(1, ctx_prev): "working"},
+            existing_assignment_by_agent_day_ctx={(1, ctx_prev): {"poste_id": 1, "tranche_ids": (10,)}},
+            existing_shift_start_end_by_agent_day_ctx={(1, ctx_prev): (0, 6 * 60)},
+        )
+    )
+
+    combos_by_day = {in_window_day: {"id": 10, "tranche_ids": (10,), "start_min": 8 * 60, "end_min": 14 * 60, "involves_night": False}}
+    assert_daily_rest_minimum(
+        agent_days=out.agent_days,
+        assignments=out.assignments,
+        combos_by_day=combos_by_day,
+        context_dates=context_days,
+        existing_shift_start_end_by_agent_day_ctx={(1, ctx_prev): (0, 6 * 60)},
+    )
+
+
+def test_daily_rest_applies_from_window_day_to_db_context():
+    solver = OrtoolsSolver()
+    in_window_day = date(2026, 1, 1)
+    ctx_next = date(2026, 1, 2)
+    context_days = [in_window_day, ctx_next]
+
+    out = solver.generate(
+        _build_input(
+            agent_ids=[1],
+            start_date=in_window_day,
+            end_date=in_window_day,
+            seed=123,
+            qualified_postes_by_agent={1: (1,)},
+            qualification_date_by_agent_poste={(1, 1): None},
+            tranches=[TrancheInfo(id=10, poste_id=1, heure_debut=time(8, 0), heure_fin=time(14, 0))],
+            coverage_demands=[CoverageDemand(day_date=in_window_day, tranche_id=10, required_count=1, poste_id=1)],
+            gpt_context_days=context_days,
+            existing_daytype_by_agent_day_ctx={(1, ctx_next): "working"},
+            existing_assignment_by_agent_day_ctx={(1, ctx_next): {"poste_id": 1, "tranche_ids": (10,)}},
+            existing_shift_start_end_by_agent_day_ctx={(1, ctx_next): (6 * 60, 14 * 60)},
+        )
+    )
+
+    combos_by_day = {in_window_day: {"id": 10, "tranche_ids": (10,), "start_min": 8 * 60, "end_min": 14 * 60, "involves_night": False}}
+    assert_daily_rest_minimum(
+        agent_days=out.agent_days,
+        assignments=out.assignments,
+        combos_by_day=combos_by_day,
+        context_dates=context_days,
+        existing_shift_start_end_by_agent_day_ctx={(1, ctx_next): (6 * 60, 14 * 60)},
+    )
+
+
+
+
+def test_daily_rest_exact_boundary_normal():
+    solver = OrtoolsSolver()
+    start = date(2026, 2, 1)
+    end = date(2026, 2, 2)
+    days = [start, end]
+
+    out = solver.generate(
+        _build_input(
+            agent_ids=[1],
+            start_date=start,
+            end_date=end,
+            seed=7,
+            qualified_postes_by_agent={1: (1,)},
+            qualification_date_by_agent_poste={(1, 1): None},
+            tranches=[
+                TrancheInfo(id=31, poste_id=1, heure_debut=time(8, 10), heure_fin=time(18, 10)),
+                TrancheInfo(id=32, poste_id=1, heure_debut=time(6, 30), heure_fin=time(12, 0)),
+            ],
+            coverage_demands=[
+                CoverageDemand(day_date=start, tranche_id=31, required_count=1, poste_id=1),
+                CoverageDemand(day_date=end, tranche_id=32, required_count=1, poste_id=1),
+            ],
+            gpt_context_days=days,
+        )
+    )
+
+    combos_by_day = {
+        start: {"id": 31, "tranche_ids": (31,), "start_min": 8 * 60 + 10, "end_min": 18 * 60 + 10, "involves_night": False},
+        end: {"id": 32, "tranche_ids": (32,), "start_min": 6 * 60 + 30, "end_min": 12 * 60, "involves_night": False},
+    }
+    assert_daily_rest_minimum(agent_days=out.agent_days, assignments=out.assignments, combos_by_day=combos_by_day, context_dates=days)
+
+
+def test_daily_rest_exact_boundary_night():
+    solver = OrtoolsSolver()
+    start = date(2026, 2, 3)
+    end = date(2026, 2, 4)
+    days = [start, end]
+
+    out = solver.generate(
+        _build_input(
+            agent_ids=[1],
+            start_date=start,
+            end_date=end,
+            seed=8,
+            qualified_postes_by_agent={1: (1,)},
+            qualification_date_by_agent_poste={(1, 1): None},
+            tranches=[
+                TrancheInfo(id=41, poste_id=1, heure_debut=time(20, 0), heure_fin=time(2, 0)),
+                TrancheInfo(id=42, poste_id=1, heure_debut=time(16, 0), heure_fin=time(21, 30)),
+            ],
+            coverage_demands=[
+                CoverageDemand(day_date=start, tranche_id=41, required_count=1, poste_id=1),
+                CoverageDemand(day_date=end, tranche_id=42, required_count=1, poste_id=1),
+            ],
+            gpt_context_days=days,
+        )
+    )
+
+    combos_by_day = {
+        start: {"id": 41, "tranche_ids": (41,), "start_min": 20 * 60, "end_min": 26 * 60, "involves_night": True},
+        end: {"id": 42, "tranche_ids": (42,), "start_min": 16 * 60, "end_min": 21 * 60 + 30, "involves_night": False},
+    }
+    assert_daily_rest_minimum(agent_days=out.agent_days, assignments=out.assignments, combos_by_day=combos_by_day, context_dates=days)
+
+
+def test_overnight_to_early_shift_requires_14h():
+    solver = OrtoolsSolver()
+    start = date(2026, 2, 5)
+    end = date(2026, 2, 6)
+    days = [start, end]
+
+    out = solver.generate(
+        _build_input(
+            agent_ids=[1],
+            start_date=start,
+            end_date=end,
+            seed=9,
+            qualified_postes_by_agent={1: (1, 2)},
+            qualification_date_by_agent_poste={(1, 1): None, (1, 2): None},
+            poste_ids=[1, 2],
+            tranches=[
+                TrancheInfo(id=51, poste_id=1, heure_debut=time(20, 0), heure_fin=time(2, 0)),
+                TrancheInfo(id=52, poste_id=2, heure_debut=time(6, 30), heure_fin=time(12, 0)),
+                TrancheInfo(id=53, poste_id=2, heure_debut=time(16, 0), heure_fin=time(21, 30)),
+            ],
+            coverage_demands=[
+                CoverageDemand(day_date=start, tranche_id=51, required_count=1, poste_id=1),
+                CoverageDemand(day_date=end, tranche_id=52, required_count=1, poste_id=2),
+            ],
+            gpt_context_days=days,
+        )
+    )
+
+    # The overnight->early pair must not be simultaneously selected because it violates 14h rest.
+    has_overnight_day1 = any(a.agent_id == 1 and a.day_date == start and a.tranche_id == 51 for a in out.assignments)
+    has_early_day2 = any(a.agent_id == 1 and a.day_date == end and a.tranche_id == 52 for a in out.assignments)
+    assert not (has_overnight_day1 and has_early_day2)
+
+
+def test_db_working_without_signature_not_considered_worked():
+    solver = OrtoolsSolver()
+    ctx_prev = date(2026, 2, 7)
+    in_window_day = date(2026, 2, 8)
+    context_days = [ctx_prev, in_window_day]
+
+    out = solver.generate(
+        _build_input(
+            agent_ids=[1],
+            start_date=in_window_day,
+            end_date=in_window_day,
+            seed=10,
+            qualified_postes_by_agent={1: (1,)},
+            qualification_date_by_agent_poste={(1, 1): None},
+            tranches=[TrancheInfo(id=61, poste_id=1, heure_debut=time(6, 30), heure_fin=time(12, 0))],
+            coverage_demands=[CoverageDemand(day_date=in_window_day, tranche_id=61, required_count=1, poste_id=1)],
+            gpt_context_days=context_days,
+            existing_daytype_by_agent_day_ctx={(1, ctx_prev): "working"},
+            existing_assignment_by_agent_day_ctx={(1, ctx_prev): {"poste_id": 1, "tranche_ids": ()}},
+            existing_shift_start_end_by_agent_day_ctx={(1, ctx_prev): (20 * 60, 26 * 60)},
+        )
+    )
+
+    # If DB context day were treated as worked, this day-2 assignment would violate 14h rest.
+    assert any(a.agent_id == 1 and a.day_date == in_window_day and a.tranche_id == 61 for a in out.assignments)
+
+def test_daily_rest_observability_fields_present_and_valid_solution_has_zero_violation():
+    grouped = _grouped(
+        OrtoolsSolver().generate(
+            _build_input(
+                agent_ids=[1],
+                start_date=date(2026, 1, 1),
+                end_date=date(2026, 1, 2),
+                seed=42,
+                qualified_postes_by_agent={1: (1,)},
+                qualification_date_by_agent_poste={(1, 1): None},
+                tranches=[TrancheInfo(id=10, poste_id=1, heure_debut=time(8, 0), heure_fin=time(14, 0))],
+                coverage_demands=[
+                    CoverageDemand(day_date=date(2026, 1, 1), tranche_id=10, required_count=1, poste_id=1),
+                    CoverageDemand(day_date=date(2026, 1, 2), tranche_id=10, required_count=1, poste_id=1),
+                ],
+                gpt_context_days=[date(2026, 1, 1), date(2026, 1, 2)],
+            )
+        )
+    )
+
+    sq = grouped["solution_quality"]
+    assert sq["daily_rest_normal_minutes_required"] == 740
+    assert sq["daily_rest_night_minutes_required"] == 840
+    assert sq["daily_rest_violation_count_total"] == 0
+    assert isinstance(sq["daily_rest_violation_sample"], list)
