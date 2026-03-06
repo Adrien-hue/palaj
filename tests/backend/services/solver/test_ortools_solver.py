@@ -688,3 +688,121 @@ def test_existing_penalty_dominance_observability_ratios_present_and_sane():
     assert ratios["ratio_existing_change_medium_vs_one_understaff_weekday_day"] > 0
     assert ratios["ratio_existing_change_strong_vs_one_understaff_weekday_day"] < 1
     assert ratios["ratio_existing_change_medium_vs_one_understaff_weekday_day"] < 1
+
+
+def assert_min_rest_after_six_workdays(agent_days, assignments, combos_by_day, context_dates, min_gap_minutes=3620):
+    assignment_set = {(a.agent_id, a.day_date, a.tranche_id) for a in assignments}
+    day_type_map = {(d.agent_id, d.day_date): d.day_type for d in agent_days}
+
+    by_agent = {}
+    for d in agent_days:
+        by_agent.setdefault(d.agent_id, set()).add(d.day_date)
+
+    for agent_id in by_agent:
+        timeline = []
+        for i, day in enumerate(context_dates):
+            combo = combos_by_day.get(day)
+            worked = False
+            start_abs = None
+            end_abs = None
+            combo_id = None
+            if combo is not None and day_type_map.get((agent_id, day)) == "working":
+                if any((agent_id, day, tranche_id) in assignment_set for tranche_id in combo["tranche_ids"]):
+                    worked = True
+                    start_abs = i * 1440 + combo["start_min"]
+                    end_abs = i * 1440 + combo["end_min"]
+                    combo_id = combo["id"]
+            timeline.append({"worked": worked, "start_abs": start_abs, "end_abs": end_abs, "combo_id": combo_id, "day": day})
+
+        for s in range(0, max(0, len(timeline) - 5)):
+            if not all(timeline[s + k]["worked"] for k in range(6)):
+                continue
+            last = timeline[s + 5]
+            next_work = next((timeline[u] for u in range(s + 6, len(timeline)) if timeline[u]["worked"]), None)
+            if next_work is None:
+                continue
+            gap = next_work["start_abs"] - last["end_abs"]
+            assert gap >= min_gap_minutes, (
+                f"agent={agent_id} last_day={last['day']} next_day={next_work['day']} gap={gap} "
+                f"last_combo_id={last['combo_id']} next_combo_id={next_work['combo_id']}"
+            )
+
+
+def test_rpdouble_requires_3620_min_gap_after_6_worked_days_day_shift():
+    solver = OrtoolsSolver()
+    start = date(2026, 1, 1)
+    end = date(2026, 1, 8)
+    days = [start.fromordinal(start.toordinal() + i) for i in range((end - start).days + 1)]
+    demands = [CoverageDemand(day_date=d, tranche_id=10, required_count=1, poste_id=1) for d in days]
+
+    out = solver.generate(
+        _build_input(
+            agent_ids=[1],
+            start_date=start,
+            end_date=end,
+            seed=123,
+            qualified_postes_by_agent={1: (1,)},
+            qualification_date_by_agent_poste={(1, 1): None},
+            tranches=[TrancheInfo(id=10, poste_id=1, heure_debut=time(8, 0), heure_fin=time(16, 0))],
+            coverage_demands=demands,
+            gpt_context_days=days,
+        )
+    )
+
+    combos_by_day = {d: {"id": 10, "tranche_ids": (10,), "start_min": 8 * 60, "end_min": 16 * 60} for d in days}
+    assert_min_rest_after_six_workdays(out.agent_days, out.assignments, combos_by_day, days, min_gap_minutes=3620)
+    grouped = _grouped(out)
+    assert grouped["solution_quality"]["rpdouble_gap_minutes_required"] == 3620
+    assert grouped["solution_quality"]["rpdouble_gap_violation_count_total"] == 0
+
+
+def test_rpdouble_requires_3620_min_gap_after_6_worked_days_late_shift():
+    solver = OrtoolsSolver()
+    start = date(2026, 1, 1)
+    end = date(2026, 1, 10)
+    days = [start.fromordinal(start.toordinal() + i) for i in range((end - start).days + 1)]
+    demands = [CoverageDemand(day_date=d, tranche_id=20, required_count=1, poste_id=1) for d in days]
+
+    out = solver.generate(
+        _build_input(
+            agent_ids=[1],
+            start_date=start,
+            end_date=end,
+            seed=123,
+            qualified_postes_by_agent={1: (1,)},
+            qualification_date_by_agent_poste={(1, 1): None},
+            tranches=[TrancheInfo(id=20, poste_id=1, heure_debut=time(17, 0), heure_fin=time(1, 0))],
+            coverage_demands=demands,
+            gpt_context_days=days,
+        )
+    )
+
+    combos_by_day = {d: {"id": 20, "tranche_ids": (20,), "start_min": 17 * 60, "end_min": (24 + 1) * 60} for d in days}
+    assert_min_rest_after_six_workdays(out.agent_days, out.assignments, combos_by_day, days, min_gap_minutes=3620)
+    grouped = _grouped(out)
+    assert grouped["solution_quality"]["rpdouble_gap_minutes_required"] == 3620
+    assert grouped["solution_quality"]["rpdouble_gap_violation_count_total"] == 0
+
+
+def test_existing_working_missing_assignments_is_audited_and_not_counted_as_rpdouble_worked():
+    grouped = _grouped(
+        OrtoolsSolver().generate(
+            _build_input(
+                agent_ids=[1],
+                start_date=date(2026, 1, 2),
+                end_date=date(2026, 1, 8),
+                seed=42,
+                qualified_postes_by_agent={1: (1,)},
+                qualification_date_by_agent_poste={(1, 1): None},
+                gpt_context_days=[date(2026, 1, d) for d in range(1, 9)],
+                existing_daytype_by_agent_day_ctx={(1, date(2026, 1, 1)): "working"},
+                existing_assignment_by_agent_day_ctx={(1, date(2026, 1, 1)): {"poste_id": 1, "tranche_ids": ()}},
+                existing_shift_start_end_by_agent_day_ctx={(1, date(2026, 1, 1)): (8 * 60, 16 * 60)},
+                coverage_demands=[CoverageDemand(day_date=date(2026, 1, d), tranche_id=10, required_count=1, poste_id=1) for d in range(2, 9)],
+            )
+        )
+    )
+    assert grouped["model"]["existing_working_missing_assignments_count_total"] == 1
+    assert grouped["model"]["existing_working_missing_assignments_sample"]
+    assert grouped["model"]["existing_working_missing_assignments_sample"][0]["day_date"] == "2026-01-01"
+    assert grouped["solution_quality"]["rpdouble_gap_violation_count_total"] == 0

@@ -24,7 +24,21 @@ def normalize_working_signature(sig: dict[str, Any] | None) -> tuple[int | None,
         tranche_ids = tuple(sorted(int(tranche_id) for tranche_id in tranche_ids_raw))
     except (TypeError, ValueError):
         return None
+    if not tranche_ids:
+        return None
     return poste_id, tranche_ids
+
+
+def has_working_assignments(sig: dict[str, Any] | None) -> bool:
+    if not isinstance(sig, dict):
+        return False
+    tranche_ids_raw = sig.get("tranche_ids")
+    if tranche_ids_raw is None:
+        return False
+    try:
+        return len([int(tranche_id) for tranche_id in tranche_ids_raw]) > 0
+    except (TypeError, ValueError):
+        return False
 
 
 def resolve_existing_day_state(
@@ -102,20 +116,33 @@ def build_existing_context_maps(
     resolved_working_sig_by_agent_day_ctx: dict[tuple[int, date], tuple[int, tuple[int, ...]]] = {}
     conflicts_count = 0
     conflicts_sample: list[dict[str, Any]] = []
+    missing_working_assignments_count_total = 0
+    missing_working_assignments_sample: list[dict[str, Any]] = []
 
     for agent_id in ordered_agent_ids:
         for day_date in context_days:
             key = (agent_id, day_date)
+            db_sig = db_assignment_by_agent_day_ctx.get(key)
             resolved = resolve_existing_day_state(
                 agent_id=agent_id,
                 day_date=day_date,
                 db_daytype=db_daytype_by_agent_day_ctx.get(key),
-                db_sig=db_assignment_by_agent_day_ctx.get(key),
+                db_sig=db_sig,
                 solver_absent_flag=key in absences,
             )
             resolved_daytype_by_agent_day_ctx[key] = resolved["daytype"]
             if resolved["daytype"] == DayType.WORKING.value and resolved["signature"] is not None:
                 resolved_working_sig_by_agent_day_ctx[key] = resolved["signature"]
+
+            if resolved["daytype"] == DayType.WORKING.value and not has_working_assignments(db_sig):
+                missing_working_assignments_count_total += 1
+                if len(missing_working_assignments_sample) < max_sample_size:
+                    missing_working_assignments_sample.append(
+                        {
+                            "agent_id": agent_id,
+                            "day_date": day_date.isoformat(),
+                        }
+                    )
 
             if resolved["is_conflict"]:
                 conflicts_count += 1
@@ -135,4 +162,6 @@ def build_existing_context_maps(
         "resolved_working_sig_by_agent_day_ctx": resolved_working_sig_by_agent_day_ctx,
         "existing_assignments_conflicts_count": conflicts_count,
         "existing_assignments_conflicts_sample": conflicts_sample,
+        "existing_working_missing_assignments_count_total": missing_working_assignments_count_total,
+        "existing_working_missing_assignments_sample": missing_working_assignments_sample,
     }

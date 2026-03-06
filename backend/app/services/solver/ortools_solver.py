@@ -432,9 +432,13 @@ class OrtoolsSolver:
             resolved_working_sig_ctx = existing_context_resolution["resolved_working_sig_by_agent_day_ctx"]
             stats["existing_assignments_conflicts_count"] = existing_context_resolution["existing_assignments_conflicts_count"]
             stats["existing_assignments_conflicts_sample"] = existing_context_resolution["existing_assignments_conflicts_sample"]
+            stats["existing_working_missing_assignments_count_total"] = existing_context_resolution["existing_working_missing_assignments_count_total"]
+            stats["existing_working_missing_assignments_sample"] = existing_context_resolution["existing_working_missing_assignments_sample"]
         else:
             stats["existing_assignments_conflicts_count"] = 0
             stats["existing_assignments_conflicts_sample"] = []
+            stats["existing_working_missing_assignments_count_total"] = 0
+            stats["existing_working_missing_assignments_sample"] = []
 
         hard_daytype_overrides: dict[tuple[int, date], str] = {}
         signature_to_combo_id: dict[tuple[int, tuple[int, ...]], int] = {}
@@ -557,152 +561,107 @@ class OrtoolsSolver:
         run_vars: dict[tuple[int, int, int], cp_model.IntVar] = {}
         runs_candidate_count_by_agent: dict[int, int] = {agent_id: 0 for agent_id in ordered_agent_ids}
         if apply_gpt_rules:
+            RPDOUBLE_MIN_GAP_MINUTES = 3620
             worked_ctx: dict[tuple[int, int], cp_model.IntVar | int] = {}
-            minutes_ctx: dict[tuple[int, int], cp_model.IntVar | int] = {}
-            off_ctx: dict[tuple[int, int], cp_model.IntVar | int] = {}
+            start_abs_ctx: dict[tuple[int, int], cp_model.IntVar | int] = {}
+            end_abs_ctx: dict[tuple[int, int], cp_model.IntVar | int] = {}
             worked_ctx_window_fixed_days_count_by_agent: dict[int, int] = {agent_id: 0 for agent_id in ordered_agent_ids}
+
+            N_ctx = len(context_days)
+            abs_max = N_ctx * 1440 + 1440
 
             for agent_id in ordered_agent_ids:
                 for ci, day_date in enumerate(context_days):
                     key = (agent_id, day_date)
+                    day_offset = ci * 1440
                     day_type_ctx = resolved_existing_daytypes_ctx.get(key, DayType.REST.value)
                     if not is_in_window_ctx_index(ci, in_window_ctx_indices):
-                        if day_type_ctx == DayType.REST.value:
-                            worked_ctx[(agent_id, ci)] = 0
-                            minutes_ctx[(agent_id, ci)] = 0
-                            off_ctx[(agent_id, ci)] = 1
-                        elif day_type_ctx in {DayType.ZCOT.value, DayType.LEAVE.value, DayType.ABSENT.value}:
+                        shift_ctx = solver_input.existing_shift_start_end_by_agent_day_ctx.get(key)
+                        if day_type_ctx == DayType.WORKING.value and shift_ctx is not None:
+                            start_ctx, end_ctx = shift_ctx
                             worked_ctx[(agent_id, ci)] = 1
-                            minutes_ctx[(agent_id, ci)] = 0
-                            off_ctx[(agent_id, ci)] = 0
+                            start_abs_ctx[(agent_id, ci)] = day_offset + int(start_ctx)
+                            end_abs_ctx[(agent_id, ci)] = day_offset + int(end_ctx)
                         else:
-                            worked_ctx[(agent_id, ci)] = 1
-                            minutes_ctx[(agent_id, ci)] = solver_input.existing_work_minutes_by_agent_day_ctx.get(key, 0)
-                            off_ctx[(agent_id, ci)] = 0
+                            worked_ctx[(agent_id, ci)] = 0
+                            start_abs_ctx[(agent_id, ci)] = 0
+                            end_abs_ctx[(agent_id, ci)] = 0
                         continue
 
                     di = date_to_period_index[day_date]
-                    work_terms = [
+                    work_interval_terms = [
                         y[(agent_id, di, combo_id)]
                         for combo_id in combo_by_id
-                        if (agent_id, di, combo_id) in y and self._is_work_combo(combo_by_id[combo_id])
+                        if (agent_id, di, combo_id) in y and bool(combo_by_id[combo_id].tranche_ids)
                     ]
                     worked_day = model.NewBoolVar(f"worked_ctx_a{agent_id}_c{ci}")
                     num_variables += 1
-                    if work_terms:
-                        model.Add(worked_day == sum(work_terms))
+                    if work_interval_terms:
+                        model.Add(worked_day == sum(work_interval_terms))
                     else:
                         model.Add(worked_day == 0)
                     num_constraints += 1
                     worked_ctx[(agent_id, ci)] = worked_day
 
-                    work_minutes = model.NewIntVar(0, 6000, f"minutes_ctx_a{agent_id}_c{ci}")
-                    num_variables += 1
+                    start_abs = model.NewIntVar(0, abs_max, f"start_abs_ctx_a{agent_id}_c{ci}")
+                    end_abs = model.NewIntVar(0, abs_max + 1440, f"end_abs_ctx_a{agent_id}_c{ci}")
+                    num_variables += 2
                     model.Add(
-                        work_minutes
-                        == sum(
-                            y[(agent_id, di, combo_id)] * combo_by_id[combo_id].work_minutes
+                        start_abs
+                        == day_offset
+                        + sum(
+                            y[(agent_id, di, combo_id)] * int(combo_by_id[combo_id].start_min)
                             for combo_id in combo_by_id
-                            if (agent_id, di, combo_id) in y
+                            if (agent_id, di, combo_id) in y and bool(combo_by_id[combo_id].tranche_ids) and combo_by_id[combo_id].start_min is not None
                         )
                     )
-                    num_constraints += 1
-                    minutes_ctx[(agent_id, ci)] = work_minutes
+                    model.Add(
+                        end_abs
+                        == day_offset
+                        + sum(
+                            y[(agent_id, di, combo_id)] * int(combo_by_id[combo_id].end_min)
+                            for combo_id in combo_by_id
+                            if (agent_id, di, combo_id) in y and bool(combo_by_id[combo_id].tranche_ids) and combo_by_id[combo_id].end_min is not None
+                        )
+                    )
+                    num_constraints += 2
+                    start_abs_ctx[(agent_id, ci)] = start_abs
+                    end_abs_ctx[(agent_id, ci)] = end_abs
 
-                    off_terms = [
-                        y[(agent_id, di, combo_id)]
-                        for combo_id in combo_by_id
-                        if (agent_id, di, combo_id) in y and self._is_off_for_rpdouble_combo(combo_by_id[combo_id])
-                    ]
-                    off_day = model.NewBoolVar(f"off_ctx_a{agent_id}_c{ci}")
-                    num_variables += 1
-                    if off_terms:
-                        model.Add(off_day == sum(off_terms))
-                    else:
-                        model.Add(off_day == 0)
-                    num_constraints += 1
-                    off_ctx[(agent_id, ci)] = off_day
-
-            N_ctx = len(context_days)
-            for agent_id in ordered_agent_ids:
-                for s in range(N_ctx):
-                    for e in range(s, min(N_ctx, s + 6)):
-                        L = e - s + 1
-                        if L < 3:
-                            continue
-                        run = model.NewBoolVar(f"run_a{agent_id}_s{s}_e{e}")
-                        num_variables += 1
-                        run_vars[(agent_id, s, e)] = run
-                        runs_candidate_count_by_agent[agent_id] += 1
-                        for i in range(s, e + 1):
-                            model.Add(worked_ctx[(agent_id, i)] == 1).OnlyEnforceIf(run)
-                            num_constraints += 1
-                        if s > 0:
-                            model.Add(worked_ctx[(agent_id, s - 1)] == 0).OnlyEnforceIf(run)
-                            num_constraints += 1
-                        if e < N_ctx - 1:
-                            model.Add(worked_ctx[(agent_id, e + 1)] == 0).OnlyEnforceIf(run)
-                            num_constraints += 1
-
-                        model.Add(sum(minutes_ctx[(agent_id, i)] for i in range(s, e + 1)) <= 2880).OnlyEnforceIf(run)
-                        num_constraints += 1
-
-                        if L == 6:
-                            if e + 2 >= N_ctx:
-                                model.Add(run == 0)
-                                num_constraints += 1
-                            else:
-                                model.Add(off_ctx[(agent_id, e + 1)] == 1).OnlyEnforceIf(run)
-                                num_constraints += 1
-                                model.Add(off_ctx[(agent_id, e + 2)] == 1).OnlyEnforceIf(run)
-                                num_constraints += 1
-
-                for i in range(N_ctx):
-                    covering_runs = [
-                        run
-                        for (a, s, e), run in run_vars.items()
-                        if a == agent_id and s <= i <= e
-                    ]
-                    model.Add(sum(covering_runs) == worked_ctx[(agent_id, i)])
-                    num_constraints += 1
-
+            window6_vars: dict[tuple[int, int], cp_model.IntVar] = {}
+            runs_candidate_count_by_agent = {agent_id: 0 for agent_id in ordered_agent_ids}
             run_feasible_candidate_count_by_agent: dict[int, int] = {agent_id: 0 for agent_id in ordered_agent_ids}
+
             can_work_ctx: dict[tuple[int, int], bool] = {}
-            can_off_ctx: dict[tuple[int, int], bool] = {}
             for agent_id in ordered_agent_ids:
                 for ci, day_date in enumerate(context_days):
                     key = (agent_id, day_date)
                     if is_in_window_ctx_index(ci, in_window_ctx_indices):
                         di = date_to_period_index[day_date]
                         day_combo_ids = [c for (a, d, c) in y if a == agent_id and d == di]
-                        can_work_ctx[(agent_id, ci)] = any(self._is_work_combo(combo_by_id[cid]) for cid in day_combo_ids)
-                        if daily_choice_mode == "at_most_one":
-                            can_off_ctx[(agent_id, ci)] = True
-                        else:
-                            can_off_ctx[(agent_id, ci)] = any(combo_by_id[cid].day_kind == DayKind.REST for cid in day_combo_ids)
+                        can_work_ctx[(agent_id, ci)] = any(bool(combo_by_id[cid].tranche_ids) for cid in day_combo_ids)
                     else:
                         day_type_ctx = resolved_existing_daytypes_ctx.get(key, DayType.REST.value)
-                        can_work_ctx[(agent_id, ci)] = day_type_ctx in self.GPT_DAY_TYPES
-                        can_off_ctx[(agent_id, ci)] = day_type_ctx in self.RPDOUBLE_OFF_DAY_TYPES
+                        can_work_ctx[(agent_id, ci)] = day_type_ctx == DayType.WORKING.value and solver_input.existing_shift_start_end_by_agent_day_ctx.get(key) is not None
 
             for agent_id in ordered_agent_ids:
-                for s in range(N_ctx):
-                    for e in range(s, min(N_ctx, s + 6)):
-                        L = e - s + 1
-                        if L < 3:
-                            continue
-                        if not all(can_work_ctx[(agent_id, i)] for i in range(s, e + 1)):
-                            continue
-                        if s > 0 and not can_off_ctx[(agent_id, s - 1)]:
-                            continue
-                        if e < N_ctx - 1 and not can_off_ctx[(agent_id, e + 1)]:
-                            continue
-                        if L == 6:
-                            if e + 2 >= N_ctx:
-                                continue
-                            if not (can_off_ctx[(agent_id, e + 1)] and can_off_ctx[(agent_id, e + 2)]):
-                                continue
+                for s in range(0, max(0, N_ctx - 5)):
+                    window6 = model.NewBoolVar(f"window6_a{agent_id}_s{s}")
+                    num_variables += 1
+                    window6_vars[(agent_id, s)] = window6
+                    runs_candidate_count_by_agent[agent_id] += 1
+                    for k in range(6):
+                        model.Add(window6 <= worked_ctx[(agent_id, s + k)])
+                        num_constraints += 1
+                    model.Add(window6 >= sum(worked_ctx[(agent_id, s + k)] for k in range(6)) - 5)
+                    num_constraints += 1
+
+                    if all(can_work_ctx[(agent_id, s + k)] for k in range(6)):
                         run_feasible_candidate_count_by_agent[agent_id] += 1
+
+                    for u in range(s + 6, N_ctx):
+                        model.Add(start_abs_ctx[(agent_id, u)] >= end_abs_ctx[(agent_id, s + 5)] + RPDOUBLE_MIN_GAP_MINUTES).OnlyEnforceIf([window6, worked_ctx[(agent_id, u)]])
+                        num_constraints += 1
 
             stats["run_feasible_candidate_count_by_agent"] = run_feasible_candidate_count_by_agent
             stats["worked_ctx_window_fixed_days_count_by_agent"] = worked_ctx_window_fixed_days_count_by_agent
@@ -1439,6 +1398,81 @@ class OrtoolsSolver:
             solver_input=solver_input,
             hard_daytype_overrides=hard_daytype_overrides,
         )
+
+        if apply_gpt_rules:
+            rpdouble_gap_required = 3620
+            violation_sample: list[dict[str, object]] = []
+            violation_count = 0
+            for agent_id in ordered_agent_ids:
+                timeline: list[dict[str, int | None]] = []
+                for ci, day_date in enumerate(context_days):
+                    key = (agent_id, day_date)
+                    day_offset = ci * 1440
+                    combo_id: int | None = None
+                    worked = False
+                    start_abs: int | None = None
+                    end_abs: int | None = None
+                    if is_in_window_ctx_index(ci, in_window_ctx_indices):
+                        di = date_to_period_index[day_date]
+                        for c in combo_by_id:
+                            var = y.get((agent_id, di, c))
+                            if var is not None and eval_solver.Value(var) == 1:
+                                combo_id = c
+                                combo = combo_by_id[c]
+                                if combo.tranche_ids and combo.start_min is not None and combo.end_min is not None:
+                                    worked = True
+                                    start_abs = day_offset + int(combo.start_min)
+                                    end_abs = day_offset + int(combo.end_min)
+                                break
+                    else:
+                        day_type_ctx = resolved_existing_daytypes_ctx.get(key, DayType.REST.value)
+                        if day_type_ctx == DayType.WORKING.value:
+                            shift_ctx = solver_input.existing_shift_start_end_by_agent_day_ctx.get(key)
+                            signature = resolved_working_sig_ctx.get(key)
+                            if signature is not None:
+                                combo_id = signature_to_combo_id.get(signature)
+                            if shift_ctx is not None:
+                                worked = True
+                                start_abs = day_offset + int(shift_ctx[0])
+                                end_abs = day_offset + int(shift_ctx[1])
+                    timeline.append({"worked": 1 if worked else 0, "start_abs": start_abs, "end_abs": end_abs, "combo_id": combo_id})
+
+                n_ctx = len(timeline)
+                for s in range(0, max(0, n_ctx - 5)):
+                    if not all(timeline[s + k]["worked"] == 1 for k in range(6)):
+                        continue
+                    last = timeline[s + 5]
+                    if last["end_abs"] is None:
+                        continue
+                    next_idx = None
+                    for u in range(s + 6, n_ctx):
+                        if timeline[u]["worked"] == 1:
+                            next_idx = u
+                            break
+                    if next_idx is None:
+                        continue
+                    nxt = timeline[next_idx]
+                    if nxt["start_abs"] is None:
+                        continue
+                    gap_minutes = int(nxt["start_abs"] - last["end_abs"])
+                    if gap_minutes < rpdouble_gap_required:
+                        violation_count += 1
+                        if len(violation_sample) < 10:
+                            violation_sample.append(
+                                {
+                                    "agent_id": agent_id,
+                                    "last_day": context_days[s + 5].isoformat(),
+                                    "last_end_abs": int(last["end_abs"]),
+                                    "next_day": context_days[next_idx].isoformat(),
+                                    "next_start_abs": int(nxt["start_abs"]),
+                                    "gap_minutes": gap_minutes,
+                                    "last_combo_id": last["combo_id"],
+                                    "next_combo_id": nxt["combo_id"],
+                                }
+                            )
+            stats["rpdouble_gap_minutes_required"] = rpdouble_gap_required
+            stats["rpdouble_gap_violation_count_total"] = violation_count
+            stats["rpdouble_gap_violation_sample"] = violation_sample
 
         objective_value = int(best_solution["objective_value"])
         understaff_total = int(best_solution["understaff_total_unweighted"])

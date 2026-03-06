@@ -62,4 +62,27 @@ Verbosity/troncature :
 - La source de vérité prioritaire est `existing_daytype_by_agent_day_ctx` (DB). En cas de conflit avec `absences` solver, la résolution reste déterministe et auditée (`existing_assignments_conflicts_count`, `existing_assignments_conflicts_sample`).
 - Les pénalités de changement d'existant (`existing_change_strong_total`, `existing_change_medium_total`) ne s'appliquent **que** aux jours dans la fenêtre de planification (in-window), jamais aux jours de contexte hors fenêtre.
 - Pour `WORKING`, la signature connue est `(poste_id, tranche_ids triés)`. Si la signature DB ne matche aucun combo, le solveur ne crash pas: il applique les règles de pénalité WORKING, et alimente `existing_working_signature_unknown_count` + `existing_working_signature_unknown_sample`.
+- Si la DB indique `WORKING` mais sans assignment exploitable (`tranche_ids` manquant/vide), le jour est audité via `existing_working_missing_assignments_count_total` + `existing_working_missing_assignments_sample` (max 10), et ne peut pas contribuer à un intervalle de service pour la règle RPDOUBLE.
+
 - Pas de trimming côté solver pour ces audits; les caps payload restent centralisés dans `StatsCollector`.
+
+## Règle GPT "repos double" (RPDOUBLE) — gap temporel 60h20
+
+La règle RPDOUBLE n'est **pas** "2 jours off".
+
+- Après une séquence de **6 jours travaillés consécutifs** (jour `worked=1`), le prochain jour travaillé doit respecter un écart minimal de **3620 minutes**.
+- Formulation: `next_start_abs >= last_end_abs + 3620`.
+
+Définitions de modélisation:
+
+- Un jour est `worked=1` uniquement si un combo avec intervalle de service (tranches non vides) est choisi.
+- `REST`, `ZCOT` sans tranche, `LEAVE`, `ABSENT` sont `worked=0` pour cette règle.
+- Le calcul se fait sur toute la timeline de contexte (`context_days`), pas seulement la fenêtre de décision.
+- Pour les jours in-window: `start_abs` / `end_abs` sont dérivés linéairement du combo choisi (`day_offset + combo.start_min/end_min`).
+- Pour les jours hors fenêtre: `start_abs` / `end_abs` sont des constantes issues des données DB (`existing_shift_start_end_by_agent_day_ctx`) quand le jour est `WORKING` avec signature horaire connue, sinon `worked=0`.
+
+Instrumentation de debug additive:
+
+- `rpdouble_gap_minutes_required`
+- `rpdouble_gap_violation_count_total`
+- `rpdouble_gap_violation_sample` (max 10 entrées)
