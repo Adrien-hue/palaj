@@ -347,7 +347,7 @@ class OrtoolsSolver:
         )
         max_cost_stability = self.W_STABILITY_CHANGE * stability_changes_max
         max_cost_blocks = self.W_WORK_BLOCKS * work_block_starts_max
-        max_cost_gpt_length_penalty = self.W_GPT_LENGTH_PENALTY * work_block_starts_max
+        max_cost_gpt_length_penalty = self.W_GPT_LENGTH_PENALTY * (3 * work_block_starts_max)
         max_cost_rpdouble = self.W_RPDOUBLE_BONUS * rpdouble_soft_max
         max_cost_diversity = self.W_TRANCHE_DIVERSITY * tranche_diversity_max
         max_existing_change_count = agent_count * total_days
@@ -713,14 +713,17 @@ class OrtoolsSolver:
                     if is_in_window_ctx_index(ci, in_window_ctx_indices):
                         di = date_to_period_index[day_date]
                         day_combo_ids = [c for (a, d, c) in y if a == agent_id and d == di]
-                        can_work_ctx[(agent_id, ci)] = any(bool(combo_by_id[cid].tranche_ids) for cid in day_combo_ids)
+                        can_work_ctx[(agent_id, ci)] = any(self._is_gpt_work_combo(combo_by_id[cid]) for cid in day_combo_ids)
                         gpt_worked_ctx_fixed_value[(agent_id, ci)] = None
                     else:
                         day_type_ctx = resolved_existing_daytypes_ctx.get(key, DayType.REST.value)
                         can_work_ctx[(agent_id, ci)] = (
-                            day_type_ctx == DayType.WORKING.value
-                            and resolved_working_sig_ctx.get(key) is not None
-                            and solver_input.existing_shift_start_end_by_agent_day_ctx.get(key) is not None
+                            day_type_ctx == DayType.ZCOT.value
+                            or (
+                                day_type_ctx == DayType.WORKING.value
+                                and resolved_working_sig_ctx.get(key) is not None
+                                and solver_input.existing_shift_start_end_by_agent_day_ctx.get(key) is not None
+                            )
                         )
                         gpt_worked_ctx_fixed_value[(agent_id, ci)] = int(gpt_worked_ctx[(agent_id, ci)])
 
@@ -754,8 +757,6 @@ class OrtoolsSolver:
                     min3_scope = (
                         s in in_window_ctx_index_set
                         and s + 2 < N_ctx
-                        and (s + 1) in in_window_ctx_index_set
-                        and (s + 2) in in_window_ctx_index_set
                     )
                     if not min3_scope:
                         continue
@@ -823,6 +824,8 @@ class OrtoolsSolver:
                         num_constraints += 1
 
             gpt_start_vars_by_agent: dict[int, list[cp_model.IntVar]] = {agent_id: [] for agent_id in ordered_agent_ids}
+            gpt_len_1_vars: list[cp_model.IntVar] = []
+            gpt_len_2_vars: list[cp_model.IntVar] = []
             gpt_len_3_vars: list[cp_model.IntVar] = []
             gpt_len_6_vars: list[cp_model.IntVar] = []
 
@@ -858,13 +861,28 @@ class OrtoolsSolver:
                     min3_scope = (
                         s in in_window_ctx_index_set
                         and s + 2 < N_ctx
-                        and (s + 1) in in_window_ctx_index_set
-                        and (s + 2) in in_window_ctx_index_set
                     )
                     if min3_scope:
                         model.Add(gpt_worked_ctx[(agent_id, s + 1)] == 1).OnlyEnforceIf(start_var)
                         model.Add(gpt_worked_ctx[(agent_id, s + 2)] == 1).OnlyEnforceIf(start_var)
                         num_constraints += 2
+
+                    len1_var = model.NewBoolVar(f"gpt_len1_start_a{agent_id}_c{s}")
+                    num_variables += 1
+                    next_worked = gpt_worked_ctx[(agent_id, s + 1)] if s + 1 < N_ctx else 0
+                    _constrain_and_var(var=len1_var, positive_terms=[start_var], negative_terms=[next_worked])
+                    gpt_len_1_vars.append(len1_var)
+
+                    if s + 2 <= N_ctx:
+                        len2_var = model.NewBoolVar(f"gpt_len2_start_a{agent_id}_c{s}")
+                        num_variables += 1
+                        next_worked = gpt_worked_ctx[(agent_id, s + 2)] if s + 2 < N_ctx else 0
+                        _constrain_and_var(
+                            var=len2_var,
+                            positive_terms=[start_var, gpt_worked_ctx[(agent_id, s + 1)]],
+                            negative_terms=[next_worked],
+                        )
+                        gpt_len_2_vars.append(len2_var)
 
                     if s + 3 <= N_ctx:
                         len3_var = model.NewBoolVar(f"gpt_len3_start_a{agent_id}_c{s}")
@@ -891,14 +909,22 @@ class OrtoolsSolver:
                     model.Add(sum(gpt_worked_ctx[(agent_id, s + k)] for k in range(7)) <= 6)
                     num_constraints += 1
 
+            gpt_len_1_total = model.NewIntVar(0, len(gpt_len_1_vars), "gpt_len_1_total")
+            gpt_len_2_total = model.NewIntVar(0, len(gpt_len_2_vars), "gpt_len_2_total")
             gpt_len_3_total = model.NewIntVar(0, len(gpt_len_3_vars), "gpt_len_3_total")
             gpt_len_6_total = model.NewIntVar(0, len(gpt_len_6_vars), "gpt_len_6_total")
-            gpt_length_penalty_total = model.NewIntVar(0, len(gpt_len_3_vars) + len(gpt_len_6_vars), "gpt_length_penalty_total")
-            num_variables += 3
+            gpt_length_penalty_total = model.NewIntVar(
+                0,
+                3 * len(gpt_len_1_vars) + 2 * len(gpt_len_2_vars) + len(gpt_len_3_vars) + len(gpt_len_6_vars),
+                "gpt_length_penalty_total",
+            )
+            num_variables += 5
+            model.Add(gpt_len_1_total == (sum(gpt_len_1_vars) if gpt_len_1_vars else 0))
+            model.Add(gpt_len_2_total == (sum(gpt_len_2_vars) if gpt_len_2_vars else 0))
             model.Add(gpt_len_3_total == (sum(gpt_len_3_vars) if gpt_len_3_vars else 0))
             model.Add(gpt_len_6_total == (sum(gpt_len_6_vars) if gpt_len_6_vars else 0))
-            model.Add(gpt_length_penalty_total == gpt_len_3_total + gpt_len_6_total)
-            num_constraints += 3
+            model.Add(gpt_length_penalty_total == 3 * gpt_len_1_total + 2 * gpt_len_2_total + gpt_len_3_total + gpt_len_6_total)
+            num_constraints += 5
 
             gpt_starts_total = model.NewIntVar(0, len(ordered_agent_ids) * N_ctx, "gpt_starts_total")
             num_variables += 1
@@ -916,16 +942,20 @@ class OrtoolsSolver:
             stats["gpt_hard_conflict_count_total"] = gpt_hard_conflict_count_total
             stats["gpt_hard_conflict_sample"] = gpt_hard_conflict_sample
         else:
+            gpt_len_1_total = model.NewIntVar(0, 0, "gpt_len_1_total")
+            gpt_len_2_total = model.NewIntVar(0, 0, "gpt_len_2_total")
             gpt_len_3_total = model.NewIntVar(0, 0, "gpt_len_3_total")
             gpt_len_6_total = model.NewIntVar(0, 0, "gpt_len_6_total")
             gpt_length_penalty_total = model.NewIntVar(0, 0, "gpt_length_penalty_total")
             gpt_starts_total = model.NewIntVar(0, 0, "gpt_starts_total")
-            num_variables += 4
+            num_variables += 6
+            model.Add(gpt_len_1_total == 0)
+            model.Add(gpt_len_2_total == 0)
             model.Add(gpt_len_3_total == 0)
             model.Add(gpt_len_6_total == 0)
             model.Add(gpt_length_penalty_total == 0)
             model.Add(gpt_starts_total == 0)
-            num_constraints += 4
+            num_constraints += 6
             stats["gpt_ctx_worked_fixed_days_count_total"] = 0
             stats["gpt_ctx_worked_fixed_days_by_agent"] = {}
             stats["gpt_db_worked_days_count_total"] = 0
@@ -1818,7 +1848,7 @@ class OrtoolsSolver:
             stats["rpdouble_gap_violation_count_total"] = violation_count
             stats["rpdouble_gap_violation_sample"] = violation_sample
 
-            gpt_len_counts = {3: 0, 4: 0, 5: 0, 6: 0}
+            gpt_len_counts = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0}
             gpt_total = 0
             gpt_violation_count = 0
             gpt_violation_sample = []
@@ -1868,6 +1898,8 @@ class OrtoolsSolver:
                         run_start = None
 
             stats["gpt_count_total"] = gpt_total
+            stats["gpt_len_1_count_total"] = gpt_len_counts[1]
+            stats["gpt_len_2_count_total"] = gpt_len_counts[2]
             stats["gpt_len_3_count_total"] = gpt_len_counts[3]
             stats["gpt_len_4_count_total"] = gpt_len_counts[4]
             stats["gpt_len_5_count_total"] = gpt_len_counts[5]
@@ -1968,6 +2000,8 @@ class OrtoolsSolver:
                 "work_blocks_starts_total": eval_solver.Value(work_blocks_starts_total),
                 "work_blocks_starts_by_agent": work_blocks_starts_by_agent,
                 "gpt_starts_total": eval_solver.Value(gpt_starts_total),
+                "gpt_len_1_penalized_total": eval_solver.Value(gpt_len_1_total),
+                "gpt_len_2_penalized_total": eval_solver.Value(gpt_len_2_total),
                 "gpt_len_3_penalized_total": eval_solver.Value(gpt_len_3_total),
                 "gpt_len_6_penalized_total": eval_solver.Value(gpt_len_6_total),
                 "gpt_length_penalty_total": eval_solver.Value(gpt_length_penalty_total),

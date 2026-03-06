@@ -321,17 +321,63 @@ def test_gpt_stats_present():
     grouped = _grouped(solver.generate(_input(days=7)))
     for key in [
         "gpt_count_total",
+        "gpt_len_1_count_total",
+        "gpt_len_2_count_total",
         "gpt_len_3_count_total",
         "gpt_len_4_count_total",
         "gpt_len_5_count_total",
         "gpt_len_6_count_total",
         "gpt_length_violation_count_total",
         "gpt_length_violation_sample",
+        "gpt_len_1_penalized_total",
+        "gpt_len_2_penalized_total",
         "gpt_len_3_penalized_total",
         "gpt_len_6_penalized_total",
         "gpt_length_penalty_total",
     ]:
         assert key in grouped["solution_quality"]
+
+
+def test_gpt_len1_len2_stats_and_penalties_present_and_positive_when_forced_by_context():
+    solver = OrtoolsSolver()
+    start = date(2026, 1, 1)
+
+    existing_len1 = {
+        (1, start - timedelta(days=3)): "rest",
+        (1, start - timedelta(days=2)): "zcot",
+        (1, start - timedelta(days=1)): "rest",
+    }
+    grouped_len1 = _grouped(
+        solver.generate(
+            _input(
+                days=1,
+                demands=[],
+                existing_ctx=existing_len1,
+                existing_day_types=existing_len1,
+            )
+        )
+    )
+    assert grouped_len1["solution_quality"]["gpt_len_1_count_total"] >= 1
+    assert grouped_len1["solution_quality"]["gpt_len_1_penalized_total"] >= 1
+
+    existing_len2 = {
+        (1, start - timedelta(days=4)): "rest",
+        (1, start - timedelta(days=3)): "zcot",
+        (1, start - timedelta(days=2)): "zcot",
+        (1, start - timedelta(days=1)): "rest",
+    }
+    grouped_len2 = _grouped(
+        solver.generate(
+            _input(
+                days=1,
+                demands=[],
+                existing_ctx=existing_len2,
+                existing_day_types=existing_len2,
+            )
+        )
+    )
+    assert grouped_len2["solution_quality"]["gpt_len_2_count_total"] >= 1
+    assert grouped_len2["solution_quality"]["gpt_len_2_penalized_total"] >= 1
 
 
 def test_gpt_zcot_counts_as_worked_day_for_length_rules():
@@ -341,6 +387,22 @@ def test_gpt_zcot_counts_as_worked_day_for_length_rules():
     out = solver.generate(_input(days=4, existing_ctx=existing, existing_day_types=existing))
     runs = _worked_run_lengths_in_window(out, start, 4)
     assert runs == [4]
+
+
+def test_gpt_min3_start_on_window_edge_uses_context_days_for_extensions():
+    solver = OrtoolsSolver()
+    start = date(2026, 1, 1)
+    out = solver.generate(
+        _input(
+            days=1,
+            demands=[CoverageDemand(day_date=start, tranche_id=10, required_count=1)],
+        )
+    )
+    grouped = _grouped(out)
+    assert grouped["coverage"]["understaff_total"] >= 0
+    assert grouped["model"]["gpt_start_candidates_count_total"] >= 1
+    assert grouped["model"]["gpt_min3_forced_extensions_count_total"] >= 2
+    assert grouped["model"]["gpt_min3_forced_extensions_impossible_count_total"] >= 1
 
 
 def test_gpt_rules_do_not_make_base_instance_infeasible():
